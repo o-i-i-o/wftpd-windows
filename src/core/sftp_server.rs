@@ -289,7 +289,14 @@ impl russh::server::Handler for SftpHandler {
                 self.username = Some(user.to_string());
                 
                 if let Some(u) = users.get_user(user) {
-                    self.home_dir = Some(u.home_dir.clone());
+                    let home_canon = std::path::PathBuf::from(&u.home_dir)
+                        .canonicalize()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|e| {
+                            log::warn!("无法规范化路径 {}: {}", u.home_dir, e);
+                            u.home_dir.clone()
+                        });
+                    self.home_dir = Some(home_canon);
                 }
 
                 if let Ok(mut logger) = self.logger.lock() {
@@ -375,7 +382,16 @@ impl russh::server::Handler for SftpHandler {
                 && public_key == &stored_pubkey {
                     self.authenticated = true;
                     self.username = Some(user.to_string());
-                    self.home_dir = home_dir;
+                    if let Some(hd) = home_dir {
+                        let home_canon = std::path::PathBuf::from(&hd)
+                            .canonicalize()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|e| {
+                                log::warn!("无法规范化路径 {}: {}", hd, e);
+                                hd.clone()
+                            });
+                        self.home_dir = Some(home_canon);
+                    }
 
                     if let Ok(mut logger) = self.logger.lock() {
                         logger.client_action(

@@ -190,6 +190,40 @@ impl Config {
         
         Ok(config)
     }
+
+    pub fn validate_paths(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        
+        if let Err(e) = Self::validate_home_path(&self.ftp.default_home, "FTP默认主目录") {
+            warnings.push(e);
+        }
+        
+        if let Some(ref anon_home) = self.ftp.anonymous_home {
+            if let Err(e) = Self::validate_home_path(anon_home, "FTP匿名用户主目录") {
+                warnings.push(e);
+            }
+        }
+        
+        if let Err(e) = Self::validate_home_path(&self.sftp.default_home, "SFTP默认主目录") {
+            warnings.push(e);
+        }
+        
+        warnings
+    }
+
+    fn validate_home_path(path: &str, name: &str) -> Result<(), String> {
+        let p = Path::new(path);
+        if !p.exists() {
+            return Err(format!("{}不存在: {}", name, path));
+        }
+        if !p.is_dir() {
+            return Err(format!("{}不是目录: {}", name, path));
+        }
+        if p.canonicalize().is_err() {
+            return Err(format!("{}路径无法规范化: {}", name, path));
+        }
+        Ok(())
+    }
     
     pub fn save(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {

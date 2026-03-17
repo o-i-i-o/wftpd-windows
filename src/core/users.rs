@@ -149,6 +149,8 @@ impl UserManager {
             anyhow::bail!("User already exists: {}", username);
         }
 
+        Self::validate_home_dir(home_dir)?;
+
         let password_hash = Self::hash_password(password)?;
         let user = User {
             username: username.to_string(),
@@ -162,6 +164,16 @@ impl UserManager {
         };
 
         self.users.insert(username.to_string(), user);
+        Ok(())
+    }
+
+    fn validate_home_dir(home_dir: &str) -> Result<()> {
+        let path = std::path::Path::new(home_dir);
+        if !path.exists() {
+            log::warn!("用户主目录不存在: {}，将在首次访问时创建", home_dir);
+        } else if !path.is_dir() {
+            anyhow::bail!("用户主目录不是有效目录: {}", home_dir);
+        }
         Ok(())
     }
 
@@ -187,6 +199,8 @@ impl UserManager {
             .users
             .get_mut(username)
             .ok_or_else(|| anyhow::anyhow!("User not found: {}", username))?;
+
+        Self::validate_home_dir(home_dir)?;
 
         user.home_dir = home_dir.to_string();
         Ok(())

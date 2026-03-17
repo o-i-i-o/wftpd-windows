@@ -345,7 +345,10 @@ fn handle_ftp_connection(
                             let home_canon = PathBuf::from(&user_home)
                                 .canonicalize()
                                 .map(|p| p.to_string_lossy().to_string())
-                                .unwrap_or(user_home);
+                                .unwrap_or_else(|e| {
+                                    log::warn!("无法规范化路径 {}: {}", user_home, e);
+                                    user_home.clone()
+                                });
                             cwd = home_canon.clone();
                             home_dir = home_canon;
                             stream.write_all(b"230 Anonymous user logged in\r\n")?;
@@ -384,7 +387,10 @@ fn handle_ftp_connection(
                                         let home_canon = PathBuf::from(&user.home_dir)
                                             .canonicalize()
                                             .map(|p| p.to_string_lossy().to_string())
-                                            .unwrap_or_else(|_| user.home_dir.clone());
+                                            .unwrap_or_else(|e| {
+                                                log::warn!("无法规范化路径 {}: {}", user.home_dir, e);
+                                                user.home_dir.clone()
+                                            });
                                         cwd = home_canon.clone();
                                         home_dir = home_canon;
                                     }
@@ -1603,7 +1609,10 @@ fn handle_ftp_connection(
                     let home_canon = PathBuf::from(&cfg.ftp.default_home)
                         .canonicalize()
                         .map(|p| p.to_string_lossy().to_string())
-                        .unwrap_or_else(|_| cfg.ftp.default_home.clone());
+                        .unwrap_or_else(|e| {
+                            log::warn!("无法规范化路径 {}: {}", cfg.ftp.default_home, e);
+                            cfg.ftp.default_home.clone()
+                        });
                     cwd = home_canon.clone();
                     home_dir = home_canon;
                 }
