@@ -198,11 +198,10 @@ impl Config {
             warnings.push(e);
         }
         
-        if let Some(ref anon_home) = self.ftp.anonymous_home {
-            if let Err(e) = Self::validate_home_path(anon_home, "FTP匿名用户主目录") {
+        if let Some(ref anon_home) = self.ftp.anonymous_home
+            && let Err(e) = Self::validate_home_path(anon_home, "FTP匿名用户主目录") {
                 warnings.push(e);
             }
-        }
         
         if let Err(e) = Self::validate_home_path(&self.sftp.default_home, "SFTP默认主目录") {
             warnings.push(e);
