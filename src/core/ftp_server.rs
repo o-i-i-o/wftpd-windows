@@ -598,7 +598,7 @@ fn handle_ftp_connection(
                         let name = target_path.file_name()
                             .map(|n| n.to_string_lossy().to_string())
                             .unwrap_or_else(|| target_path.to_string_lossy().to_string());
-                        stream.write_all(format!("250-Listing {}\r\n {}; {}\r\n250 End\r\n", target_path.display(), facts, name).as_bytes())?;
+                        stream.write_all(format!("250-Listing {}\r\n {} {}\r\n250 End\r\n", target_path.display(), facts, name).as_bytes())?;
                     } else {
                         stream.write_all(b"550 Failed to get file info\r\n")?;
                     }
@@ -924,7 +924,7 @@ fn handle_ftp_connection(
                             if let Ok(metadata) = entry.metadata() {
                                 let name = entry.file_name().to_string_lossy().to_string();
                                 let facts = build_mlst_facts(&metadata);
-                                let line = format!("{}; {}\r\n", facts, name);
+                                let line = format!("{} {}\r\n", facts, name);
                                 let _ = data_stream.write_all(line.as_bytes());
                             }
                         }
@@ -1734,5 +1734,5 @@ fn build_mlst_facts(metadata: &std::fs::Metadata) -> String {
         facts.push(format!("modify={}", dt.format("%Y%m%d%H%M%S")));
     }
 
-    facts.join("; ")
+    format!("{};", facts.join(";"))
 }
