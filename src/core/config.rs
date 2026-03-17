@@ -100,7 +100,7 @@ pub struct LoggingConfig {
     pub log_to_gui: bool,
 }
 
-fn get_program_data_path() -> PathBuf {
+pub fn get_program_data_path() -> PathBuf {
     let program_data = env::var("PROGRAMDATA").unwrap_or_else(|_| "C:\\ProgramData".to_string());
     PathBuf::from(&program_data).join("wftpg")
 }

@@ -268,8 +268,4 @@ impl UserManager {
     pub fn get_all_users(&self) -> Vec<User> {
         self.users.values().cloned().collect()
     }
-
-    pub fn list_users(&self) -> impl Iterator<Item = (&String, &User)> {
-        self.users.iter()
-    }
 }

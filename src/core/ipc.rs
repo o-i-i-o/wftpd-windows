@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{Read, Write, BufReader, BufWriter};
 use std::time::Duration;
 
-pub const PIPE_NAME: &str = "wftpd";
+use crate::core::windows_ipc::{IpcServerInner, IpcStream};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Command {
@@ -118,8 +118,6 @@ fn write_message<W: Write>(writer: &mut W, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
-
-use crate::core::windows_ipc::{IpcServerInner, IpcStream};
 
 pub struct IpcServer {
     inner: IpcServerInner,

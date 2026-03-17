@@ -165,10 +165,6 @@ impl FileLogger {
         buffer.iter().rev().take(count).cloned().collect()
     }
 
-    pub fn get_buffer(&self) -> Arc<Mutex<VecDeque<FileLogEntry>>> {
-        Arc::clone(&self.buffer)
-    }
-
     pub fn log_upload(&mut self, username: &str, client_ip: &str, file_path: &str, file_size: u64, protocol: &str) {
         self.log(FileLogInfo {
             username,

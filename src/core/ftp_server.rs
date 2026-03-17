@@ -1,6 +1,4 @@
 use anyhow::Result;
-#[allow(unused_imports)]
-use rand::Rng;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
@@ -12,6 +10,7 @@ use crate::core::config::Config;
 use crate::core::logger::Logger;
 use crate::core::users::UserManager;
 use crate::core::file_logger::{FileLogger, FileLogInfo};
+use crate::core::path_utils::safe_resolve_path;
 
 type PassiveListenerMap = Arc<Mutex<HashMap<u16, Arc<Mutex<Option<TcpListener>>>>>>;
 
@@ -1736,68 +1735,4 @@ fn build_mlst_facts(metadata: &std::fs::Metadata) -> String {
     }
 
     facts.join("; ")
-}
-
-fn safe_resolve_path(cwd: &str, home_dir: &str, path: &str) -> std::path::PathBuf {
-    let home = std::path::PathBuf::from(home_dir);
-    let home_canon = match home.canonicalize() {
-        Ok(c) => c,
-        Err(e) => {
-            log::warn!("Failed to canonicalize home directory: {}", e);
-            return home;
-        }
-    };
-    
-    let clean_path = path.trim();
-    
-    if clean_path.is_empty() || clean_path == "." || clean_path == "./" {
-        return home_canon;
-    }
-    
-    let resolved = if clean_path.starts_with('/') {
-        home_canon.join(clean_path.trim_start_matches('/'))
-    } else {
-        std::path::Path::new(cwd).join(clean_path)
-    };
-    
-    fn is_path_safe(resolved: &std::path::Path, home: &std::path::Path) -> bool {
-        match resolved.canonicalize() {
-            Ok(canon) => canon.starts_with(home),
-            Err(_) => false,
-        }
-    }
-    
-    if resolved.exists() {
-        if is_path_safe(&resolved, &home_canon) {
-            match resolved.canonicalize() {
-                Ok(canon) => canon,
-                Err(_) => home_canon,
-            }
-        } else {
-            log::warn!("Path escape attempt detected: {:?}", resolved);
-            home_canon
-        }
-    } else {
-        let mut safe_path = home_canon.clone();
-        for component in resolved.components() {
-            match component {
-                std::path::Component::Normal(name) => {
-                    safe_path.push(name);
-                }
-                std::path::Component::ParentDir => {
-                    safe_path.pop();
-                }
-                std::path::Component::Prefix(_) | std::path::Component::RootDir => {
-                    safe_path = home_canon.clone();
-                }
-                std::path::Component::CurDir => {}
-            }
-        }
-        if is_path_safe(&safe_path, &home_canon) {
-            safe_path
-        } else {
-            log::warn!("Path escape attempt detected in non-existent path: {:?}", safe_path);
-            home_canon
-        }
-    }
 }

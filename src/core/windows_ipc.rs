@@ -10,9 +10,7 @@ use windows::Win32::System::Pipes::*;
 use windows::Win32::System::IO::*;
 use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 
-const WAIT_TIMEOUT: u32 = 0x00000102;
-
-use crate::core::ipc::PIPE_NAME;
+pub const PIPE_NAME: &str = "wftpd";
 
 fn get_pipe_path() -> String {
     format!("\\\\.\\pipe\\{}", PIPE_NAME)
@@ -110,7 +108,7 @@ impl IpcServerInner {
                 Ok(()) => {}
                 Err(e) if e.code() == ERROR_IO_PENDING.to_hresult() => {
                     let wait_result = WaitForSingleObject(event, timeout.as_millis() as u32);
-                    if wait_result == WAIT_EVENT(WAIT_TIMEOUT) {
+                    if wait_result == WAIT_TIMEOUT {
                         CancelIo(current_handle)?;
                         return Ok(None);
                     }

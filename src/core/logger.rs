@@ -78,10 +78,6 @@ impl Logger {
         }
     }
 
-    pub fn init(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-
     fn get_available_log_path(log_dir: &Path) -> (PathBuf, u64) {
         let date_str = Local::now().format("%Y-%m-%d");
         let mut seq = 1;
@@ -223,10 +219,6 @@ impl Logger {
     pub fn get_recent_logs(&self, count: usize) -> Vec<LogEntry> {
         let buffer = self.buffer.lock().unwrap();
         buffer.iter().rev().take(count).cloned().collect()
-    }
-
-    pub fn get_buffer(&self) -> Arc<Mutex<VecDeque<LogEntry>>> {
-        Arc::clone(&self.buffer)
     }
 
     pub fn info(&mut self, source: &str, message: &str) {

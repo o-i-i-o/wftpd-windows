@@ -5,21 +5,17 @@ use russh::keys::ssh_key::rand_core::OsRng;
 use russh::server::Msg;
 use russh::MethodKind;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::collections::HashSet;
 use tokio::sync::Mutex;
 
-use crate::core::config::Config;
+use crate::core::config::{Config, get_program_data_path};
 use crate::core::logger::Logger;
 use crate::core::users::UserManager;
 use crate::core::file_logger::{FileLogger, FileLogInfo};
-
-fn get_program_data_path() -> PathBuf {
-    let program_data = std::env::var("PROGRAMDATA").unwrap_or_else(|_| "C:\\ProgramData".to_string());
-    PathBuf::from(program_data).join("wftpg")
-}
+use crate::core::path_utils::safe_resolve_path_with_cwd;
 
 #[derive(Clone)]
 pub struct SftpServer {
@@ -1054,72 +1050,7 @@ impl SftpState {
     }
 
     fn resolve_path(&self, path: &str) -> PathBuf {
-        let home = PathBuf::from(&self.home_dir);
-        let home_canon = if home.exists() {
-            match home.canonicalize() {
-                Ok(c) => c,
-                Err(e) => {
-                    log::warn!("Failed to canonicalize home directory: {}", e);
-                    return home;
-                }
-            }
-        } else {
-            log::warn!("Home directory does not exist: {:?}", home);
-            return home;
-        };
-        
-        let clean_path = path.trim();
-        if clean_path.is_empty() || clean_path == "." || clean_path == "./" {
-            return PathBuf::from(&self.cwd);
-        }
-
-        let resolved = if clean_path.starts_with('/') {
-            home_canon.join(clean_path.trim_start_matches('/'))
-        } else {
-            PathBuf::from(&self.cwd).join(clean_path)
-        };
-        
-        fn is_path_safe(resolved: &Path, home: &Path) -> bool {
-            match resolved.canonicalize() {
-                Ok(canon) => canon.starts_with(home),
-                Err(_) => false,
-            }
-        }
-
-        if resolved.exists() {
-            if is_path_safe(&resolved, &home_canon) {
-                match resolved.canonicalize() {
-                    Ok(canon) => canon,
-                    Err(_) => PathBuf::from(&self.cwd),
-                }
-            } else {
-                log::warn!("Path escape attempt detected: {:?}", resolved);
-                PathBuf::from(&self.cwd)
-            }
-        } else {
-            let mut safe_path = PathBuf::from(&self.cwd);
-            for component in resolved.components() {
-                match component {
-                    std::path::Component::Normal(name) => {
-                        safe_path.push(name);
-                    }
-                    std::path::Component::ParentDir => {
-                        safe_path.pop();
-                    }
-                    std::path::Component::Prefix(_) | std::path::Component::RootDir => {
-                        safe_path = PathBuf::from(&self.cwd);
-                    }
-                    std::path::Component::CurDir => {}
-                }
-            }
-            
-            if is_path_safe(&safe_path, &home_canon) {
-                safe_path
-            } else {
-                log::warn!("Path escape attempt detected in non-existent path: {:?}", safe_path);
-                PathBuf::from(&self.cwd)
-            }
-        }
+        safe_resolve_path_with_cwd(&self.cwd, &self.home_dir, path)
     }
 
     fn generate_handle(&mut self) -> String {

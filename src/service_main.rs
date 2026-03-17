@@ -7,7 +7,8 @@
 extern crate windows_service;
 
 use wftpg::AppState;
-use wftpg::core::ipc::{IpcServer, Command, Response, PIPE_NAME, CommandData};
+use wftpg::core::ipc::{IpcServer, Command, Response, CommandData};
+use wftpg::core::windows_ipc::PIPE_NAME;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
