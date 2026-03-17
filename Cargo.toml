@@ -1,0 +1,76 @@
+[package]
+name = "wftpg"
+version = "3.0.3"
+edition = "2024"
+authors = ["WFTPG Developer"]
+description = "SFTP+FTP GUI Management Tool for Windows (Rust + egui)"
+build = "build.rs"
+
+[dependencies]
+egui = "0.33.3"
+eframe = "0.33.3"
+egui_extras = "0.33.3"
+ico = "0.5"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "io-util", "fs", "signal"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1.0"
+argon2 = "0.5"
+rand = "0.9.2"
+chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
+env_logger = "0.11"
+anyhow = "1"
+thiserror = "2"
+ipnet = "2"
+sha2 = "0.10"
+md-5 = "0.10"
+hex = "0.4"
+rsa = { version = "0.9", features = ["pem"] }
+pkcs8 = { version = "0.10", features = ["pem"] }
+russh = "0.57.1"
+async-trait = "0.1"
+bytes = "1"
+fs2 = "0.4"
+socket2 = "0.6"
+
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Pipes",
+    "Win32_System_IO",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Services",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+winreg = "0.56"
+ctrlc = "3.5.2"
+windows-service = "0.8.0"
+
+[build-dependencies]
+embed-resource = "3.0.7"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.release.package."*"]
+opt-level = 3
+
+[[bin]]
+name = "wftp-gui"
+path = "src/gui_main.rs"
+
+[[bin]]
+name = "wftpd"
+path = "src/service_main.rs"
+
+[lib]
+name = "wftpg"
+path = "src/lib.rs"
