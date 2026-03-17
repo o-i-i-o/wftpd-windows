@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -258,8 +258,16 @@ fn handle_ftp_connection(
                 return Ok(());
             }
         };
-        cwd = cfg.ftp.default_home.clone();
-        home_dir = cfg.ftp.default_home.clone();
+        let default_home = PathBuf::from(&cfg.ftp.default_home);
+        let home_canon = match default_home.canonicalize() {
+            Ok(c) => c.to_string_lossy().to_string(),
+            Err(e) => {
+                log::error!("Failed to canonicalize home directory: {} - {}", cfg.ftp.default_home, e);
+                cfg.ftp.default_home.clone()
+            }
+        };
+        cwd = home_canon.clone();
+        home_dir = home_canon;
         transfer_mode = cfg.ftp.default_transfer_mode.clone();
         passive_mode = cfg.ftp.default_passive_mode;
     }
@@ -327,15 +335,19 @@ fn handle_ftp_connection(
                     if username == "anonymous" {
                         if allow_anonymous {
                             authenticated = true;
-                            if let Some(ref anon_home) = anonymous_home {
-                                cwd = anon_home.clone();
-                                home_dir = anon_home.clone();
+                            let user_home = if let Some(ref anon_home) = anonymous_home {
+                                anon_home.clone()
                             } else {
-                                let default_home = config.lock()
+                                config.lock()
                                     .map(|g| g.ftp.default_home.clone())
-                                    .unwrap_or_else(|_| cwd.clone());
-                                home_dir = default_home;
-                            }
+                                    .unwrap_or_else(|_| cwd.clone())
+                            };
+                            let home_canon = PathBuf::from(&user_home)
+                                .canonicalize()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or(user_home);
+                            cwd = home_canon.clone();
+                            home_dir = home_canon;
                             stream.write_all(b"230 Anonymous user logged in\r\n")?;
                             if let Ok(mut logger_guard) = logger.lock() {
                                 logger_guard.client_action(
@@ -369,8 +381,12 @@ fn handle_ftp_connection(
                                 authenticated = true;
                                 if let Ok(users) = user_manager.lock()
                                     && let Some(user) = users.get_user(username) {
-                                        cwd = user.home_dir.clone();
-                                        home_dir = user.home_dir.clone();
+                                        let home_canon = PathBuf::from(&user.home_dir)
+                                            .canonicalize()
+                                            .map(|p| p.to_string_lossy().to_string())
+                                            .unwrap_or_else(|_| user.home_dir.clone());
+                                        cwd = home_canon.clone();
+                                        home_dir = home_canon;
                                     }
                                 stream.write_all(b"230 User logged in\r\n")?;
                                 if let Ok(mut logger_guard) = logger.lock() {
@@ -1574,10 +1590,9 @@ fn handle_ftp_connection(
             }
 
             "REIN" => {
-                // Reinitialize session - reset authentication but keep connection
                 authenticated = false;
                 current_user = None;
-                cwd = {
+                {
                     let cfg = match config.lock() {
                         Ok(guard) => guard,
                         Err(_) => {
@@ -1585,9 +1600,13 @@ fn handle_ftp_connection(
                             continue;
                         }
                     };
-                    cfg.ftp.default_home.clone()
-                };
-                home_dir = cwd.clone();
+                    let home_canon = PathBuf::from(&cfg.ftp.default_home)
+                        .canonicalize()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| cfg.ftp.default_home.clone());
+                    cwd = home_canon.clone();
+                    home_dir = home_canon;
+                }
                 data_port = None;
                 data_addr = None;
                 passive_mode = false;
