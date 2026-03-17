@@ -555,17 +555,44 @@ fn handle_ftp_connection(
 
             "TYPE" => {
                 if let Some(type_code) = arg {
-                    match type_code.to_uppercase().as_str() {
-                        "I" | "L 8" => {
+                    let type_upper = type_code.to_uppercase();
+                    let parts: Vec<&str> = type_upper.split_whitespace().collect();
+                    let main_type = parts.first().copied().unwrap_or("");
+                    let sub_type = parts.get(1).copied().unwrap_or("N");
+
+                    match main_type {
+                        "I" => {
                             transfer_mode = "binary".to_string();
                             stream.write_all(b"200 Type set to I (Binary)\r\n")?;
                         }
-                        "A" | "A N" => {
-                            transfer_mode = "ascii".to_string();
-                            stream.write_all(b"200 Type set to A (ASCII)\r\n")?;
+                        "L" => {
+                            if sub_type == "8" {
+                                transfer_mode = "binary".to_string();
+                                stream.write_all(b"200 Type set to L 8 (Local byte size 8)\r\n")?;
+                            } else {
+                                stream.write_all(b"504 Only L 8 is supported\r\n")?;
+                            }
+                        }
+                        "A" => {
+                            match sub_type {
+                                "N" | "" => {
+                                    transfer_mode = "ascii".to_string();
+                                    stream.write_all(b"200 Type set to A (ASCII Non-print)\r\n")?;
+                                }
+                                "T" => {
+                                    transfer_mode = "ascii".to_string();
+                                    stream.write_all(b"200 Type set to A T (ASCII Telnet format)\r\n")?;
+                                }
+                                "C" => {
+                                    stream.write_all(b"504 ASA carriage control not supported\r\n")?;
+                                }
+                                _ => {
+                                    stream.write_all(b"501 Unknown subtype\r\n")?;
+                                }
+                            }
                         }
                         "E" => {
-                            stream.write_all(b"200 Type set to E (EBCDIC)\r\n")?;
+                            stream.write_all(b"504 EBCDIC not supported, use A or I\r\n")?;
                         }
                         _ => {
                             stream.write_all(b"501 Unknown type\r\n")?;
@@ -573,9 +600,9 @@ fn handle_ftp_connection(
                     }
                 } else {
                     if transfer_mode == "binary" {
-                        stream.write_all(b"200 Type set to I (Binary)\r\n")?;
+                        stream.write_all(b"200 Type is I (Binary)\r\n")?;
                     } else {
-                        stream.write_all(b"200 Type set to A (ASCII)\r\n")?;
+                        stream.write_all(b"200 Type is A (ASCII)\r\n")?;
                     }
                 }
             }
