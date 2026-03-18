@@ -12,6 +12,8 @@ use crate::core::users::UserManager;
 use crate::core::file_logger::{FileLogger, FileLogInfo};
 use crate::core::path_utils::{safe_resolve_path, to_ftp_path, resolve_directory_path, PathResolveError};
 
+const DATA_BUFFER_SIZE: usize = 8192;
+
 type PassiveListenerMap = Arc<Mutex<HashMap<u16, Arc<Mutex<Option<TcpListener>>>>>>;
 
 pub struct FtpServer {
@@ -538,7 +540,18 @@ fn handle_ftp_connection(
             }
 
             "OPTS" => {
-                stream.write_all(b"200 Options set\r\n")?;
+                if let Some(opts_arg) = arg {
+                    let opts_upper = opts_arg.to_uppercase();
+                    if opts_upper.starts_with("UTF8") || opts_upper.starts_with("UTF-8") {
+                        stream.write_all(b"200 UTF8 enabled\r\n")?;
+                    } else if opts_upper.starts_with("MODE") {
+                        stream.write_all(b"200 Mode set\r\n")?;
+                    } else {
+                        stream.write_all(b"200 Options set\r\n")?;
+                    }
+                } else {
+                    stream.write_all(b"200 Options set\r\n")?;
+                }
             }
 
             "PWD" | "XPWD" => {
@@ -923,6 +936,10 @@ fn handle_ftp_connection(
                             stream.write_all(b"550 Directory not found\r\n")?;
                             continue;
                         }
+                        Err(PathResolveError::PathTooDeep) => {
+                            stream.write_all(b"550 Path too deep\r\n")?;
+                            continue;
+                        }
                     }
                 } else {
                     PathBuf::from(&cwd)
@@ -1000,6 +1017,10 @@ fn handle_ftp_connection(
                             stream.write_all(b"550 Directory not found\r\n")?;
                             continue;
                         }
+                        Err(PathResolveError::PathTooDeep) => {
+                            stream.write_all(b"550 Path too deep\r\n")?;
+                            continue;
+                        }
                     }
                 } else {
                     PathBuf::from(&cwd)
@@ -1074,7 +1095,7 @@ fn handle_ftp_connection(
                                 let _ = file.seek(std::io::SeekFrom::Start(rest_offset));
                             }
 
-                            let mut buf = [0u8; 8192];
+                            let mut buf = [0u8; DATA_BUFFER_SIZE];
                             loop {
                                 if abort.load(Ordering::Relaxed) {
                                     break;
@@ -1137,13 +1158,16 @@ fn handle_ftp_connection(
 
                         if let Some(user) = user
                             && !user.permissions.can_write {
+                                log::warn!("STOR denied: user {} lacks write permission", current_user.as_deref().unwrap_or("unknown"));
                                 stream.write_all(b"550 Permission denied\r\n")?;
                                 continue;
                             }
                     }
 
                     let file_path = safe_resolve_path(&cwd, &home_dir, filename);
+                    log::info!("STOR: raw='{}', resolved='{}', starts_with={}", filename, file_path.display(), file_path.starts_with(&home_dir));
                     if !file_path.starts_with(&home_dir) {
+                        log::warn!("STOR denied: path outside home - {}", file_path.display());
                         stream.write_all(b"550 Permission denied\r\n")?;
                         continue;
                     }
@@ -1162,28 +1186,45 @@ fn handle_ftp_connection(
                             std::fs::File::create(&file_path)
                         };
 
-                        if let Ok(mut file) = file_result {
-                            use std::io::Seek;
-                            if rest_offset > 0 {
-                                let _ = file.seek(std::io::SeekFrom::Start(rest_offset));
-                            }
-
-                            let mut buf = [0u8; 8192];
-                            loop {
-                                if abort.load(Ordering::Relaxed) {
-                                    break;
+                        match file_result {
+                            Ok(mut file) => {
+                                use std::io::Seek;
+                                if rest_offset > 0 {
+                                    let _ = file.seek(std::io::SeekFrom::Start(rest_offset));
                                 }
-                                match data_stream.read(&mut buf) {
-                                    Ok(0) => break,
-                                    Ok(n) => {
-                                        if file.write_all(&buf[..n]).is_err() {
+
+                                let mut buf = [0u8; DATA_BUFFER_SIZE];
+                                let mut total_written: u64 = 0;
+                                loop {
+                                    if abort.load(Ordering::Relaxed) {
+                                        break;
+                                    }
+                                    match data_stream.read(&mut buf) {
+                                        Ok(0) => break,
+                                        Ok(n) => {
+                                            if file.write_all(&buf[..n]).is_err() {
+                                                log::error!("STOR write error for file: {}", file_path.display());
+                                                break;
+                                            }
+                                            total_written += n as u64;
+                                        }
+                                        Err(e) => {
+                                            log::error!("STOR read error from data stream: {}", e);
                                             break;
                                         }
                                     }
-                                    Err(_) => break,
                                 }
+                                if let Err(e) = file.sync_all() {
+                                    log::error!("Failed to sync file {:?}: {}", file_path, e);
+                                }
+                                log::info!("STOR completed: {} bytes written to {}", total_written, file_path.display());
+                            }
+                            Err(e) => {
+                                log::error!("STOR failed to create file {}: {}", file_path.display(), e);
                             }
                         }
+                    } else {
+                        log::error!("STOR failed to get data connection for file: {}", file_path.display());
                     }
 
                     if passive_mode
@@ -1215,13 +1256,15 @@ fn handle_ftp_connection(
 
                     logger.lock().unwrap().client_action(
                         "FTP",
-                        &format!("Uploaded: {} at offset {}", filename, rest_offset),
+                        &format!("Uploaded: {} ({} bytes) at offset {}", filename, uploaded_size, rest_offset),
                         &remote_ip,
                         current_user.as_deref(),
                         "UPLOAD",
                     );
 
                     rest_offset = 0;
+                } else {
+                    stream.write_all(b"501 Syntax error: STOR requires filename\r\n")?;
                 }
             }
 
@@ -1257,7 +1300,7 @@ fn handle_ftp_connection(
                             .create(true)
                             .open(&file_path)
                         {
-                            let mut buf = [0u8; 8192];
+                            let mut buf = [0u8; DATA_BUFFER_SIZE];
                             loop {
                                 if abort.load(Ordering::Relaxed) {
                                     break;
@@ -1271,6 +1314,9 @@ fn handle_ftp_connection(
                                     }
                                     Err(_) => break,
                                 }
+                            }
+                            if let Err(e) = file.sync_all() {
+                                log::error!("Failed to sync file {:?}: {}", file_path, e);
                             }
                         }
                     }
@@ -1457,12 +1503,20 @@ fn handle_ftp_connection(
 
                 if let Some(from_name) = arg {
                     let from_path = safe_resolve_path(&cwd, &home_dir, from_name);
+                    log::info!("RNFR: raw='{}', resolved='{}', exists={}, starts_with={}", 
+                        from_name, from_path.display(), from_path.exists(), from_path.starts_with(&home_dir));
                     if from_path.exists() && from_path.starts_with(&home_dir) {
                         rename_from = Some(from_path.to_string_lossy().to_string());
                         stream.write_all(b"350 File exists, ready for destination name\r\n")?;
+                        if let Ok(mut log) = logger.lock() {
+                            log.client_action("FTP", &format!("RNFR: {}", from_path.display()), &remote_ip, current_user.as_deref(), "RNFR");
+                        }
                     } else {
+                        log::warn!("RNFR failed: file not found or outside home - raw='{}', resolved='{}'", from_name, from_path.display());
                         stream.write_all(b"550 File not found\r\n")?;
                     }
+                } else {
+                    stream.write_all(b"501 Syntax error: RNFR requires filename\r\n")?;
                 }
             }
 
@@ -1470,30 +1524,39 @@ fn handle_ftp_connection(
                 if let Some(ref from_path) = rename_from {
                     if let Some(to_name) = arg {
                         let to_path = safe_resolve_path(&cwd, &home_dir, to_name);
+                        log::info!("RNTO: raw='{}', resolved='{}', from='{}'", to_name, to_path.display(), from_path);
                         if !to_path.starts_with(&home_dir) {
+                            log::warn!("RNTO failed: destination outside home - {}", to_path.display());
                             stream.write_all(b"550 Permission denied\r\n")?;
                             rename_from = None;
                             continue;
                         }
-                        if std::fs::rename(from_path, &to_path).is_ok() {
-                            stream.write_all(b"250 Rename successful\r\n")?;
-                            file_logger.lock().unwrap().log_rename(
-                                current_user.as_deref().unwrap_or("anonymous"),
-                                &remote_ip,
-                                from_path,
-                                &to_path.to_string_lossy(),
-                                "FTP",
-                            );
-                            logger.lock().unwrap().client_action(
-                                "FTP",
-                                &format!("Renamed: {} -> {}", from_path, to_path.display()),
-                                &remote_ip,
-                                current_user.as_deref(),
-                                "RENAME",
-                            );
-                        } else {
-                            stream.write_all(b"550 Rename failed\r\n")?;
+                        let from_path_buf = PathBuf::from(from_path);
+                        match std::fs::rename(&from_path_buf, &to_path) {
+                            Ok(()) => {
+                                stream.write_all(b"250 Rename successful\r\n")?;
+                                file_logger.lock().unwrap().log_rename(
+                                    current_user.as_deref().unwrap_or("anonymous"),
+                                    &remote_ip,
+                                    from_path,
+                                    &to_path.to_string_lossy(),
+                                    "FTP",
+                                );
+                                logger.lock().unwrap().client_action(
+                                    "FTP",
+                                    &format!("Renamed: {} -> {}", from_path, to_path.display()),
+                                    &remote_ip,
+                                    current_user.as_deref(),
+                                    "RENAME",
+                                );
+                            }
+                            Err(e) => {
+                                log::error!("Rename failed: {} -> {}: {} (os error {})", from_path, to_path.display(), e, e.raw_os_error().unwrap_or(0));
+                                stream.write_all(b"550 Rename failed\r\n")?;
+                            }
                         }
+                    } else {
+                        stream.write_all(b"501 Syntax error: RNTO requires filename\r\n")?;
                     }
                 } else {
                     stream.write_all(b"503 Bad sequence of commands\r\n")?;
@@ -1592,7 +1655,7 @@ fn handle_ftp_connection(
                 if let Ok(mut data_stream) = get_data_connection(passive_mode, data_port, &data_addr, &remote_ip, passive_listeners) {
                     let abort = Arc::clone(&abort_flag);
                     if let Ok(mut file) = std::fs::File::create(&file_path) {
-                        let mut buf = [0u8; 8192];
+                        let mut buf = [0u8; DATA_BUFFER_SIZE];
                         loop {
                             if abort.load(Ordering::Relaxed) {
                                 break;
@@ -1606,6 +1669,9 @@ fn handle_ftp_connection(
                                 }
                                 Err(_) => break,
                             }
+                        }
+                        if let Err(e) = file.sync_all() {
+                            log::error!("Failed to sync file {:?}: {}", file_path, e);
                         }
                     }
                 }

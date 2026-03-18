@@ -5,7 +5,7 @@ use russh::keys::ssh_key::rand_core::OsRng;
 use russh::server::Msg;
 use russh::MethodKind;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::collections::HashSet;
@@ -680,11 +680,13 @@ impl SftpState {
 
     async fn handle_read(&mut self, data: &[u8]) -> Result<Vec<u8>> {
         let id = self.parse_u32(data, 1);
-        let handle_str = self.parse_string(data, 5)?;
-        let offset = self.parse_u64(data, 5 + 4 + handle_str.len());
-        let len = self.parse_u32(data, 5 + 4 + handle_str.len() + 8) as usize;
+        let (handle_str, handle_len) = self.parse_string_with_len(data, 5)?;
+        let offset_pos = 5 + 4 + handle_len;
+        let offset = self.parse_u64(data, offset_pos);
+        let len = self.parse_u32(data, offset_pos + 8) as usize;
 
         if !self.check_permission(|p| p.can_read) {
+            log::warn!("SFTP READ denied: no read permission for user {:?}", self.username);
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
@@ -693,23 +695,23 @@ impl SftpState {
             Some(SftpFileHandle::File { path, file, .. }) => {
                 use tokio::io::{AsyncSeekExt, AsyncReadExt};
                 
-                // Seek to the requested offset
                 if let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await {
+                    log::error!("SFTP READ seek error for {:?}: {}", path, e);
                     return Ok(self.build_status_packet(id, 4, &format!("Seek error: {}", e), ""));
                 }
                 
-                // Read data (limit to 32KB as per SFTP spec recommendation)
                 let read_len = len.min(32768);
                 let mut buffer = vec![0u8; read_len];
                 
                 match file.read(&mut buffer).await {
                     Ok(0) => {
-                        // EOF reached - return status 1 (EOF)
                         Ok(self.build_status_packet(id, 1, "End of file", ""))
                     }
                     Ok(n) => {
                         buffer.truncate(n);
                         
+                        log::info!("SFTP READ: {} bytes from {:?} at offset {}", n, path, offset);
+
                         if let Ok(mut logger) = self.logger.lock() {
                             logger.client_action(
                                 "SFTP",
@@ -733,28 +735,33 @@ impl SftpState {
                         Ok(self.build_data_packet(id, &buffer))
                     }
                     Err(e) => {
+                        log::error!("SFTP READ error for {:?}: {}", path, e);
                         Ok(self.build_status_packet(id, 4, &format!("Read error: {}", e), ""))
                     }
                 }
             }
-            _ => Ok(self.build_status_packet(id, 4, "Invalid handle", "")),
+            _ => {
+                log::warn!("SFTP READ: invalid handle '{}'", handle_str);
+                Ok(self.build_status_packet(id, 4, "Invalid handle", ""))
+            }
         }
     }
 
     async fn handle_write(&mut self, data: &[u8]) -> Result<Vec<u8>> {
         let id = self.parse_u32(data, 1);
-        let handle_str = self.parse_string(data, 5)?;
-        let offset_pos = 5 + 4 + handle_str.len();
+        let (handle_str, handle_len) = self.parse_string_with_len(data, 5)?;
+        let offset_pos = 5 + 4 + handle_len;
         let offset = self.parse_u64(data, offset_pos);
         let data_len = self.parse_u32(data, offset_pos + 8) as usize;
         
-        // Validate data length
         if offset_pos + 12 + data_len > data.len() {
+            log::error!("SFTP WRITE: invalid data length - offset_pos={}, data_len={}, packet_len={}", offset_pos, data_len, data.len());
             return Ok(self.build_status_packet(id, 4, "Invalid data length", ""));
         }
         let write_data = &data[offset_pos + 12..offset_pos + 12 + data_len];
 
         if !self.check_permission(|p| p.can_write) {
+            log::warn!("SFTP WRITE denied: no write permission for user {:?}", self.username);
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
@@ -763,20 +770,22 @@ impl SftpState {
             Some(SftpFileHandle::File { path, file, existed, .. }) => {
                 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
                 
-                // Seek to the requested offset
                 if let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await {
+                    log::error!("SFTP WRITE seek error for {:?}: {}", path, e);
                     return Ok(self.build_status_packet(id, 4, &format!("Seek error: {}", e), ""));
                 }
                 
-                // Write data
                 if let Err(e) = file.write_all(write_data).await {
+                    log::error!("SFTP WRITE error for {:?}: {}", path, e);
                     return Ok(self.build_status_packet(id, 4, &format!("Write error: {}", e), ""));
                 }
                 
-                // Flush to ensure data is persisted
                 if let Err(e) = file.flush().await {
+                    log::error!("SFTP WRITE flush error for {:?}: {}", path, e);
                     return Ok(self.build_status_packet(id, 4, &format!("Flush error: {}", e), ""));
                 }
+
+                log::info!("SFTP WRITE: {} bytes to {:?} at offset {}", data_len, path, offset);
 
                 if let Ok(mut logger) = self.logger.lock() {
                     logger.client_action(
@@ -810,7 +819,10 @@ impl SftpState {
 
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
-            _ => Ok(self.build_status_packet(id, 4, "Invalid handle", "")),
+            _ => {
+                log::warn!("SFTP WRITE: invalid handle '{}'", handle_str);
+                Ok(self.build_status_packet(id, 4, "Invalid handle", ""))
+            }
         }
     }
 
@@ -918,39 +930,117 @@ impl SftpState {
 
     async fn handle_rename(&mut self, data: &[u8]) -> Result<Vec<u8>> {
         let id = self.parse_u32(data, 1);
-        let old_path = self.parse_string(data, 5)?;
-        let new_path_pos = 5 + 4 + old_path.len();
+        let (old_path, old_len) = self.parse_string_with_len(data, 5)?;
+        let new_path_pos = 5 + 4 + old_len;
         let new_path = self.parse_string(data, new_path_pos)?;
 
         if !self.check_permission(|p| p.can_rename) {
+            log::warn!("SFTP RENAME denied: no permission for user {:?}", self.username);
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
         let old_full = self.resolve_path(&old_path);
         let new_full = self.resolve_path(&new_path);
 
-        if tokio::fs::rename(&old_full, &new_full).await.is_ok() {
-            if let Ok(mut file_logger) = self.file_logger.lock() {
-                file_logger.log_rename(
-                    self.username.as_deref().unwrap_or("anonymous"),
-                    &self.client_ip,
-                    &old_full.to_string_lossy(),
-                    &new_full.to_string_lossy(),
-                    "SFTP",
-                );
+        log::info!("SFTP RENAME: raw_old='{}', resolved_old='{}', raw_new='{}', resolved_new='{}'", 
+            old_path, old_full.display(), new_path, new_full.display());
+
+        if !old_full.exists() {
+            log::warn!("SFTP RENAME failed: source does not exist - {}", old_full.display());
+            return Ok(self.build_status_packet(id, 2, "No such file", ""));
+        }
+
+        if !old_full.starts_with(&self.home_dir) || !new_full.starts_with(&self.home_dir) {
+            log::warn!("SFTP RENAME denied: path outside home - old={}, new={}", old_full.display(), new_full.display());
+            return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
+        }
+
+        if old_full.is_symlink() {
+            match tokio::fs::read_link(&old_full).await {
+                Ok(link_target) => {
+                    let resolved_target = if link_target.is_absolute() {
+                        link_target
+                    } else {
+                        let parent = old_full.parent().unwrap_or(Path::new(&self.home_dir));
+                        parent.join(&link_target)
+                    };
+                    
+                    let canon_target = match resolved_target.canonicalize() {
+                        Ok(c) => c,
+                        Err(_) => {
+                            log::warn!("SFTP RENAME denied: cannot resolve symlink target - {}", old_full.display());
+                            return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
+                        }
+                    };
+                    
+                    if !canon_target.starts_with(&self.home_dir) {
+                        log::warn!("SFTP RENAME denied: symlink points outside home - {} -> {}", old_full.display(), canon_target.display());
+                        return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
+                    }
+                }
+                Err(e) => {
+                    log::warn!("SFTP RENAME failed: cannot read symlink - {}: {}", old_full.display(), e);
+                    return Ok(self.build_status_packet(id, 4, "Failed to read symlink", ""));
+                }
             }
-            if let Ok(mut logger) = self.logger.lock() {
-                logger.client_action(
-                    "SFTP",
-                    &format!("Renamed: {} -> {}", old_path, new_path),
-                    &self.client_ip,
-                    self.username.as_deref(),
-                    "RENAME",
-                );
+        }
+
+        if new_full.exists() && new_full.is_symlink() {
+            match tokio::fs::read_link(&new_full).await {
+                Ok(link_target) => {
+                    let resolved_target = if link_target.is_absolute() {
+                        link_target
+                    } else {
+                        let parent = new_full.parent().unwrap_or(Path::new(&self.home_dir));
+                        parent.join(&link_target)
+                    };
+                    
+                    let canon_target = match resolved_target.canonicalize() {
+                        Ok(c) => c,
+                        Err(_) => {
+                            log::warn!("SFTP RENAME denied: cannot resolve destination symlink target - {}", new_full.display());
+                            return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
+                        }
+                    };
+                    
+                    if !canon_target.starts_with(&self.home_dir) {
+                        log::warn!("SFTP RENAME denied: destination symlink points outside home - {} -> {}", new_full.display(), canon_target.display());
+                        return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
+                    }
+                }
+                Err(e) => {
+                    log::warn!("SFTP RENAME failed: cannot read destination symlink - {}: {}", new_full.display(), e);
+                    return Ok(self.build_status_packet(id, 4, "Failed to read symlink", ""));
+                }
             }
-            Ok(self.build_status_packet(id, 0, "OK", ""))
-        } else {
-            Ok(self.build_status_packet(id, 4, "Failed to rename", ""))
+        }
+
+        match tokio::fs::rename(&old_full, &new_full).await {
+            Ok(()) => {
+                if let Ok(mut file_logger) = self.file_logger.lock() {
+                    file_logger.log_rename(
+                        self.username.as_deref().unwrap_or("anonymous"),
+                        &self.client_ip,
+                        &old_full.to_string_lossy(),
+                        &new_full.to_string_lossy(),
+                        "SFTP",
+                    );
+                }
+                if let Ok(mut logger) = self.logger.lock() {
+                    logger.client_action(
+                        "SFTP",
+                        &format!("Renamed: {} -> {}", old_path, new_path),
+                        &self.client_ip,
+                        self.username.as_deref(),
+                        "RENAME",
+                    );
+                }
+                Ok(self.build_status_packet(id, 0, "OK", ""))
+            }
+            Err(e) => {
+                log::error!("SFTP Rename failed: {} -> {}: {} (os error {:?})", old_full.display(), new_full.display(), e, e.raw_os_error());
+                Ok(self.build_status_packet(id, 4, "Failed to rename", ""))
+            }
         }
     }
 
@@ -1103,6 +1193,18 @@ impl SftpState {
         Ok(String::from_utf8_lossy(&data[offset + 4..offset + 4 + len]).to_string())
     }
 
+    fn parse_string_with_len(&self, data: &[u8], offset: usize) -> Result<(String, usize)> {
+        if offset + 4 > data.len() {
+            return Ok((String::new(), 0));
+        }
+        let len = self.parse_u32(data, offset) as usize;
+        if offset + 4 + len > data.len() {
+            return Ok((String::new(), 0));
+        }
+        let s = String::from_utf8_lossy(&data[offset + 4..offset + 4 + len]).to_string();
+        Ok((s, len))
+    }
+
     fn build_packet(&self, payload: &[u8]) -> Vec<u8> {
         let mut packet = Vec::new();
         packet.extend_from_slice(&(payload.len() as u32).to_be_bytes());
@@ -1162,8 +1264,8 @@ impl SftpState {
 
     async fn handle_open(&mut self, data: &[u8]) -> Result<Vec<u8>> {
         let id = self.parse_u32(data, 1);
-        let path = self.parse_string(data, 5)?;
-        let pflags_pos = 5 + 4 + path.len();
+        let (path, path_len) = self.parse_string_with_len(data, 5)?;
+        let pflags_pos = 5 + 4 + path_len;
         let pflags = self.parse_u32(data, pflags_pos);
 
         let need_read = pflags & 0x00000001 != 0;
@@ -1175,11 +1277,16 @@ impl SftpState {
             (!need_write || p.can_write) &&
             (!need_append || p.can_append)
         }) {
+            log::warn!("SFTP OPEN denied: no permission for user {:?} (read={}, write={}, append={})", 
+                self.username, need_read, need_write, need_append);
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
         let full_path = self.resolve_path(&path);
         let file_existed = full_path.exists();
+
+        log::info!("SFTP OPEN: raw='{}', resolved='{}', existed={}, flags=0x{:08X}", 
+            path, full_path.display(), file_existed, pflags);
 
         let file_result = if pflags & 0x00000002 != 0 {
             if pflags & 0x00000010 != 0 {
@@ -1215,9 +1322,13 @@ impl SftpState {
                     locked: false,
                     existed: file_existed,
                 });
+                log::info!("SFTP OPEN: handle '{}' created for {}", handle, path);
                 Ok(self.build_handle_packet(id, &handle))
             }
-            Err(_) => Ok(self.build_status_packet(id, 4, "Failed to open file", "")),
+            Err(e) => {
+                log::error!("SFTP OPEN failed for {}: {}", full_path.display(), e);
+                Ok(self.build_status_packet(id, 4, "Failed to open file", ""))
+            }
         }
     }
 
@@ -1246,8 +1357,8 @@ impl SftpState {
 
     async fn handle_symlink(&mut self, data: &[u8]) -> Result<Vec<u8>> {
         let id = self.parse_u32(data, 1);
-        let target = self.parse_string(data, 5)?;
-        let link_pos = 5 + 4 + target.len();
+        let (target, target_len) = self.parse_string_with_len(data, 5)?;
+        let link_pos = 5 + 4 + target_len;
         let link_path = self.parse_string(data, link_pos)?;
 
         if !self.check_permission(|p| p.can_write) {
@@ -1402,9 +1513,8 @@ impl SftpState {
     }
 
     async fn handle_statvfs(&self, id: u32, data: &[u8]) -> Result<Vec<u8>> {
-        // ext_name starts at offset 5; skip its length prefix (4 bytes) + content
-        let ext_name = self.parse_string(data, 5)?;
-        let path_offset = 5 + 4 + ext_name.len();
+        let (_ext_name, ext_len) = self.parse_string_with_len(data, 5)?;
+        let path_offset = 5 + 4 + ext_len;
         let path = self.parse_string(data, path_offset)?;
         let _full_path = self.resolve_path(&path);
 
@@ -1412,8 +1522,8 @@ impl SftpState {
     }
 
     async fn handle_md5sum(&self, id: u32, data: &[u8]) -> Result<Vec<u8>> {
-        let ext_name = self.parse_string(data, 5)?;
-        let path_pos = 5 + 4 + ext_name.len();
+        let (_ext_name, ext_len) = self.parse_string_with_len(data, 5 + 4)?;
+        let path_pos = 5 + 4 + ext_len;
         let path = self.parse_string(data, path_pos)?;
         let full_path = self.resolve_path(&path);
 
@@ -1448,7 +1558,9 @@ impl SftpState {
     }
 
     async fn handle_sha256sum(&self, id: u32, data: &[u8]) -> Result<Vec<u8>> {
-        let path = self.parse_string(data, 5 + 4)?;
+        let (_ext_name, ext_len) = self.parse_string_with_len(data, 5 + 4)?;
+        let path_pos = 5 + 4 + ext_len;
+        let path = self.parse_string(data, path_pos)?;
         let full_path = self.resolve_path(&path);
 
         if !self.check_permission(|p| p.can_read) {
@@ -1482,10 +1594,10 @@ impl SftpState {
     }
 
     async fn handle_copy_file(&mut self, id: u32, data: &[u8]) -> Result<Vec<u8>> {
-        let ext_name = self.parse_string(data, 5)?;
-        let src_pos = 5 + 4 + ext_name.len();
-        let src_path = self.parse_string(data, src_pos)?;
-        let dst_pos = src_pos + 4 + src_path.len();
+        let (_ext_name, ext_len) = self.parse_string_with_len(data, 5)?;
+        let src_pos = 5 + 4 + ext_len;
+        let (src_path, src_len) = self.parse_string_with_len(data, src_pos)?;
+        let dst_pos = src_pos + 4 + src_len;
         let dst_path = self.parse_string(data, dst_pos)?;
 
         if !self.check_permission(|p| p.can_read && p.can_write) {
@@ -1525,8 +1637,8 @@ impl SftpState {
     }
 
     async fn handle_hardlink(&mut self, id: u32, data: &[u8]) -> Result<Vec<u8>> {
-        let src_path = self.parse_string(data, 5 + 4)?;
-        let dst_pos = 5 + 4 + 4 + src_path.len();
+        let (src_path, src_len) = self.parse_string_with_len(data, 5 + 4)?;
+        let dst_pos = 5 + 4 + 4 + src_len;
         let dst_path = self.parse_string(data, dst_pos)?;
 
         if !self.check_permission(|p| p.can_write) {

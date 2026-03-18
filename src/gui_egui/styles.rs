@@ -131,6 +131,15 @@ pub fn card_frame() -> egui::Frame {
         .corner_radius(egui::CornerRadius::same(8))
 }
 
+// 信息卡片样式
+pub fn info_card_frame(color: Color32) -> egui::Frame {
+    egui::Frame::new()
+        .fill(color)
+        .stroke(Stroke::new(1.0, color))
+        .inner_margin(egui::Margin::same(16))
+        .corner_radius(egui::CornerRadius::same(8))
+}
+
 // 输入框样式
 pub fn input_frame() -> egui::Frame {
     egui::Frame::new()
