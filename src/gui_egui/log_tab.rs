@@ -1,5 +1,6 @@
 use egui::{Color32, RichText, Ui};
 use crate::core::ipc::{IpcClient, LogEntryDto};
+use crate::gui_egui::styles;
 
 pub struct LogTab {
     logs: Vec<LogEntryDto>,
@@ -46,7 +47,7 @@ impl LogTab {
     }
 
     pub fn ui(&mut self, ui: &mut Ui) {
-        ui.heading("📋 日志查看");
+        ui.heading(RichText::new("📋 日志查看").color(styles::TEXT_PRIMARY_COLOR));
         ui.separator();
 
         ui.horizontal(|ui| {

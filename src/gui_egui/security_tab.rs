@@ -51,7 +51,7 @@ impl SecurityTab {
     fn section_header(&self, ui: &mut Ui, icon: &str, title: &str) {
         ui.horizontal(|ui| {
             ui.label(RichText::new(icon).size(styles::FONT_SIZE_LG));
-            ui.label(RichText::new(title).size(styles::FONT_SIZE_LG).strong());
+            ui.label(RichText::new(title).size(styles::FONT_SIZE_LG).strong().color(styles::TEXT_PRIMARY_COLOR));
         });
         ui.add_space(styles::SPACING_SM);
     }
@@ -60,7 +60,7 @@ impl SecurityTab {
         // 页面标题
         ui.horizontal(|ui| {
             ui.label(RichText::new("🔒").size(styles::FONT_SIZE_XL));
-            ui.label(RichText::new("安全设置").size(styles::FONT_SIZE_XL).strong());
+            ui.label(RichText::new("安全设置").size(styles::FONT_SIZE_XL).strong().color(styles::TEXT_PRIMARY_COLOR));
         });
         ui.add_space(styles::SPACING_SM);
 

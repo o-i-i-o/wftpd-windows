@@ -1,5 +1,6 @@
 use egui::{Color32, RichText, Ui};
 use crate::core::server_manager::ServerManager;
+use crate::gui_egui::styles;
 
 pub struct ServiceTab {
     manager: ServerManager,
@@ -50,7 +51,7 @@ impl ServiceTab {
             self.refresh_status();
         }
 
-        ui.heading("系统服务管理");
+        ui.heading(RichText::new("🖥 系统服务管理").color(styles::TEXT_PRIMARY_COLOR));
         ui.separator();
         ui.add_space(4.0);
 

@@ -15,10 +15,10 @@ pub const WARNING_LIGHT: Color32        = Color32::from_rgb(254, 249, 195);
 pub const INFO_COLOR: Color32           = Color32::from_rgb(8, 102, 135);
 pub const INFO_LIGHT: Color32           = Color32::from_rgb(225, 243, 252);
 
-// 文本色 - 更柔和的深灰色
-pub const TEXT_PRIMARY_COLOR: Color32   = Color32::from_rgb(45, 55, 72);
-pub const TEXT_SECONDARY_COLOR: Color32 = Color32::from_rgb(90, 90, 90);
-pub const TEXT_MUTED_COLOR: Color32     = Color32::from_rgb(120, 120, 120);
+// 文本色 - 更清晰的深色
+pub const TEXT_PRIMARY_COLOR: Color32   = Color32::from_rgb(30, 41, 59);
+pub const TEXT_SECONDARY_COLOR: Color32 = Color32::from_rgb(55, 65, 81);
+pub const TEXT_MUTED_COLOR: Color32     = Color32::from_rgb(75, 85, 99);
 
 // 背景色 - 更温暖的白色
 pub const BG_PRIMARY: Color32           = Color32::from_rgb(249, 250, 251);
@@ -59,16 +59,16 @@ pub fn get_custom_style() -> Style {
 
     // 非交互状态
     visuals.widgets.noninteractive.bg_fill   = BG_CARD;
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, BORDER_COLOR);
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT_PRIMARY_COLOR);
 
-    // 非激活状态
+    // 非激活状态 - 修复输入框文字颜色
     visuals.widgets.inactive.bg_fill   = BG_CARD;
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, BORDER_COLOR);
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT_PRIMARY_COLOR);
     visuals.widgets.inactive.weak_bg_fill = BG_SECONDARY;
 
     // 悬停状态 - 更柔和的悬停效果
     visuals.widgets.hovered.bg_fill   = Color32::from_rgb(246, 247, 248);
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.5, PRIMARY_LIGHT);
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.5, TEXT_PRIMARY_COLOR);
     visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(238, 239, 241);
 
     // 激活状态
@@ -82,7 +82,7 @@ pub fn get_custom_style() -> Style {
 
     // 打开状态
     visuals.widgets.open.bg_fill = BG_CARD;
-    visuals.widgets.open.fg_stroke = Stroke::new(1.0, PRIMARY_COLOR);
+    visuals.widgets.open.fg_stroke = Stroke::new(1.0, TEXT_PRIMARY_COLOR);
 
     // 窗口阴影
     visuals.window_shadow = egui::epaint::Shadow {

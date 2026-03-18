@@ -1,5 +1,6 @@
 use egui::{Color32, RichText, Ui};
 use crate::core::ipc::{IpcClient, FileLogEntryDto};
+use crate::gui_egui::styles;
 
 pub struct FileLogTab {
     logs: Vec<FileLogEntryDto>,
@@ -46,7 +47,7 @@ impl FileLogTab {
     }
 
     pub fn ui(&mut self, ui: &mut Ui) {
-        ui.heading("📁 文件操作日志");
+        ui.heading(RichText::new("📁 文件操作日志").color(styles::TEXT_PRIMARY_COLOR));
         ui.separator();
 
         ui.horizontal(|ui| {

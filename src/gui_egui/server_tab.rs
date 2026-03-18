@@ -48,7 +48,7 @@ impl ServerTab {
     fn section_header(&self, ui: &mut Ui, icon: &str, title: &str) {
         ui.horizontal(|ui| {
             ui.label(RichText::new(icon).size(styles::FONT_SIZE_LG));
-            ui.label(RichText::new(title).size(styles::FONT_SIZE_LG).strong());
+            ui.label(RichText::new(title).size(styles::FONT_SIZE_LG).strong().color(styles::TEXT_PRIMARY_COLOR));
         });
         ui.add_space(styles::SPACING_SM);
     }
@@ -56,7 +56,7 @@ impl ServerTab {
     pub fn ui(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.label(RichText::new("⚙").size(styles::FONT_SIZE_XL));
-            ui.label(RichText::new("服务器配置").size(styles::FONT_SIZE_XL).strong());
+            ui.label(RichText::new("服务器配置").size(styles::FONT_SIZE_XL).strong().color(styles::TEXT_PRIMARY_COLOR));
         });
         ui.add_space(styles::SPACING_SM);
 
