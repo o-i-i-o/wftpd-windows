@@ -8,6 +8,23 @@ pub enum PathResolveError {
     NotADirectory,
     NotFound,
     PathTooDeep,
+    HomeDirectoryNotFound,
+    CanonicalizeFailed,
+    InvalidPath,
+}
+
+impl std::fmt::Display for PathResolveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PathResolveError::PathEscape => write!(f, "Path escapes home directory"),
+            PathResolveError::NotADirectory => write!(f, "Path is not a directory"),
+            PathResolveError::NotFound => write!(f, "Path not found"),
+            PathResolveError::PathTooDeep => write!(f, "Path depth exceeds maximum"),
+            PathResolveError::HomeDirectoryNotFound => write!(f, "Home directory not found"),
+            PathResolveError::CanonicalizeFailed => write!(f, "Failed to canonicalize path"),
+            PathResolveError::InvalidPath => write!(f, "Invalid path"),
+        }
+    }
 }
 
 pub fn to_ftp_path(path: &Path, home_dir: &Path) -> String {
@@ -31,39 +48,6 @@ pub fn to_ftp_path(path: &Path, home_dir: &Path) -> String {
     }
 }
 
-pub fn is_path_safe(resolved: &Path, home: &Path) -> bool {
-    match resolved.canonicalize() {
-        Ok(canon) => canon.starts_with(home),
-        Err(_) => {
-            if resolved.exists() {
-                false
-            } else {
-                let mut safe_path = home.to_path_buf();
-                for component in resolved.components() {
-                    match component {
-                        std::path::Component::Normal(name) => {
-                            safe_path.push(name);
-                        }
-                        std::path::Component::ParentDir => {
-                            if !safe_path.pop() || safe_path.as_os_str().is_empty() {
-                                return false;
-                            }
-                            if !safe_path.starts_with(home) {
-                                return false;
-                            }
-                        }
-                        std::path::Component::Prefix(_) | std::path::Component::RootDir => {
-                            return false;
-                        }
-                        std::path::Component::CurDir => {}
-                    }
-                }
-                safe_path.starts_with(home)
-            }
-        }
-    }
-}
-
 fn is_absolute_ftp_path(path: &str) -> bool {
     if path.is_empty() {
         return false;
@@ -84,11 +68,11 @@ fn is_absolute_ftp_path(path: &str) -> bool {
     false
 }
 
-fn resolve_path_internal(cwd: &str, home_canon: &Path, path: &str) -> PathBuf {
+fn resolve_path_internal(cwd: &str, home_canon: &Path, path: &str) -> Result<PathBuf, PathResolveError> {
     let clean_path = path.trim();
 
     if clean_path.is_empty() || clean_path == "." || clean_path == "./" {
-        return home_canon.to_path_buf();
+        return Ok(home_canon.to_path_buf());
     }
 
     if is_absolute_ftp_path(clean_path) {
@@ -96,12 +80,11 @@ fn resolve_path_internal(cwd: &str, home_canon: &Path, path: &str) -> PathBuf {
             .trim_start_matches('/')
             .trim_start_matches('\\');
         if relative.contains(':') {
-            home_canon.to_path_buf()
-        } else {
-            home_canon.join(relative)
+            return Err(PathResolveError::InvalidPath);
         }
+        Ok(home_canon.join(relative))
     } else {
-        Path::new(cwd).join(clean_path)
+        Ok(Path::new(cwd).join(clean_path))
     }
 }
 
@@ -119,12 +102,19 @@ fn build_safe_path(home_canon: &Path, resolved: &Path) -> Result<PathBuf, PathRe
                 }
             }
             std::path::Component::ParentDir => {
-                safe_path.pop();
+                if !safe_path.pop() || safe_path.as_os_str().is_empty() {
+                    log::warn!("Path escape attempt via parent dir: {:?}", resolved);
+                    return Err(PathResolveError::PathEscape);
+                }
+                if !safe_path.starts_with(home_canon) {
+                    log::warn!("Path escape attempt: {:?}", resolved);
+                    return Err(PathResolveError::PathEscape);
+                }
                 depth = depth.saturating_sub(1);
             }
             std::path::Component::Prefix(_) | std::path::Component::RootDir => {
-                safe_path = home_canon.to_path_buf();
-                depth = 0;
+                log::warn!("Invalid path component (prefix/root) in: {:?}", resolved);
+                return Err(PathResolveError::InvalidPath);
             }
             std::path::Component::CurDir => {}
         }
@@ -132,47 +122,41 @@ fn build_safe_path(home_canon: &Path, resolved: &Path) -> Result<PathBuf, PathRe
     Ok(safe_path)
 }
 
-pub fn safe_resolve_path(cwd: &str, home_dir: &str, path: &str) -> PathBuf {
+pub fn safe_resolve_path(cwd: &str, home_dir: &str, path: &str) -> Result<PathBuf, PathResolveError> {
     let home = PathBuf::from(home_dir);
-    let home_canon = match home.canonicalize() {
-        Ok(c) => c,
-        Err(e) => {
-            log::warn!("Failed to canonicalize home directory: {}", e);
-            return home;
-        }
-    };
+    let home_canon = home
+        .canonicalize()
+        .map_err(|e| {
+            log::error!("Failed to canonicalize home directory '{}': {}", home_dir, e);
+            PathResolveError::HomeDirectoryNotFound
+        })?;
 
-    let resolved = resolve_path_internal(cwd, &home_canon, path);
+    let resolved = resolve_path_internal(cwd, &home_canon, path)?;
 
     if resolved.exists() {
-        if is_path_safe(&resolved, &home_canon) {
-            match resolved.canonicalize() {
-                Ok(canon) => canon,
-                Err(_) => home_canon,
-            }
-        } else {
+        let canon = resolved
+            .canonicalize()
+            .map_err(|e| {
+                log::warn!("Failed to canonicalize path '{:?}': {}", resolved, e);
+                PathResolveError::CanonicalizeFailed
+            })?;
+
+        if !canon.starts_with(&home_canon) {
             log::warn!("Path escape attempt detected: {:?}", resolved);
-            home_canon
+            return Err(PathResolveError::PathEscape);
         }
+        Ok(canon)
     } else {
-        match build_safe_path(&home_canon, &resolved) {
-            Ok(safe_path) => {
-                if is_path_safe(&safe_path, &home_canon) {
-                    safe_path
-                } else {
-                    log::warn!(
-                        "Path escape attempt detected in non-existent path: {:?}",
-                        safe_path
-                    );
-                    home_canon
-                }
-            }
-            Err(PathResolveError::PathTooDeep) => {
-                log::warn!("Path too deep: {:?}", resolved);
-                home_canon
-            }
-            Err(_) => home_canon,
+        let safe_path = build_safe_path(&home_canon, &resolved)?;
+
+        if !safe_path.starts_with(&home_canon) {
+            log::warn!(
+                "Path escape attempt detected in non-existent path: {:?}",
+                safe_path
+            );
+            return Err(PathResolveError::PathEscape);
         }
+        Ok(safe_path)
     }
 }
 
@@ -184,9 +168,9 @@ pub fn resolve_directory_path(
     let home = PathBuf::from(home_dir);
     let home_canon = home
         .canonicalize()
-        .map_err(|_| PathResolveError::NotFound)?;
+        .map_err(|_| PathResolveError::HomeDirectoryNotFound)?;
 
-    let resolved = resolve_path_internal(cwd, &home_canon, path);
+    let resolved = resolve_path_internal(cwd, &home_canon, path)?;
 
     if !resolved.exists() {
         return Err(PathResolveError::NotFound);
@@ -194,7 +178,7 @@ pub fn resolve_directory_path(
 
     let canon = resolved
         .canonicalize()
-        .map_err(|_| PathResolveError::NotFound)?;
+        .map_err(|_| PathResolveError::CanonicalizeFailed)?;
 
     if !canon.starts_with(&home_canon) {
         log::warn!("Path escape attempt detected: {:?}", resolved);
@@ -208,52 +192,40 @@ pub fn resolve_directory_path(
     Ok(canon)
 }
 
-pub fn safe_resolve_path_with_cwd(cwd: &str, home_dir: &str, path: &str) -> PathBuf {
+pub fn safe_resolve_path_with_cwd(cwd: &str, home_dir: &str, path: &str) -> Result<PathBuf, PathResolveError> {
     let home = PathBuf::from(home_dir);
-    let home_canon = if home.exists() {
-        match home.canonicalize() {
-            Ok(c) => c,
-            Err(e) => {
-                log::warn!("Failed to canonicalize home directory: {}", e);
-                return PathBuf::from(cwd);
-            }
-        }
-    } else {
-        log::warn!("Home directory does not exist: {:?}", home);
-        return PathBuf::from(cwd);
-    };
+    let home_canon = home
+        .canonicalize()
+        .map_err(|e| {
+            log::warn!("Failed to canonicalize home directory: {}", e);
+            PathResolveError::HomeDirectoryNotFound
+        })?;
 
-    let resolved = resolve_path_internal(cwd, &home_canon, path);
+    let resolved = resolve_path_internal(cwd, &home_canon, path)?;
 
     if resolved.exists() {
-        if is_path_safe(&resolved, &home_canon) {
-            match resolved.canonicalize() {
-                Ok(canon) => canon,
-                Err(_) => home_canon,
-            }
-        } else {
+        let canon = resolved
+            .canonicalize()
+            .map_err(|e| {
+                log::warn!("Failed to canonicalize path: {}", e);
+                PathResolveError::CanonicalizeFailed
+            })?;
+
+        if !canon.starts_with(&home_canon) {
             log::warn!("Path escape attempt detected: {:?}", resolved);
-            home_canon
+            return Err(PathResolveError::PathEscape);
         }
+        Ok(canon)
     } else {
-        match build_safe_path(&home_canon, &resolved) {
-            Ok(safe_path) => {
-                if is_path_safe(&safe_path, &home_canon) {
-                    safe_path
-                } else {
-                    log::warn!(
-                        "Path escape attempt detected in non-existent path: {:?}",
-                        safe_path
-                    );
-                    home_canon
-                }
-            }
-            Err(PathResolveError::PathTooDeep) => {
-                log::warn!("Path too deep: {:?}", resolved);
-                home_canon
-            }
-            Err(_) => home_canon,
+        let safe_path = build_safe_path(&home_canon, &resolved)?;
+
+        if !safe_path.starts_with(&home_canon) {
+            log::warn!(
+                "Path escape attempt detected in non-existent path: {:?}",
+                safe_path
+            );
+            return Err(PathResolveError::PathEscape);
         }
+        Ok(safe_path)
     }
 }
-

@@ -45,13 +45,22 @@ impl FtpServer {
     }
 
     pub fn start(&self) -> Result<()> {
-        let (bind_ip, ftp_port) = {
+        let (bind_ip, ftp_port, warnings) = {
             let cfg = match self.config.lock() {
                 Ok(guard) => guard,
                 Err(e) => return Err(anyhow::anyhow!("获取配置锁失败: {}", e)),
             };
-            (cfg.ftp.bind_ip.clone(), cfg.server.ftp_port)
+            let warnings = cfg.validate_paths();
+            (cfg.ftp.bind_ip.clone(), cfg.server.ftp_port, warnings)
         };
+
+        if !warnings.is_empty() {
+            for warning in &warnings {
+                log::error!("配置验证失败: {}", warning);
+            }
+            return Err(anyhow::anyhow!("配置路径验证失败: {}", warnings.join("; ")));
+        }
+
         let bind_addr = format!("{}:{}", bind_ip, ftp_port);
         
         let listener = TcpListener::bind(&bind_addr)?;
@@ -247,11 +256,9 @@ fn handle_ftp_connection(
     let mut authenticated = false;
     let mut data_port: Option<u16> = None;
     let mut data_addr: Option<String> = None;
-    let mut passive_mode;
-    let mut cwd;
-    let mut home_dir;
-    let mut transfer_mode;
-    {
+    let mut cwd: String = String::new();
+    let mut home_dir: String = String::new();
+    let (mut transfer_mode, mut passive_mode) = {
         let cfg = match config.lock() {
             Ok(guard) => guard,
             Err(_) => {
@@ -260,19 +267,8 @@ fn handle_ftp_connection(
                 return Ok(());
             }
         };
-        let default_home = PathBuf::from(&cfg.ftp.default_home);
-        let home_canon = match default_home.canonicalize() {
-            Ok(c) => c.to_string_lossy().to_string(),
-            Err(e) => {
-                log::error!("Failed to canonicalize home directory: {} - {}", cfg.ftp.default_home, e);
-                cfg.ftp.default_home.clone()
-            }
-        };
-        cwd = home_canon.clone();
-        home_dir = home_canon;
-        transfer_mode = cfg.ftp.default_transfer_mode.clone();
-        passive_mode = cfg.ftp.default_passive_mode;
-    }
+        (cfg.ftp.default_transfer_mode.clone(), cfg.ftp.default_passive_mode)
+    };
 
     let mut rest_offset: u64 = 0;
     let mut rename_from: Option<String> = None;
@@ -336,32 +332,34 @@ fn handle_ftp_connection(
                 if let Some(ref username) = current_user {
                     if username == "anonymous" {
                         if allow_anonymous {
-                            authenticated = true;
-                            let user_home = if let Some(ref anon_home) = anonymous_home {
-                                anon_home.clone()
+                            if let Some(ref anon_home) = anonymous_home {
+                                match PathBuf::from(anon_home).canonicalize() {
+                                    Ok(home_canon) => {
+                                        cwd = home_canon.to_string_lossy().to_string();
+                                        home_dir = cwd.clone();
+                                        authenticated = true;
+                                        stream.write_all(b"230 Anonymous user logged in\r\n")?;
+                                        if let Ok(mut logger_guard) = logger.lock() {
+                                            logger_guard.client_action(
+                                                "FTP",
+                                                "Anonymous user logged in",
+                                                &remote_ip,
+                                                Some("anonymous"),
+                                                "LOGIN",
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("PASS failed: cannot canonicalize anonymous home directory '{}': {}", anon_home, e);
+                                        stream.write_all(b"550 Anonymous home directory not found\r\n")?;
+                                        current_user = None;
+                                        continue;
+                                    }
+                                }
                             } else {
-                                config.lock()
-                                    .map(|g| g.ftp.default_home.clone())
-                                    .unwrap_or_else(|_| cwd.clone())
-                            };
-                            let home_canon = PathBuf::from(&user_home)
-                                .canonicalize()
-                                .map(|p| p.to_string_lossy().to_string())
-                                .unwrap_or_else(|e| {
-                                    log::warn!("无法规范化路径 {}: {}", user_home, e);
-                                    user_home.clone()
-                                });
-                            cwd = home_canon.clone();
-                            home_dir = home_canon;
-                            stream.write_all(b"230 Anonymous user logged in\r\n")?;
-                            if let Ok(mut logger_guard) = logger.lock() {
-                                logger_guard.client_action(
-                                    "FTP",
-                                    "Anonymous user logged in",
-                                    &remote_ip,
-                                    Some("anonymous"),
-                                    "LOGIN",
-                                );
+                                log::error!("PASS failed: anonymous access allowed but no anonymous_home configured");
+                                stream.write_all(b"530 Anonymous home directory not configured\r\n")?;
+                                current_user = None;
                             }
                         } else {
                             stream.write_all(b"530 Anonymous access not allowed\r\n")?;
@@ -386,15 +384,19 @@ fn handle_ftp_connection(
                                 authenticated = true;
                                 if let Ok(users) = user_manager.lock()
                                     && let Some(user) = users.get_user(username) {
-                                        let home_canon = PathBuf::from(&user.home_dir)
-                                            .canonicalize()
-                                            .map(|p| p.to_string_lossy().to_string())
-                                            .unwrap_or_else(|e| {
-                                                log::warn!("无法规范化路径 {}: {}", user.home_dir, e);
-                                                user.home_dir.clone()
-                                            });
-                                        cwd = home_canon.clone();
-                                        home_dir = home_canon;
+                                        match PathBuf::from(&user.home_dir).canonicalize() {
+                                            Ok(home_canon) => {
+                                                cwd = home_canon.to_string_lossy().to_string();
+                                                home_dir = cwd.clone();
+                                            }
+                                            Err(e) => {
+                                                log::error!("PASS failed: cannot canonicalize user home directory '{}': {}", user.home_dir, e);
+                                                stream.write_all(b"550 Home directory not found\r\n")?;
+                                                authenticated = false;
+                                                current_user = None;
+                                                continue;
+                                            }
+                                        }
                                     }
                                 stream.write_all(b"230 User logged in\r\n")?;
                                 if let Ok(mut logger_guard) = logger.lock() {
@@ -566,13 +568,19 @@ fn handle_ftp_connection(
                 }
 
                 if let Some(dir) = arg {
-                    let new_path = safe_resolve_path(&cwd, &home_dir, dir);
-
-                    if new_path.exists() && new_path.is_dir() && new_path.starts_with(&home_dir) {
-                        cwd = new_path.to_string_lossy().to_string();
-                        stream.write_all(b"250 Directory successfully changed\r\n")?;
-                    } else {
-                        stream.write_all(b"550 Failed to change directory\r\n")?;
+                    match safe_resolve_path(&cwd, &home_dir, dir) {
+                        Ok(new_path) => {
+                            if new_path.exists() && new_path.is_dir() && new_path.starts_with(&home_dir) {
+                                cwd = new_path.to_string_lossy().to_string();
+                                stream.write_all(b"250 Directory successfully changed\r\n")?;
+                            } else {
+                                stream.write_all(b"550 Failed to change directory\r\n")?;
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("CWD failed for '{}': {}", dir, e);
+                            stream.write_all(format!("550 {}\r\n", e).as_bytes())?;
+                        }
                     }
                 } else {
                     stream.write_all(b"501 Syntax error: CWD requires directory parameter\r\n")?;
@@ -580,12 +588,19 @@ fn handle_ftp_connection(
             }
 
             "CDUP" | "XCUP" => {
-                let new_path = safe_resolve_path(&cwd, &home_dir, "..");
-                if new_path.starts_with(&home_dir) && new_path.exists() {
-                    cwd = new_path.to_string_lossy().to_string();
-                    stream.write_all(b"250 Directory changed\r\n")?;
-                } else {
-                    stream.write_all(b"550 Cannot change to parent directory: Permission denied\r\n")?;
+                match safe_resolve_path(&cwd, &home_dir, "..") {
+                    Ok(new_path) => {
+                        if new_path.starts_with(&home_dir) && new_path.exists() {
+                            cwd = new_path.to_string_lossy().to_string();
+                            stream.write_all(b"250 Directory changed\r\n")?;
+                        } else {
+                            stream.write_all(b"550 Cannot change to parent directory: Permission denied\r\n")?;
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("CDUP failed: {}", e);
+                        stream.write_all(format!("550 {}\r\n", e).as_bytes())?;
+                    }
                 }
             }
 
@@ -650,7 +665,14 @@ fn handle_ftp_connection(
                 }
 
                 let target_path = if let Some(path_arg) = arg {
-                    safe_resolve_path(&cwd, &home_dir, path_arg)
+                    match safe_resolve_path(&cwd, &home_dir, path_arg) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::warn!("MLST failed for '{}': {}", path_arg, e);
+                            stream.write_all(format!("550 {}\r\n", e).as_bytes())?;
+                            continue;
+                        }
+                    }
                 } else {
                     Path::new(&cwd).to_path_buf()
                 };
@@ -940,6 +962,18 @@ fn handle_ftp_connection(
                             stream.write_all(b"550 Path too deep\r\n")?;
                             continue;
                         }
+                        Err(PathResolveError::HomeDirectoryNotFound) => {
+                            stream.write_all(b"550 Home directory not found\r\n")?;
+                            continue;
+                        }
+                        Err(PathResolveError::CanonicalizeFailed) => {
+                            stream.write_all(b"550 Failed to resolve path\r\n")?;
+                            continue;
+                        }
+                        Err(PathResolveError::InvalidPath) => {
+                            stream.write_all(b"550 Invalid path\r\n")?;
+                            continue;
+                        }
                     }
                 } else {
                     PathBuf::from(&cwd)
@@ -1021,6 +1055,18 @@ fn handle_ftp_connection(
                             stream.write_all(b"550 Path too deep\r\n")?;
                             continue;
                         }
+                        Err(PathResolveError::HomeDirectoryNotFound) => {
+                            stream.write_all(b"550 Home directory not found\r\n")?;
+                            continue;
+                        }
+                        Err(PathResolveError::CanonicalizeFailed) => {
+                            stream.write_all(b"550 Failed to resolve path\r\n")?;
+                            continue;
+                        }
+                        Err(PathResolveError::InvalidPath) => {
+                            stream.write_all(b"550 Invalid path\r\n")?;
+                            continue;
+                        }
                     }
                 } else {
                     PathBuf::from(&cwd)
@@ -1057,7 +1103,14 @@ fn handle_ftp_connection(
                 }
 
                 if let Some(filename) = arg {
-                    let file_path = safe_resolve_path(&cwd, &home_dir, filename);
+                    let file_path = match safe_resolve_path(&cwd, &home_dir, filename) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::warn!("RETR failed for '{}': {}", filename, e);
+                            stream.write_all(format!("550 {}\r\n", e).as_bytes())?;
+                            continue;
+                        }
+                    };
 
                     if !file_path.exists() || !file_path.is_file() || !file_path.starts_with(&home_dir) {
                         stream.write_all(b"550 File not found\r\n")?;
@@ -1164,7 +1217,14 @@ fn handle_ftp_connection(
                             }
                     }
 
-                    let file_path = safe_resolve_path(&cwd, &home_dir, filename);
+                    let file_path = match safe_resolve_path(&cwd, &home_dir, filename) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::warn!("STOR failed for '{}': {}", filename, e);
+                            stream.write_all(format!("550 {}\r\n", e).as_bytes())?;
+                            continue;
+                        }
+                    };
                     log::info!("STOR: raw='{}', resolved='{}', starts_with={}", filename, file_path.display(), file_path.starts_with(&home_dir));
                     if !file_path.starts_with(&home_dir) {
                         log::warn!("STOR denied: path outside home - {}", file_path.display());
@@ -1286,7 +1346,14 @@ fn handle_ftp_connection(
                             }
                     }
 
-                    let file_path = safe_resolve_path(&cwd, &home_dir, filename);
+                    let file_path = match safe_resolve_path(&cwd, &home_dir, filename) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::warn!("APPE failed for '{}': {}", filename, e);
+                            stream.write_all(format!("550 {}\r\n", e).as_bytes())?;
+                            continue;
+                        }
+                    };
                     if !file_path.starts_with(&home_dir) {
                         stream.write_all(b"550 Permission denied\r\n")?;
                         continue;
@@ -1369,7 +1436,14 @@ fn handle_ftp_connection(
                 }
 
                 if let Some(filename) = arg {
-                    let file_path = safe_resolve_path(&cwd, &home_dir, filename);
+                    let file_path = match safe_resolve_path(&cwd, &home_dir, filename) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::warn!("DELE failed for '{}': {}", filename, e);
+                            stream.write_all(format!("550 {}\r\n", e).as_bytes())?;
+                            continue;
+                        }
+                    };
                     if !file_path.starts_with(&home_dir) {
                         stream.write_all(b"550 Permission denied\r\n")?;
                         continue;
@@ -1413,7 +1487,14 @@ fn handle_ftp_connection(
                 }
 
                 if let Some(dirname) = arg {
-                    let dir_path = safe_resolve_path(&cwd, &home_dir, dirname);
+                    let dir_path = match safe_resolve_path(&cwd, &home_dir, dirname) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::warn!("MKD failed for '{}': {}", dirname, e);
+                            stream.write_all(format!("550 {}\r\n", e).as_bytes())?;
+                            continue;
+                        }
+                    };
                     if !dir_path.starts_with(&home_dir) {
                         stream.write_all(b"550 Permission denied\r\n")?;
                         continue;
@@ -1458,7 +1539,14 @@ fn handle_ftp_connection(
                 }
 
                 if let Some(dirname) = arg {
-                    let dir_path = safe_resolve_path(&cwd, &home_dir, dirname);
+                    let dir_path = match safe_resolve_path(&cwd, &home_dir, dirname) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::warn!("RMD failed for '{}': {}", dirname, e);
+                            stream.write_all(format!("550 {}\r\n", e).as_bytes())?;
+                            continue;
+                        }
+                    };
                     if !dir_path.starts_with(&home_dir) {
                         stream.write_all(b"550 Permission denied\r\n")?;
                         continue;
@@ -1502,7 +1590,14 @@ fn handle_ftp_connection(
                 }
 
                 if let Some(from_name) = arg {
-                    let from_path = safe_resolve_path(&cwd, &home_dir, from_name);
+                    let from_path = match safe_resolve_path(&cwd, &home_dir, from_name) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::warn!("RNFR failed for '{}': {}", from_name, e);
+                            stream.write_all(format!("550 {}\r\n", e).as_bytes())?;
+                            continue;
+                        }
+                    };
                     log::info!("RNFR: raw='{}', resolved='{}', exists={}, starts_with={}", 
                         from_name, from_path.display(), from_path.exists(), from_path.starts_with(&home_dir));
                     if from_path.exists() && from_path.starts_with(&home_dir) {
@@ -1523,7 +1618,15 @@ fn handle_ftp_connection(
             "RNTO" => {
                 if let Some(ref from_path) = rename_from {
                     if let Some(to_name) = arg {
-                        let to_path = safe_resolve_path(&cwd, &home_dir, to_name);
+                        let to_path = match safe_resolve_path(&cwd, &home_dir, to_name) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                log::warn!("RNTO failed for '{}': {}", to_name, e);
+                                stream.write_all(format!("550 {}\r\n", e).as_bytes())?;
+                                rename_from = None;
+                                continue;
+                            }
+                        };
                         log::info!("RNTO: raw='{}', resolved='{}', from='{}'", to_name, to_path.display(), from_path);
                         if !to_path.starts_with(&home_dir) {
                             log::warn!("RNTO failed: destination outside home - {}", to_path.display());
@@ -1566,7 +1669,14 @@ fn handle_ftp_connection(
 
             "SIZE" => {
                 if let Some(filename) = arg {
-                    let file_path = safe_resolve_path(&cwd, &home_dir, filename);
+                    let file_path = match safe_resolve_path(&cwd, &home_dir, filename) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::warn!("SIZE failed for '{}': {}", filename, e);
+                            stream.write_all(format!("550 {}\r\n", e).as_bytes())?;
+                            continue;
+                        }
+                    };
                     if file_path.starts_with(&home_dir) {
                         if let Ok(metadata) = std::fs::metadata(&file_path) {
                             stream.write_all(format!("213 {}\r\n", metadata.len()).as_bytes())?;
@@ -1581,7 +1691,14 @@ fn handle_ftp_connection(
 
             "MDTM" => {
                 if let Some(filename) = arg {
-                    let file_path = safe_resolve_path(&cwd, &home_dir, filename);
+                    let file_path = match safe_resolve_path(&cwd, &home_dir, filename) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::warn!("MDTM failed for '{}': {}", filename, e);
+                            stream.write_all(format!("550 {}\r\n", e).as_bytes())?;
+                            continue;
+                        }
+                    };
                     if file_path.starts_with(&home_dir) {
                         if let Ok(metadata) = std::fs::metadata(&file_path) {
                             let mtime = get_file_mtime_raw(&metadata);
@@ -1644,7 +1761,14 @@ fn handle_ftp_connection(
                     rand::random::<u32>()
                 );
                 
-                let file_path = safe_resolve_path(&cwd, &home_dir, &unique_name);
+                let file_path = match safe_resolve_path(&cwd, &home_dir, &unique_name) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        log::warn!("STOU failed: {}", e);
+                        stream.write_all(format!("550 {}\r\n", e).as_bytes())?;
+                        continue;
+                    }
+                };
                 if !file_path.starts_with(&home_dir) {
                     stream.write_all(b"550 Permission denied\r\n")?;
                     continue;
@@ -1705,27 +1829,10 @@ fn handle_ftp_connection(
             "REIN" => {
                 authenticated = false;
                 current_user = None;
-                {
-                    let cfg = match config.lock() {
-                        Ok(guard) => guard,
-                        Err(_) => {
-                            stream.write_all(b"500 Internal server error\r\n")?;
-                            continue;
-                        }
-                    };
-                    let home_canon = PathBuf::from(&cfg.ftp.default_home)
-                        .canonicalize()
-                        .map(|p| p.to_string_lossy().to_string())
-                        .unwrap_or_else(|e| {
-                            log::warn!("无法规范化路径 {}: {}", cfg.ftp.default_home, e);
-                            cfg.ftp.default_home.clone()
-                        });
-                    cwd = home_canon.clone();
-                    home_dir = home_canon;
-                }
+                cwd = String::new();
+                home_dir = String::new();
                 data_port = None;
                 data_addr = None;
-                passive_mode = false;
                 rest_offset = 0;
                 rename_from = None;
                 stream.write_all(b"220 Service ready for new user\r\n")?;

@@ -28,7 +28,6 @@ pub struct FtpConfig {
     pub enabled: bool,
     #[serde(default = "default_bind_ip")]
     pub bind_ip: String,
-    pub default_home: String,
     pub passive_ports: (u16, u16),
     pub welcome_message: String,
     pub allow_anonymous: bool,
@@ -65,7 +64,6 @@ pub struct SftpConfig {
     pub enabled: bool,
     #[serde(default = "default_bind_ip")]
     pub bind_ip: String,
-    pub default_home: String,
     pub host_key_path: String,
     pub max_auth_attempts: u32,
     pub auth_timeout: u64,
@@ -105,26 +103,25 @@ pub fn get_program_data_path() -> PathBuf {
     PathBuf::from(&program_data).join("wftpg")
 }
 
-fn get_default_paths() -> (String, String, String, String) {
+fn get_default_paths() -> (String, String, String) {
     let base_path = get_program_data_path();
     
-    let default_home = base_path.join("share").to_string_lossy().to_string();
-    let anonymous_home = base_path.join("anonymous").to_string_lossy().to_string();
     let log_dir = base_path.join("logs").to_string_lossy().to_string();
     let host_key_path = base_path.join("ssh\\ssh_host_rsa_key").to_string_lossy().to_string();
+    let anonymous_home = base_path.join("anonymous").to_string_lossy().to_string();
     
-    (default_home, anonymous_home, log_dir, host_key_path)
+    (log_dir, host_key_path, anonymous_home)
 }
 
 impl Default for Config {
     fn default() -> Self {
-        let (default_home, anonymous_home, log_dir, host_key_path) = get_default_paths();
+        let (log_dir, host_key_path, anonymous_home) = get_default_paths();
         
         Config {
             server: ServerConfig {
                 bind_ip: "0.0.0.0".to_string(),
                 ftp_port: 21,
-                sftp_port: 2222,  // 改为2222避免与系统SSH冲突
+                sftp_port: 2222,
                 max_connections: 100,
                 connection_timeout: 300,
                 idle_timeout: 600,
@@ -132,7 +129,6 @@ impl Default for Config {
             ftp: FtpConfig {
                 enabled: true,
                 bind_ip: "0.0.0.0".to_string(),
-                default_home: default_home.clone(),
                 passive_ports: (50000, 50100),
                 welcome_message: "Welcome to WFTPG FTP Server".to_string(),
                 allow_anonymous: false,
@@ -145,7 +141,6 @@ impl Default for Config {
             sftp: SftpConfig {
                 enabled: true,
                 bind_ip: "0.0.0.0".to_string(),
-                default_home,
                 host_key_path,
                 max_auth_attempts: 3,
                 auth_timeout: 60,
@@ -194,17 +189,17 @@ impl Config {
     pub fn validate_paths(&self) -> Vec<String> {
         let mut warnings = Vec::new();
         
-        if let Err(e) = Self::validate_home_path(&self.ftp.default_home, "FTP默认主目录") {
-            warnings.push(e);
-        }
-        
-        if let Some(ref anon_home) = self.ftp.anonymous_home
-            && let Err(e) = Self::validate_home_path(anon_home, "FTP匿名用户主目录") {
-                warnings.push(e);
+        if self.ftp.allow_anonymous {
+            match &self.ftp.anonymous_home {
+                None => {
+                    warnings.push("匿名用户已启用，但未配置匿名用户主目录".to_string());
+                }
+                Some(anon_home) => {
+                    if let Err(e) = Self::validate_home_path(anon_home, "FTP匿名用户主目录") {
+                        warnings.push(e);
+                    }
+                }
             }
-        
-        if let Err(e) = Self::validate_home_path(&self.sftp.default_home, "SFTP默认主目录") {
-            warnings.push(e);
         }
         
         warnings

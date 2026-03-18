@@ -120,18 +120,6 @@ impl ServerTab {
 
                     ui.horizontal(|ui| {
                         ui.add_space(styles::SPACING_MD);
-                        ui.label(RichText::new("默认主目录:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
-                        ui.add_space(styles::SPACING_SM);
-                        styles::input_frame().show(ui, |ui| {
-                            ui.add(egui::TextEdit::singleline(&mut self.config.ftp.default_home)
-                                .desired_width(350.0)
-                                .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
-                        });
-                    });
-                    ui.add_space(styles::SPACING_XS);
-
-                    ui.horizontal(|ui| {
-                        ui.add_space(styles::SPACING_MD);
                         ui.label(RichText::new("欢迎消息:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
                         ui.add_space(styles::SPACING_SM);
                         styles::input_frame().show(ui, |ui| {
@@ -214,6 +202,14 @@ impl ServerTab {
                             self.config.ftp.anonymous_home = if anon_home.is_empty() { None } else { Some(anon_home) };
                         });
                         ui.add_space(styles::SPACING_XS);
+                        
+                        if self.config.ftp.anonymous_home.as_ref().is_none_or(|s| s.trim().is_empty()) {
+                            ui.horizontal(|ui| {
+                                ui.add_space(styles::SPACING_MD);
+                                ui.label(RichText::new("⚠ 匿名用户目录未配置，匿名访问将无法使用").size(styles::FONT_SIZE_SM).color(egui::Color32::from_rgb(255, 165, 0)));
+                            });
+                            ui.add_space(styles::SPACING_XS);
+                        }
                     }
 
                     ui.horizontal(|ui| {
@@ -305,18 +301,6 @@ impl ServerTab {
                             self.config.server.sftp_port = p;
                         }
                         ui.label(RichText::new("(建议2222)").size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
-                    });
-                    ui.add_space(styles::SPACING_XS);
-
-                    ui.horizontal(|ui| {
-                        ui.add_space(styles::SPACING_MD);
-                        ui.label(RichText::new("默认主目录:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
-                        ui.add_space(styles::SPACING_SM);
-                        styles::input_frame().show(ui, |ui| {
-                            ui.add(egui::TextEdit::singleline(&mut self.config.sftp.default_home)
-                                .desired_width(350.0)
-                                .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
-                        });
                     });
                     ui.add_space(styles::SPACING_XS);
 

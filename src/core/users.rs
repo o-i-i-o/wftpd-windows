@@ -14,12 +14,20 @@ use std::path::Path;
 pub struct User {
     pub username: String,
     pub password_hash: String,
+    #[serde(default)]
     pub home_dir: String,
+    #[serde(default)]
     pub permissions: Permissions,
     pub created_at: DateTime<Utc>,
     pub last_login: Option<DateTime<Utc>>,
+    #[serde(default = "default_enabled")]
     pub enabled: bool,
+    #[serde(default)]
     pub is_admin: bool,
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
@@ -149,7 +157,12 @@ impl UserManager {
             anyhow::bail!("User already exists: {}", username);
         }
 
-        Self::validate_home_dir(home_dir)?;
+        let home_dir = home_dir.trim();
+        if home_dir.is_empty() {
+            anyhow::bail!("用户主目录不能为空");
+        }
+
+        Self::validate_and_prepare_home_dir(home_dir)?;
 
         let password_hash = Self::hash_password(password)?;
         let user = User {
@@ -167,14 +180,38 @@ impl UserManager {
         Ok(())
     }
 
-    fn validate_home_dir(home_dir: &str) -> Result<()> {
+    fn validate_and_prepare_home_dir(home_dir: &str) -> Result<()> {
         let path = std::path::Path::new(home_dir);
-        if !path.exists() {
-            log::warn!("用户主目录不存在: {}，将在首次访问时创建", home_dir);
-        } else if !path.is_dir() {
-            anyhow::bail!("用户主目录不是有效目录: {}", home_dir);
+        
+        if home_dir.trim().is_empty() {
+            anyhow::bail!("用户主目录不能为空");
         }
-        Ok(())
+
+        if path.exists() {
+            if !path.is_dir() {
+                anyhow::bail!("用户主目录不是有效目录: {}", home_dir);
+            }
+            match path.canonicalize() {
+                Ok(_) => Ok(()),
+                Err(e) => anyhow::bail!("用户主目录路径无效 '{}': {}", home_dir, e),
+            }
+        } else {
+            if let Some(parent) = path.parent() {
+                if parent.exists() || parent.to_string_lossy().is_empty() {
+                    match std::fs::create_dir_all(path) {
+                        Ok(_) => {
+                            log::info!("已创建用户主目录: {}", home_dir);
+                            Ok(())
+                        }
+                        Err(e) => anyhow::bail!("无法创建用户主目录 '{}': {}", home_dir, e),
+                    }
+                } else {
+                    anyhow::bail!("用户主目录的父目录不存在: {}", parent.to_string_lossy());
+                }
+            } else {
+                anyhow::bail!("用户主目录路径无效: {}", home_dir);
+            }
+        }
     }
 
     pub fn remove_user(&mut self, username: &str) -> Result<()> {
@@ -200,7 +237,12 @@ impl UserManager {
             .get_mut(username)
             .ok_or_else(|| anyhow::anyhow!("User not found: {}", username))?;
 
-        Self::validate_home_dir(home_dir)?;
+        let home_dir = home_dir.trim();
+        if home_dir.is_empty() {
+            anyhow::bail!("用户主目录不能为空");
+        }
+
+        Self::validate_and_prepare_home_dir(home_dir)?;
 
         user.home_dir = home_dir.to_string();
         Ok(())
