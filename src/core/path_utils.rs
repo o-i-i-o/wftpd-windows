@@ -72,14 +72,14 @@ fn is_absolute_ftp_path(path: &str) -> bool {
     if first_char == '/' || first_char == '\\' {
         return true;
     }
-    if let Some(colon_pos) = path.find(':') {
-        if colon_pos == 1 {
-            if path.len() > 2 {
-                let third_char = path.chars().nth(2).unwrap();
-                return third_char == '/' || third_char == '\\';
-            }
-            return true;
+    if let Some(colon_pos) = path.find(':')
+        && colon_pos == 1
+    {
+        if path.len() > 2 {
+            let third_char = path.chars().nth(2).unwrap();
+            return third_char == '/' || third_char == '\\';
         }
+        return true;
     }
     false
 }

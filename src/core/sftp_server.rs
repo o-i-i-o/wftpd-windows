@@ -17,6 +17,13 @@ use crate::core::users::UserManager;
 use crate::core::file_logger::{FileLogger, FileLogInfo};
 use crate::core::path_utils::{safe_resolve_path_with_cwd, to_ftp_path};
 
+const SSH_FXF_READ: u32 = 0x00000001;
+const SSH_FXF_WRITE: u32 = 0x00000002;
+const SSH_FXF_APPEND: u32 = 0x00000004;
+const SSH_FXF_CREAT: u32 = 0x00000008;
+const SSH_FXF_TRUNC: u32 = 0x00000010;
+const SSH_FXF_EXCL: u32 = 0x00000020;
+
 #[derive(Clone)]
 pub struct SftpServer {
     config: Arc<StdMutex<Config>>,
@@ -1268,9 +1275,12 @@ impl SftpState {
         let pflags_pos = 5 + 4 + path_len;
         let pflags = self.parse_u32(data, pflags_pos);
 
-        let need_read = pflags & 0x00000001 != 0;
-        let need_write = pflags & 0x00000002 != 0;
-        let need_append = pflags & 0x00000008 != 0;
+        let need_read = pflags & SSH_FXF_READ != 0;
+        let need_write = pflags & SSH_FXF_WRITE != 0;
+        let need_append = pflags & SSH_FXF_APPEND != 0;
+        let need_creat = pflags & SSH_FXF_CREAT != 0;
+        let need_trunc = pflags & SSH_FXF_TRUNC != 0;
+        let need_excl = pflags & SSH_FXF_EXCL != 0;
 
         if !self.check_permission(|p| {
             (!need_read || p.can_read) &&
@@ -1285,28 +1295,37 @@ impl SftpState {
         let full_path = self.resolve_path(&path);
         let file_existed = full_path.exists();
 
-        log::info!("SFTP OPEN: raw='{}', resolved='{}', existed={}, flags=0x{:08X}", 
-            path, full_path.display(), file_existed, pflags);
+        log::info!("SFTP OPEN: raw='{}', resolved='{}', existed={}, flags=0x{:08X} (read={}, write={}, append={}, creat={}, trunc={}, excl={})", 
+            path, full_path.display(), file_existed, pflags, need_read, need_write, need_append, need_creat, need_trunc, need_excl);
 
-        let file_result = if pflags & 0x00000002 != 0 {
-            if pflags & 0x00000010 != 0 {
+        let file_result = if need_write {
+            if need_excl && need_creat && file_existed {
+                return Ok(self.build_status_packet(id, 4, "File already exists", ""));
+            }
+            
+            if need_append {
                 tokio::fs::OpenOptions::new()
                     .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(&full_path).await
-            } else if pflags & 0x00000008 != 0 {
-                tokio::fs::OpenOptions::new()
-                    .write(true)
-                    .create(true)
+                    .create(need_creat)
                     .append(true)
                     .open(&full_path).await
-            } else {
+            } else if need_trunc {
                 tokio::fs::OpenOptions::new()
-                    .read(true)
+                    .write(true)
+                    .create(need_creat)
+                    .truncate(true)
+                    .open(&full_path).await
+            } else if need_creat {
+                tokio::fs::OpenOptions::new()
+                    .read(need_read)
                     .write(true)
                     .create(true)
                     .truncate(false)
+                    .open(&full_path).await
+            } else {
+                tokio::fs::OpenOptions::new()
+                    .read(need_read)
+                    .write(true)
                     .open(&full_path).await
             }
         } else {
