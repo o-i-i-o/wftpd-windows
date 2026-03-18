@@ -1,6 +1,7 @@
 use egui::{RichText, Ui, Color32, Frame};
 use crate::core::users::{User, UserManager, Permissions};
 use crate::core::config::Config;
+use crate::gui_egui::styles;
 
 #[derive(Debug, Clone, PartialEq)]
 enum ModalMode {
@@ -252,7 +253,7 @@ impl UserTab {
         let ctx = ui.ctx().clone();
         self.show_modal(&ctx);
 
-        ui.heading("👥 用户管理");
+        ui.heading(RichText::new("👥 用户管理").color(styles::TEXT_PRIMARY_COLOR));
         ui.separator();
 
         if let Some((msg, ok)) = &self.status_message.clone() {
@@ -317,11 +318,11 @@ impl UserTab {
                     .inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 6 })
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.add_sized([180.0, 16.0], egui::Label::new(RichText::new("用户名").strong().size(12.0)));
-                            ui.add_sized([280.0, 16.0], egui::Label::new(RichText::new("主目录").strong().size(12.0)));
-                            ui.add_sized([80.0, 16.0], egui::Label::new(RichText::new("权限").strong().size(12.0)));
-                            ui.add_sized([80.0, 16.0], egui::Label::new(RichText::new("状态").strong().size(12.0)));
-                            ui.label(RichText::new("操作").strong().size(12.0));
+                            ui.add_sized([180.0, 16.0], egui::Label::new(RichText::new("用户名").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR)));
+                            ui.add_sized([280.0, 16.0], egui::Label::new(RichText::new("主目录").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR)));
+                            ui.add_sized([80.0, 16.0], egui::Label::new(RichText::new("权限").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR)));
+                            ui.add_sized([80.0, 16.0], egui::Label::new(RichText::new("状态").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR)));
+                            ui.label(RichText::new("操作").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR));
                         });
                     });
 

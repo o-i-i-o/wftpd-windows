@@ -76,7 +76,7 @@ impl ServiceTab {
             .inner_margin(egui::Margin { left: 16, right: 16, top: 12, bottom: 12 })
             .corner_radius(egui::CornerRadius::same(6))
             .show(ui, |ui| {
-                ui.label(RichText::new("服务信息").strong().size(14.0));
+                ui.label(RichText::new("服务信息").strong().size(14.0).color(styles::TEXT_PRIMARY_COLOR));
                 ui.add_space(8.0);
 
                 egui::Grid::new("svc_info")
@@ -120,7 +120,7 @@ impl ServiceTab {
             .inner_margin(egui::Margin { left: 16, right: 16, top: 12, bottom: 12 })
             .corner_radius(egui::CornerRadius::same(6))
             .show(ui, |ui| {
-                ui.label(RichText::new("服务操作").strong().size(14.0));
+                ui.label(RichText::new("服务操作").strong().size(14.0).color(styles::TEXT_PRIMARY_COLOR));
                 ui.add_space(10.0);
 
                 ui.horizontal_wrapped(|ui| {

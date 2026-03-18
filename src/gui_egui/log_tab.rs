@@ -112,11 +112,11 @@ impl LogTab {
                     .inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 6 })
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.add_sized([140.0, 16.0], egui::Label::new(RichText::new("时间").strong().size(12.0)));
-                            ui.add_sized([60.0, 16.0], egui::Label::new(RichText::new("级别").strong().size(12.0)));
-                            ui.add_sized([80.0, 16.0], egui::Label::new(RichText::new("来源").strong().size(12.0)));
-                            ui.add_sized([110.0, 16.0], egui::Label::new(RichText::new("客户端 IP").strong().size(12.0)));
-                            ui.label(RichText::new("消息详情").strong().size(12.0));
+                            ui.add_sized([140.0, 16.0], egui::Label::new(RichText::new("时间").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR)));
+                            ui.add_sized([60.0, 16.0], egui::Label::new(RichText::new("级别").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR)));
+                            ui.add_sized([80.0, 16.0], egui::Label::new(RichText::new("来源").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR)));
+                            ui.add_sized([110.0, 16.0], egui::Label::new(RichText::new("客户端 IP").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR)));
+                            ui.label(RichText::new("消息详情").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR));
                         });
                     });
 
