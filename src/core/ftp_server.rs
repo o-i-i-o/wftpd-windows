@@ -1234,6 +1234,9 @@ fn handle_ftp_connection(
                     let file_existed = file_path.exists();
                     stream.write_all(b"150 Opening BINARY mode data connection\r\n")?;
 
+                    let mut transfer_success = false;
+                    let mut total_written: u64 = 0;
+
                     if let Ok(mut data_stream) = get_data_connection(passive_mode, data_port, &data_addr, &remote_ip, passive_listeners) {
                         let abort = Arc::clone(&abort_flag);
                         let file_result = if rest_offset > 0 {
@@ -1254,9 +1257,10 @@ fn handle_ftp_connection(
                                 }
 
                                 let mut buf = [0u8; DATA_BUFFER_SIZE];
-                                let mut total_written: u64 = 0;
+                                transfer_success = true;
                                 loop {
                                     if abort.load(Ordering::Relaxed) {
+                                        transfer_success = false;
                                         break;
                                     }
                                     match data_stream.read(&mut buf) {
@@ -1264,20 +1268,24 @@ fn handle_ftp_connection(
                                         Ok(n) => {
                                             if file.write_all(&buf[..n]).is_err() {
                                                 log::error!("STOR write error for file: {}", file_path.display());
+                                                transfer_success = false;
                                                 break;
                                             }
                                             total_written += n as u64;
                                         }
                                         Err(e) => {
                                             log::error!("STOR read error from data stream: {}", e);
+                                            transfer_success = false;
                                             break;
                                         }
                                     }
                                 }
-                                if let Err(e) = file.sync_all() {
-                                    log::error!("Failed to sync file {:?}: {}", file_path, e);
+                                if transfer_success {
+                                    if let Err(e) = file.sync_all() {
+                                        log::error!("Failed to sync file {:?}: {}", file_path, e);
+                                    }
+                                    log::info!("STOR completed: {} bytes written to {}", total_written, file_path.display());
                                 }
-                                log::info!("STOR completed: {} bytes written to {}", total_written, file_path.display());
                             }
                             Err(e) => {
                                 log::error!("STOR failed to create file {}: {}", file_path.display(), e);
@@ -1293,34 +1301,46 @@ fn handle_ftp_connection(
                             listeners.remove(&port);
                         }
 
-                    stream.write_all(b"226 Transfer complete\r\n")?;
+                    if transfer_success {
+                        stream.write_all(b"226 Transfer complete\r\n")?;
 
-                    let uploaded_size = std::fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
-                    if file_existed {
-                        file_logger.lock().unwrap().log_update(
-                            current_user.as_deref().unwrap_or("anonymous"),
-                            &remote_ip,
-                            &file_path.to_string_lossy(),
-                            uploaded_size,
+                        let uploaded_size = std::fs::metadata(&file_path).map(|m| m.len()).unwrap_or(total_written);
+                        if file_existed {
+                            file_logger.lock().unwrap().log_update(
+                                current_user.as_deref().unwrap_or("anonymous"),
+                                &remote_ip,
+                                &file_path.to_string_lossy(),
+                                uploaded_size,
+                                "FTP",
+                            );
+                        } else {
+                            file_logger.lock().unwrap().log_upload(
+                                current_user.as_deref().unwrap_or("anonymous"),
+                                &remote_ip,
+                                &file_path.to_string_lossy(),
+                                uploaded_size,
+                                "FTP",
+                            );
+                        }
+
+                        logger.lock().unwrap().client_action(
                             "FTP",
+                            &format!("Uploaded: {} ({} bytes) at offset {}", filename, uploaded_size, rest_offset),
+                            &remote_ip,
+                            current_user.as_deref(),
+                            "UPLOAD",
                         );
                     } else {
-                        file_logger.lock().unwrap().log_upload(
+                        stream.write_all(b"451 Transfer failed\r\n")?;
+                        file_logger.lock().unwrap().log_failed(
                             current_user.as_deref().unwrap_or("anonymous"),
                             &remote_ip,
+                            "UPLOAD",
                             &file_path.to_string_lossy(),
-                            uploaded_size,
                             "FTP",
+                            "Transfer failed",
                         );
                     }
-
-                    logger.lock().unwrap().client_action(
-                        "FTP",
-                        &format!("Uploaded: {} ({} bytes) at offset {}", filename, uploaded_size, rest_offset),
-                        &remote_ip,
-                        current_user.as_deref(),
-                        "UPLOAD",
-                    );
 
                     rest_offset = 0;
                 } else {

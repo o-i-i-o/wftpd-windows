@@ -2,13 +2,23 @@ use egui::{RichText, Ui};
 use crate::core::config::Config;
 use crate::core::ipc::IpcClient;
 use crate::gui_egui::styles;
+use egui_file_dialog::FileDialog;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum FileDialogTarget {
+    #[default]
+    None,
+    AnonymousHome,
+}
+
+#[derive(Debug)]
 pub struct ServerTab {
     pub config: Config,
     pub ftp_running: bool,
     pub sftp_running: bool,
     pub status_message: Option<(String, bool)>,
+    file_dialog: FileDialog,
+    file_dialog_target: FileDialogTarget,
 }
 
 impl Default for ServerTab {
@@ -19,6 +29,8 @@ impl Default for ServerTab {
             ftp_running: false,
             sftp_running: false,
             status_message: None,
+            file_dialog: FileDialog::new().title("选择匿名用户目录"),
+            file_dialog_target: FileDialogTarget::None,
         }
     }
 }
@@ -196,9 +208,13 @@ impl ServerTab {
                             let mut anon_home = self.config.ftp.anonymous_home.clone().unwrap_or_default();
                             styles::input_frame().show(ui, |ui| {
                                 ui.add(egui::TextEdit::singleline(&mut anon_home)
-                                    .desired_width(350.0)
+                                    .desired_width(320.0)
                                     .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
                             });
+                            if ui.button("浏览...").clicked() {
+                                self.file_dialog_target = FileDialogTarget::AnonymousHome;
+                                self.file_dialog.pick_directory();
+                            }
                             self.config.ftp.anonymous_home = if anon_home.is_empty() { None } else { Some(anon_home) };
                         });
                         ui.add_space(styles::SPACING_XS);
@@ -433,5 +449,18 @@ impl ServerTab {
                 
                 ui.add_space(styles::SPACING_MD);
             });
+
+        self.file_dialog.update(ui.ctx());
+        if let Some(path) = self.file_dialog.take_picked() {
+            match self.file_dialog_target {
+                FileDialogTarget::None => {}
+                FileDialogTarget::AnonymousHome => {
+                    self.config.ftp.anonymous_home = Some(path.to_string_lossy().to_string());
+                }
+            }
+        }
+        if !matches!(self.file_dialog.state(), egui_file_dialog::DialogState::Open) {
+            self.file_dialog_target = FileDialogTarget::None;
+        }
     }
 }

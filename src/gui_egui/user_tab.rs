@@ -2,6 +2,7 @@ use egui::{RichText, Ui, Color32, Frame};
 use crate::core::users::{User, UserManager, Permissions};
 use crate::core::config::Config;
 use crate::gui_egui::styles;
+use egui_file_dialog::FileDialog;
 
 #[derive(Debug, Clone, PartialEq)]
 enum ModalMode {
@@ -23,7 +24,7 @@ pub struct UserTab {
     form_error: Option<String>,
     status_message: Option<(String, bool)>,
     show_permissions: bool,
-    show_file_dialog: bool,
+    file_dialog: FileDialog,
 }
 
 impl Default for UserTab {
@@ -35,7 +36,8 @@ impl Default for UserTab {
             form_confirm_password: String::new(), form_home_dir: String::new(),
             form_is_admin: false, form_permissions: Permissions::full(),
             form_error: None, status_message: None,
-            show_permissions: false, show_file_dialog: false,
+            show_permissions: false,
+            file_dialog: FileDialog::new().title("选择用户主目录"),
         }
     }
 }
@@ -54,7 +56,7 @@ impl UserTab {
         self.form_username.clear(); self.form_password.clear();
         self.form_confirm_password.clear(); self.form_home_dir.clear();
         self.form_is_admin = false; self.form_permissions = Permissions::full();
-        self.form_error = None; self.show_permissions = false; self.show_file_dialog = false;
+        self.form_error = None; self.show_permissions = false;
         self.modal = ModalMode::AddUser;
     }
 
@@ -63,7 +65,7 @@ impl UserTab {
         self.form_password.clear(); self.form_confirm_password.clear();
         self.form_home_dir = user.home_dir.clone();
         self.form_is_admin = user.is_admin; self.form_permissions = user.permissions;
-        self.form_error = None; self.show_permissions = false; self.show_file_dialog = false;
+        self.form_error = None; self.show_permissions = false;
         self.modal = ModalMode::EditUser(user.username.clone());
     }
 
@@ -154,9 +156,9 @@ impl UserTab {
                                     ui.horizontal(|ui| {
                                         ui.add(egui::TextEdit::singleline(&mut self.form_home_dir)
                                             .desired_width(220.0).hint_text("如: C:\\Users\\ftp"));
-                                        // if ui.button("浏览...").clicked() {
-                                        //     self.show_file_dialog = true;
-                                        // }
+                                        if ui.button("浏览...").clicked() {
+                                            self.file_dialog.pick_directory();
+                                        }
                                     });
                                     ui.end_row();
                                     ui.label("管理员:");
@@ -195,17 +197,6 @@ impl UserTab {
                             });
                     }
                     
-                    // if self.show_file_dialog {
-                    //     FileDialog::new()
-                    //         .title("选择用户主目录")
-                    //         .select_directory()
-                    //         .show(ctx, |selected_path: Option<std::path::PathBuf>| {
-                    //             if let Some(path) = selected_path {
-                    //                 self.form_home_dir = path.to_string_lossy().to_string();
-                    //             }
-                    //             self.show_file_dialog = false;
-                    //         });
-                    // }
                     if let Some(ref err) = self.form_error.clone() {
                         ui.add_space(4.0);
                         ui.label(RichText::new(err).color(Color32::from_rgb(192,57,43)).size(12.0));
@@ -247,6 +238,11 @@ impl UserTab {
         }
         if let Some(name) = delete_target { let _ = self.user_manager.remove_user(&name); self.save(); }
         if close_modal && !do_submit { self.modal = ModalMode::None; self.form_error = None; }
+
+        self.file_dialog.update(ctx);
+        if let Some(path) = self.file_dialog.take_picked() {
+            self.form_home_dir = path.to_string_lossy().to_string();
+        }
     }
 
     pub fn ui(&mut self, ui: &mut Ui) {

@@ -1,4 +1,4 @@
-# 代码规范
+- 这是一个针对win10/11的Rust项目，用于管理ftp/sftp服务器的配置和服务。
 
 # 项目架构
 ## 项目采用MVC架构，模型层负责数据存储和处理，视图层负责用户交互，控制器层负责业务逻辑。
@@ -8,8 +8,5 @@
 ## 所有文件都必须使用UTF-8编码
 ## 每次修改必须执行cargo clippy检查并修复问题，不允许隐藏任何告警信息
 ## 项目使用 edition = "2024" 版本，确保代码符合最新的Rust语言规范，且代码优雅
-## 使用 sudo 运行所有命令，如 sudo systemctl restart wftpd
 ## rust 版本0.xx.yy 每次修改代码更新yy一次
-# 测试时使用 sudo 运行所有命令，如 sudo systemctl restart wftpd，代码中避免出现直接使用 sudo 命令
-
 ## 测试用ftp/sftp 用户 用户名：123 密码：123123

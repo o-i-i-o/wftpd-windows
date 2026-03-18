@@ -274,6 +274,7 @@ enum SftpFileHandle {
         file: tokio::fs::File,
         locked: bool,
         existed: bool,
+        written_bytes: u64,
     },
     Dir {
         path: PathBuf,
@@ -530,7 +531,7 @@ impl russh::server::Handler for SftpHandler {
                     };
                     
                     if let Ok(resp) = response {
-                        let _ = handle.data(channel, CryptoVec::from_slice(&resp)).await;
+                        let _ = handle.data(channel, bytes::Bytes::from(resp)).await;
                     }
                 });
             }
@@ -656,9 +657,43 @@ impl SftpState {
         let id = self.parse_u32(data, 1);
         let handle = self.parse_string(data, 5)?;
 
-        if let Some(SftpFileHandle::File { path, locked, .. }) = self.handles.remove(&handle) {
+        if let Some(SftpFileHandle::File { path, locked, existed, written_bytes, .. }) = self.handles.remove(&handle) {
             if locked {
                 self.locked_files.remove(&path);
+            }
+            
+            if written_bytes > 0 {
+                let file_size = tokio::fs::metadata(&path).await.map(|m| m.len()).unwrap_or(written_bytes);
+                
+                if let Ok(mut file_logger) = self.file_logger.lock() {
+                    if existed {
+                        file_logger.log_update(
+                            self.username.as_deref().unwrap_or("anonymous"),
+                            &self.client_ip,
+                            &path.to_string_lossy(),
+                            file_size,
+                            "SFTP",
+                        );
+                    } else {
+                        file_logger.log_upload(
+                            self.username.as_deref().unwrap_or("anonymous"),
+                            &self.client_ip,
+                            &path.to_string_lossy(),
+                            written_bytes,
+                            "SFTP",
+                        );
+                    }
+                }
+
+                if let Ok(mut logger) = self.logger.lock() {
+                    logger.client_action(
+                        "SFTP",
+                        &format!("Uploaded: {} ({} bytes)", path.display(), file_size),
+                        &self.client_ip,
+                        self.username.as_deref(),
+                        if existed { "UPDATE" } else { "UPLOAD" },
+                    );
+                }
             }
         } else {
             self.handles.remove(&handle);
@@ -820,7 +855,7 @@ impl SftpState {
 
         let handle = self.handles.get_mut(&handle_str);
         match handle {
-            Some(SftpFileHandle::File { path, file, existed, .. }) => {
+            Some(SftpFileHandle::File { path, file, written_bytes, .. }) => {
                 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
                 
                 if let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await {
@@ -838,37 +873,8 @@ impl SftpState {
                     return Ok(self.build_status_packet(id, 4, &format!("Flush error: {}", e), ""));
                 }
 
+                *written_bytes += data_len as u64;
                 log::info!("SFTP WRITE: {} bytes to {:?} at offset {}", data_len, path, offset);
-
-                if let Ok(mut logger) = self.logger.lock() {
-                    logger.client_action(
-                        "SFTP",
-                        &format!("Wrote {} bytes to {:?} at offset {}", data_len, path, offset),
-                        &self.client_ip,
-                        self.username.as_deref(),
-                        "WRITE",
-                    );
-                }
-
-                if let Ok(mut file_logger) = self.file_logger.lock() {
-                    if *existed {
-                        file_logger.log_update(
-                            self.username.as_deref().unwrap_or("anonymous"),
-                            &self.client_ip,
-                            &path.to_string_lossy(),
-                            data_len as u64,
-                            "SFTP",
-                        );
-                    } else {
-                        file_logger.log_upload(
-                            self.username.as_deref().unwrap_or("anonymous"),
-                            &self.client_ip,
-                            &path.to_string_lossy(),
-                            data_len as u64,
-                            "SFTP",
-                        );
-                    }
-                }
 
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
@@ -1442,6 +1448,7 @@ impl SftpState {
                     file,
                     locked: false,
                     existed: file_existed,
+                    written_bytes: 0,
                 });
                 log::info!("SFTP OPEN: handle '{}' created for {}", handle, path);
                 Ok(self.build_handle_packet(id, &handle))

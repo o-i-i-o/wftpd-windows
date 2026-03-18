@@ -75,23 +75,61 @@ fn resolve_path_internal(cwd: &str, home_canon: &Path, path: &str) -> Result<Pat
         return Ok(home_canon.to_path_buf());
     }
 
+    if clean_path.starts_with("\\\\?\\") {
+        let path_buf = PathBuf::from(clean_path);
+        if !path_buf.starts_with(home_canon) {
+            log::warn!("Windows extended path outside home directory: {:?}", path_buf);
+            return Err(PathResolveError::PathEscape);
+        }
+        return Ok(path_buf);
+    }
+
     if is_absolute_ftp_path(clean_path) {
         let relative = clean_path
             .trim_start_matches('/')
             .trim_start_matches('\\');
+        if relative.is_empty() {
+            return Ok(home_canon.to_path_buf());
+        }
         if relative.contains(':') {
+            log::warn!("Invalid path contains drive letter: {}", relative);
             return Err(PathResolveError::InvalidPath);
         }
         Ok(home_canon.join(relative))
     } else {
-        Ok(Path::new(cwd).join(clean_path))
+        if clean_path.contains(':') {
+            log::warn!("Invalid relative path contains drive letter: {}", clean_path);
+            return Err(PathResolveError::InvalidPath);
+        }
+        if cwd.is_empty() {
+            Ok(home_canon.join(clean_path))
+        } else {
+            Ok(Path::new(cwd).join(clean_path))
+        }
     }
 }
 
 fn build_safe_path(home_canon: &Path, resolved: &Path) -> Result<PathBuf, PathResolveError> {
     let mut safe_path = home_canon.to_path_buf();
     let mut depth: usize = 0;
-    for component in resolved.components() {
+    
+    let home_components: Vec<_> = home_canon.components().collect();
+    let resolved_components: Vec<_> = resolved.components().collect();
+    
+    if resolved_components.len() < home_components.len() {
+        log::warn!("Path escape attempt: resolved path shorter than home - {:?}", resolved);
+        return Err(PathResolveError::PathEscape);
+    }
+    
+    for (i, component) in resolved_components.iter().enumerate() {
+        if i < home_components.len() {
+            if *component != home_components[i] {
+                log::warn!("Path escape attempt: component mismatch at index {} - {:?}", i, resolved);
+                return Err(PathResolveError::PathEscape);
+            }
+            continue;
+        }
+        
         match component {
             std::path::Component::Normal(name) => {
                 safe_path.push(name);
@@ -113,8 +151,6 @@ fn build_safe_path(home_canon: &Path, resolved: &Path) -> Result<PathBuf, PathRe
                 depth = depth.saturating_sub(1);
             }
             std::path::Component::Prefix(_) | std::path::Component::RootDir => {
-                log::warn!("Invalid path component (prefix/root) in: {:?}", resolved);
-                return Err(PathResolveError::InvalidPath);
             }
             std::path::Component::CurDir => {}
         }
