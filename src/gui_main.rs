@@ -355,12 +355,16 @@ fn setup_fonts(ctx: &egui::Context) {
 }
 
 fn load_icon() -> Option<IconData> {
-    let icon_path = std::path::Path::new("ui/wftpg.ico");
+    let exe_dir = std::env::current_exe().ok()?
+        .parent()?
+        .to_path_buf();
+    
+    let icon_path = exe_dir.join("ui/wftpg.ico");
     if !icon_path.exists() {
         return None;
     }
     
-    let data = std::fs::read(icon_path).ok()?;
+    let data = std::fs::read(&icon_path).ok()?;
     let icon = ico::IconDir::read(std::io::Cursor::new(&data)).ok()?;
     for entry in icon.entries() {
         if let Ok(image) = entry.decode() {

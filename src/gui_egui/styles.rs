@@ -3,17 +3,12 @@ use egui::{Color32, Style, Visuals, Stroke};
 // 主色调 - 现代柔和紫色主题
 pub const PRIMARY_COLOR: Color32        = Color32::from_rgb(108, 92, 231);
 pub const PRIMARY_LIGHT: Color32        = Color32::from_rgb(139, 92, 246);
-pub const PRIMARY_DARK: Color32         = Color32::from_rgb(79, 70, 229);
 
 // 状态色 - 更柔和的配色
 pub const SUCCESS_COLOR: Color32        = Color32::from_rgb(16, 124, 16);
 pub const SUCCESS_LIGHT: Color32        = Color32::from_rgb(220, 252, 231);
 pub const DANGER_COLOR: Color32         = Color32::from_rgb(185, 28, 28);
 pub const DANGER_LIGHT: Color32         = Color32::from_rgb(254, 226, 226);
-pub const WARNING_COLOR: Color32        = Color32::from_rgb(161, 98, 7);
-pub const WARNING_LIGHT: Color32        = Color32::from_rgb(254, 249, 195);
-pub const INFO_COLOR: Color32           = Color32::from_rgb(8, 102, 135);
-pub const INFO_LIGHT: Color32           = Color32::from_rgb(225, 243, 252);
 
 // 文本色 - 更清晰的深色
 pub const TEXT_PRIMARY_COLOR: Color32   = Color32::from_rgb(30, 41, 59);
@@ -28,7 +23,6 @@ pub const BG_HEADER: Color32            = Color32::from_rgb(79, 70, 229);
 
 // 边框色 - 更柔和的边框
 pub const BORDER_COLOR: Color32         = Color32::from_rgb(229, 231, 235);
-pub const BORDER_LIGHT: Color32         = Color32::from_rgb(243, 244, 246);
 
 // 字体大小
 pub const FONT_SIZE_XL: f32             = 24.0;
@@ -137,23 +131,6 @@ pub fn card_frame() -> egui::Frame {
         .corner_radius(egui::CornerRadius::same(8))
 }
 
-// 卡片样式 - 无边框
-pub fn card_frame_flat() -> egui::Frame {
-    egui::Frame::new()
-        .fill(BG_CARD)
-        .inner_margin(egui::Margin::same(16))
-        .corner_radius(egui::CornerRadius::same(8))
-}
-
-// 信息卡片样式
-pub fn info_card_frame(color: Color32) -> egui::Frame {
-    egui::Frame::new()
-        .fill(color)
-        .stroke(Stroke::new(1.0, color))
-        .inner_margin(egui::Margin::same(16))
-        .corner_radius(egui::CornerRadius::same(8))
-}
-
 // 输入框样式
 pub fn input_frame() -> egui::Frame {
     egui::Frame::new()
@@ -172,30 +149,6 @@ pub fn primary_button(text: &str) -> egui::Button<'_> {
             .strong()
     )
     .fill(PRIMARY_COLOR)
-    .corner_radius(egui::CornerRadius::same(6))
-}
-
-// 按钮样式 - 成功
-pub fn success_button(text: &str) -> egui::Button<'_> {
-    egui::Button::new(
-        egui::RichText::new(text)
-            .size(FONT_SIZE_MD)
-            .color(Color32::WHITE)
-            .strong()
-    )
-    .fill(SUCCESS_COLOR)
-    .corner_radius(egui::CornerRadius::same(6))
-}
-
-// 按钮样式 - 危险
-pub fn danger_button(text: &str) -> egui::Button<'_> {
-    egui::Button::new(
-        egui::RichText::new(text)
-            .size(FONT_SIZE_MD)
-            .color(Color32::WHITE)
-            .strong()
-    )
-    .fill(DANGER_COLOR)
     .corner_radius(egui::CornerRadius::same(6))
 }
 
