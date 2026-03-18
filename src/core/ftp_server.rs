@@ -10,7 +10,7 @@ use crate::core::config::Config;
 use crate::core::logger::Logger;
 use crate::core::users::UserManager;
 use crate::core::file_logger::{FileLogger, FileLogInfo};
-use crate::core::path_utils::safe_resolve_path;
+use crate::core::path_utils::{safe_resolve_path, to_ftp_path, resolve_directory_path, PathResolveError};
 
 type PassiveListenerMap = Arc<Mutex<HashMap<u16, Arc<Mutex<Option<TcpListener>>>>>>;
 
@@ -542,7 +542,8 @@ fn handle_ftp_connection(
             }
 
             "PWD" | "XPWD" => {
-                stream.write_all(format!("257 \"{}\"\r\n", cwd).as_bytes())?;
+                let ftp_path = to_ftp_path(Path::new(&cwd), Path::new(&home_dir));
+                stream.write_all(format!("257 \"{}\"\r\n", ftp_path).as_bytes())?;
             }
 
             "CWD" => {
@@ -644,10 +645,11 @@ fn handle_ftp_connection(
                 if target_path.exists() && target_path.starts_with(&home_dir) {
                     if let Ok(metadata) = target_path.metadata() {
                         let facts = build_mlst_facts(&metadata);
+                        let ftp_path = to_ftp_path(&target_path, Path::new(&home_dir));
                         let name = target_path.file_name()
                             .map(|n| n.to_string_lossy().to_string())
                             .unwrap_or_else(|| target_path.to_string_lossy().to_string());
-                        stream.write_all(format!("250-Listing {}\r\n {} {}\r\n250 End\r\n", target_path.display(), facts, name).as_bytes())?;
+                        stream.write_all(format!("250-Listing {}\r\n {} {}\r\n250 End\r\n", ftp_path, facts, name).as_bytes())?;
                     } else {
                         stream.write_all(b"550 Failed to get file info\r\n")?;
                     }
@@ -906,27 +908,46 @@ fn handle_ftp_connection(
                         }
                 }
 
+                let list_path = if let Some(path_arg) = arg {
+                    match resolve_directory_path(&cwd, &home_dir, path_arg) {
+                        Ok(path) => path,
+                        Err(PathResolveError::PathEscape) => {
+                            stream.write_all(b"550 Permission denied\r\n")?;
+                            continue;
+                        }
+                        Err(PathResolveError::NotADirectory) => {
+                            stream.write_all(b"550 Not a directory\r\n")?;
+                            continue;
+                        }
+                        Err(PathResolveError::NotFound) => {
+                            stream.write_all(b"550 Directory not found\r\n")?;
+                            continue;
+                        }
+                    }
+                } else {
+                    PathBuf::from(&cwd)
+                };
+
                 stream.write_all(b"150 Here comes the directory listing\r\n")?;
 
-                if let Ok(mut data_stream) = get_data_connection(passive_mode, data_port, &data_addr, &remote_ip, passive_listeners) {
-                    let path = Path::new(&cwd);
-                    if let Ok(entries) = std::fs::read_dir(path) {
-                        for entry in entries.flatten() {
-                            if let Ok(metadata) = entry.metadata() {
-                                let name = entry.file_name().to_string_lossy().to_string();
-                                let perms = if metadata.is_dir() {
-                                    "drwxr-xr-x"
-                                } else {
-                                    "-rw-r--r--"
-                                };
-                                let size = metadata.len();
-                                let mtime = get_file_mtime(&metadata);
-                                let line = format!(
-                                    "{} 1 user user {:>10} {} {}\r\n",
-                                    perms, size, mtime, name
-                                );
-                                let _ = data_stream.write_all(line.as_bytes());
-                            }
+                if let Ok(mut data_stream) = get_data_connection(passive_mode, data_port, &data_addr, &remote_ip, passive_listeners)
+                    && let Ok(entries) = std::fs::read_dir(&list_path)
+                {
+                    for entry in entries.flatten() {
+                        if let Ok(metadata) = entry.metadata() {
+                            let name = entry.file_name().to_string_lossy().to_string();
+                            let perms = if metadata.is_dir() {
+                                "drwxr-xr-x"
+                            } else {
+                                "-rw-r--r--"
+                            };
+                            let size = metadata.len();
+                            let mtime = get_file_mtime(&metadata);
+                            let line = format!(
+                                "{} 1 user user {:>10} {} {}\r\n",
+                                perms, size, mtime, name
+                            );
+                            let _ = data_stream.write_all(line.as_bytes());
                         }
                     }
                 }
@@ -964,18 +985,37 @@ fn handle_ftp_connection(
                         }
                 }
 
+                let list_path = if let Some(path_arg) = arg {
+                    match resolve_directory_path(&cwd, &home_dir, path_arg) {
+                        Ok(path) => path,
+                        Err(PathResolveError::PathEscape) => {
+                            stream.write_all(b"550 Permission denied\r\n")?;
+                            continue;
+                        }
+                        Err(PathResolveError::NotADirectory) => {
+                            stream.write_all(b"550 Not a directory\r\n")?;
+                            continue;
+                        }
+                        Err(PathResolveError::NotFound) => {
+                            stream.write_all(b"550 Directory not found\r\n")?;
+                            continue;
+                        }
+                    }
+                } else {
+                    PathBuf::from(&cwd)
+                };
+
                 stream.write_all(b"150 Here comes the directory listing\r\n")?;
 
-                if let Ok(mut data_stream) = get_data_connection(passive_mode, data_port, &data_addr, &remote_ip, passive_listeners) {
-                    let path = Path::new(&cwd);
-                    if let Ok(entries) = std::fs::read_dir(path) {
-                        for entry in entries.flatten() {
-                            if let Ok(metadata) = entry.metadata() {
-                                let name = entry.file_name().to_string_lossy().to_string();
-                                let facts = build_mlst_facts(&metadata);
-                                let line = format!("{} {}\r\n", facts, name);
-                                let _ = data_stream.write_all(line.as_bytes());
-                            }
+                if let Ok(mut data_stream) = get_data_connection(passive_mode, data_port, &data_addr, &remote_ip, passive_listeners)
+                    && let Ok(entries) = std::fs::read_dir(&list_path)
+                {
+                    for entry in entries.flatten() {
+                        if let Ok(metadata) = entry.metadata() {
+                            let name = entry.file_name().to_string_lossy().to_string();
+                            let facts = build_mlst_facts(&metadata);
+                            let line = format!("{} {}\r\n", facts, name);
+                            let _ = data_stream.write_all(line.as_bytes());
                         }
                     }
                 }
@@ -1333,7 +1373,8 @@ fn handle_ftp_connection(
                         continue;
                     }
                     if std::fs::create_dir_all(&dir_path).is_ok() {
-                        stream.write_all(format!("257 \"{}\" created\r\n", dir_path.display()).as_bytes())?;
+                        let ftp_path = to_ftp_path(&dir_path, Path::new(&home_dir));
+                        stream.write_all(format!("257 \"{}\" created\r\n", ftp_path).as_bytes())?;
                         file_logger.lock().unwrap().log_mkdir(
                             current_user.as_deref().unwrap_or("anonymous"),
                             &remote_ip,

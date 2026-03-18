@@ -15,7 +15,7 @@ use crate::core::config::{Config, get_program_data_path};
 use crate::core::logger::Logger;
 use crate::core::users::UserManager;
 use crate::core::file_logger::{FileLogger, FileLogInfo};
-use crate::core::path_utils::safe_resolve_path_with_cwd;
+use crate::core::path_utils::{safe_resolve_path_with_cwd, to_ftp_path};
 
 #[derive(Clone)]
 pub struct SftpServer {
@@ -1050,7 +1050,7 @@ impl SftpState {
             full_path
         };
 
-        let path_str = resolved.to_string_lossy().to_string();
+        let path_str = to_ftp_path(&resolved, std::path::Path::new(&self.home_dir));
 
         let mut payload = vec![104];
         payload.extend_from_slice(&id.to_be_bytes());
@@ -1256,6 +1256,14 @@ impl SftpState {
 
         let full_link = self.resolve_path(&link_path);
         let full_target = self.resolve_path(&target);
+
+        let home_path = std::path::Path::new(&self.home_dir);
+        if !full_link.starts_with(home_path) {
+            return Ok(self.build_status_packet(id, 3, "Permission denied: link path outside home", ""));
+        }
+        if !full_target.starts_with(home_path) {
+            return Ok(self.build_status_packet(id, 3, "Permission denied: target path outside home", ""));
+        }
 
         let symlink_result = std::os::windows::fs::symlink_file(&full_target, &full_link);
         

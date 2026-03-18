@@ -1,6 +1,6 @@
 [package]
 name = "wftpg"
-version = "3.0.17"
+version = "3.0.19"
 edition = "2024"
 authors = ["WFTPG Developer"]
 description = "SFTP+FTP GUI Management Tool for Windows (Rust + egui)"
