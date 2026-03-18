@@ -11,3 +11,5 @@
 ## 使用 sudo 运行所有命令，如 sudo systemctl restart wftpd
 ## rust 版本0.xx.yy 每次修改代码更新yy一次
 # 测试时使用 sudo 运行所有命令，如 sudo systemctl restart wftpd，代码中避免出现直接使用 sudo 命令
+
+## 测试用ftp/sftp 用户 用户名：123 密码：123123
