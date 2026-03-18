@@ -37,11 +37,11 @@ fn handle_start_ftp(state: &AppState) -> Response {
     }
     
     match state.start_ftp() {
-        Ok(_) => {
+        Ok(()) => {
             log_service_start(state, "FTP");
             Response::ok(true, state.is_sftp_running())
         }
-        Err(e) => Response::error(&format!("FTP启动失败: {}", e)),
+        Err(e) => Response::error(&format!("FTP启动失败: {e}")),
     }
 }
 
@@ -51,11 +51,11 @@ fn handle_start_sftp(state: &AppState) -> Response {
     }
     
     match state.start_sftp() {
-        Ok(_) => {
+        Ok(()) => {
             log_service_start(state, "SFTP");
             Response::ok(state.is_ftp_running(), true)
         }
-        Err(e) => Response::error(&format!("SFTP启动失败: {}", e)),
+        Err(e) => Response::error(&format!("SFTP启动失败: {e}")),
     }
 }
 
@@ -106,7 +106,7 @@ fn log_service_start(state: &AppState, service: &str) {
             } else {
                 (cfg.server.bind_ip.clone(), cfg.server.sftp_port)
             };
-            log.info(service, &format!("{}服务已启动，监听 {}:{}", service, bind_ip, port));
+            log.info(service, &format!("{service}服务已启动，监听 {bind_ip}:{port}"));
         }
 }
 
@@ -116,30 +116,30 @@ fn log_info(state: &AppState, source: &str, message: &str) {
     }
 }
 
-fn handle_command(state: &AppState, cmd: Command) -> Response {
+fn handle_command(state: &AppState, cmd: &Command) -> Response {
     match cmd.action.as_str() {
         "status" => handle_status(state),
-        "start" => handle_start_action(state, &cmd),
-        "stop" => handle_stop_action(state, &cmd),
+        "start" => handle_start_action(state, cmd),
+        "stop" => handle_stop_action(state, cmd),
         "reload" => handle_reload(state),
-        "get_logs" => handle_get_logs(state, &cmd),
-        "get_file_logs" => handle_get_file_logs(state, &cmd),
+        "get_logs" => handle_get_logs(state, cmd),
+        "get_file_logs" => handle_get_file_logs(state, cmd),
         _ => Response::error("未知命令"),
     }
 }
 
 fn handle_reload(state: &AppState) -> Response {
     let config_msg = match state.reload_config() {
-        Ok(_) => "配置已重新加载".to_string(),
-        Err(e) => format!("配置重新加载失败: {}", e),
+        Ok(()) => "配置已重新加载".to_string(),
+        Err(e) => format!("配置重新加载失败: {e}"),
     };
     
     let users_msg = match state.reload_users() {
-        Ok(_) => "用户配置已重新加载".to_string(),
-        Err(e) => format!("用户配置重新加载失败: {}", e),
+        Ok(()) => "用户配置已重新加载".to_string(),
+        Err(e) => format!("用户配置重新加载失败: {e}"),
     };
     
-    let message = format!("{}; {}", config_msg, users_msg);
+    let message = format!("{config_msg}; {users_msg}");
     
     if config_msg.contains("失败") || users_msg.contains("失败") {
         Response {
@@ -166,7 +166,7 @@ fn handle_get_logs(state: &AppState, cmd: &Command) -> Response {
     let count = cmd.data.as_ref()
         .and_then(|d| match d {
             CommandData::GetLogs { count, .. } => Some(*count),
-            _ => None,
+            CommandData::GetFileLogs { .. } => None,
         })
         .unwrap_or(100);
     
@@ -178,7 +178,7 @@ fn handle_get_file_logs(state: &AppState, cmd: &Command) -> Response {
     let count = cmd.data.as_ref()
         .and_then(|d| match d {
             CommandData::GetFileLogs { count } => Some(*count),
-            _ => None,
+            CommandData::GetLogs { .. } => None,
         })
         .unwrap_or(100);
     
@@ -214,7 +214,7 @@ define_windows_service!(ffi_service_main, my_service_main);
 
 fn my_service_main(_arguments: Vec<OsString>) {
     if let Err(e) = run_service() {
-        log::error!("Service failed: {}", e);
+        log::error!("Service failed: {e}");
     }
 }
 
@@ -237,9 +237,9 @@ fn run_service() -> windows_service::Result<()> {
                 running_clone.store(false, Ordering::SeqCst);
                 ServiceControlHandlerResult::NoError
             }
-            ServiceControl::Pause => ServiceControlHandlerResult::NoError,
-            ServiceControl::Continue => ServiceControlHandlerResult::NoError,
-            ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
+            ServiceControl::Pause | ServiceControl::Continue | ServiceControl::Interrogate => {
+                ServiceControlHandlerResult::NoError
+            }
             _ => ServiceControlHandlerResult::NotImplemented,
         }
     };
@@ -263,7 +263,7 @@ fn run_service() -> windows_service::Result<()> {
         let state = match create_app_state() {
             Ok(s) => s,
             Err(e) => {
-                log::error!("Failed to initialize: {}", e);
+                log::error!("Failed to initialize: {e}");
                 return;
             }
         };
@@ -271,16 +271,13 @@ fn run_service() -> windows_service::Result<()> {
         let ipc_server = match create_ipc_server() {
             Ok(s) => s,
             Err(e) => {
-                log::error!("Failed to create IPC server: {}", e);
+                log::error!("Failed to create IPC server: {e}");
                 return;
             }
         };
 
         start_enabled_services(&state);
-        log::info!(
-            "Service ready to accept connections on named pipe: {}",
-            PIPE_NAME
-        );
+        log::info!("Service ready to accept connections on named pipe: {PIPE_NAME}");
 
         run_main_loop_with_shutdown(&state, &ipc_server, &running);
 
@@ -312,9 +309,9 @@ fn run_main_loop_with_shutdown(state: &Arc<AppState>, ipc_server: &IpcServer, ru
             Ok(Some((stream, cmd))) => {
                 let state_clone = Arc::clone(state);
                 thread::spawn(move || {
-                    let response = handle_command(&state_clone, cmd);
+                    let response = handle_command(&state_clone, &cmd);
                     if let Err(e) = IpcServer::send_response(&stream, &response) {
-                        log::error!("Failed to send response: {}", e);
+                        log::error!("Failed to send response: {e}");
                     }
                 });
             }
@@ -322,7 +319,7 @@ fn run_main_loop_with_shutdown(state: &Arc<AppState>, ipc_server: &IpcServer, ru
                 // Timeout, continue loop to check running flag
             }
             Err(e) => {
-                log::error!("Failed to accept IPC connection: {}", e);
+                log::error!("Failed to accept IPC connection: {e}");
             }
         }
     }
@@ -361,7 +358,7 @@ fn install_service() -> anyhow::Result<()> {
     
     let service = service_manager.create_service(&service_info, ServiceAccess::CHANGE_CONFIG)?;
     if let Err(e) = service.set_description(SERVICE_DESCRIPTION) {
-        log::warn!("设置服务描述失败（可忽略）: {:?}", e);
+        log::warn!("设置服务描述失败（可忽略）: {e:?}");
     }
     
     log::info!("Service installed successfully");
@@ -390,7 +387,7 @@ fn main() {
             "--install" => {
                 init_logger();
                 if let Err(e) = install_service() {
-                    log::error!("Failed to install service: {}", e);
+                    log::error!("Failed to install service: {e}");
                     std::process::exit(1);
                 }
                 return;
@@ -398,7 +395,7 @@ fn main() {
             "--uninstall" => {
                 init_logger();
                 if let Err(e) = uninstall_service() {
-                    log::error!("Failed to uninstall service: {}", e);
+                    log::error!("Failed to uninstall service: {e}");
                     std::process::exit(1);
                 }
                 return;
@@ -422,7 +419,7 @@ fn run_console_application() {
     let state = match create_app_state() {
         Ok(s) => s,
         Err(e) => {
-            log::error!("Failed to initialize: {}", e);
+            log::error!("Failed to initialize: {e}");
             std::process::exit(1);
         }
     };
@@ -430,7 +427,7 @@ fn run_console_application() {
     let ipc_server = match create_ipc_server() {
         Ok(s) => s,
         Err(e) => {
-            log::error!("Failed to create IPC server: {}", e);
+            log::error!("Failed to create IPC server: {e}");
             std::process::exit(1);
         }
     };
@@ -438,7 +435,7 @@ fn run_console_application() {
     setup_signal_handler(&state);
     start_enabled_services(&state);
     
-    log::info!("Ready to accept connections on named pipe: {}", PIPE_NAME);
+    log::info!("Ready to accept connections on named pipe: {PIPE_NAME}");
     
     run_main_loop(&state, &ipc_server);
 }
@@ -474,7 +471,7 @@ fn start_enabled_services(state: &Arc<AppState>) {
     
     if (ftp_enabled || sftp_enabled)
         && let Err(e) = state.start_all() {
-            log::error!("Failed to start services: {}", e);
+            log::error!("Failed to start services: {e}");
         }
 }
 
@@ -492,14 +489,14 @@ fn run_main_loop(state: &Arc<AppState>, ipc_server: &IpcServer) {
             Ok((stream, cmd)) => {
                 let state_clone = Arc::clone(state);
                 thread::spawn(move || {
-                    let response = handle_command(&state_clone, cmd);
+                    let response = handle_command(&state_clone, &cmd);
                     if let Err(e) = IpcServer::send_response(&stream, &response) {
-                        log::error!("Failed to send response: {}", e);
+                        log::error!("Failed to send response: {e}");
                     }
                 });
             }
             Err(e) => {
-                log::error!("Failed to accept IPC connection: {}", e);
+                log::error!("Failed to accept IPC connection: {e}");
             }
         }
     }
