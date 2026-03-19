@@ -3,6 +3,7 @@ use crate::core::users::{User, UserManager, Permissions};
 use crate::core::config::Config;
 use crate::gui_egui::styles;
 use egui_file_dialog::FileDialog;
+use egui_extras::TableBuilder;
 
 #[derive(Debug, Clone, PartialEq)]
 enum ModalMode {
@@ -98,7 +99,7 @@ impl UserTab {
             ModalMode::ConfirmDelete(_) => "确认删除",
             ModalMode::None => "",
         };
-        let mw: f32 = if is_confirm { 320.0 } else { 420.0 };
+        let mw: f32 = if is_confirm { 320.0 } else { (screen.width() * 0.4).clamp(380.0, 550.0) };
         let screen = ctx.available_rect();
         if screen.width() <= 0.0 || screen.height() <= 0.0 { return; }
         let center = egui::pos2(screen.center().x, screen.center().y);
@@ -131,61 +132,74 @@ impl UserTab {
                         });
                     }
                 } else {
+                    let label_width = 80.0;
+                    let input_width = mw - label_width - 80.0;
+                    
                     Frame::new()
                         .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
                         .inner_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 8 })
                         .corner_radius(egui::CornerRadius::same(6))
                         .show(ui, |ui| {
-                            egui::Grid::new("user_form_grid").num_columns(2).spacing([8.0,8.0]).min_col_width(80.0)
-                                .show(ui, |ui| {
-                                    ui.label(RichText::new("用户名:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
-                                    if is_add {
-                                        styles::input_frame().show(ui, |ui| {
-                                            ui.add(egui::TextEdit::singleline(&mut self.form_username)
-                                                .desired_width(260.0).hint_text("请输入用户名")
-                                                .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
-                                        });
-                                    } else {
-                                        ui.label(RichText::new(self.form_username.clone()).strong().size(styles::FONT_SIZE_MD).color(styles::TEXT_PRIMARY_COLOR));
-                                    }
-                                    ui.end_row();
-                                    ui.label(RichText::new(if is_add {"密码:"} else {"新密码:"}).size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
+                            ui.horizontal(|ui| {
+                                ui.add_sized([label_width, 24.0], egui::Label::new(
+                                    RichText::new("用户名:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR)));
+                                if is_add {
                                     styles::input_frame().show(ui, |ui| {
-                                        ui.add(egui::TextEdit::singleline(&mut self.form_password).password(true)
-                                            .desired_width(260.0).hint_text(if is_add {"请输入密码"} else {"留空则不修改"})
+                                        ui.add(egui::TextEdit::singleline(&mut self.form_username)
+                                            .desired_width(input_width).hint_text("请输入用户名")
                                             .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
                                     });
-                                    ui.end_row();
-                                    ui.label(RichText::new("确认密码:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
-                                    styles::input_frame().show(ui, |ui| {
-                                        ui.add(egui::TextEdit::singleline(&mut self.form_confirm_password).password(true)
-                                            .desired_width(260.0).hint_text("再次输入密码")
-                                            .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
-                                    });
-                                    ui.end_row();
-                                    ui.label(RichText::new("主目录:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
-                                    ui.horizontal(|ui| {
-                                        styles::input_frame().show(ui, |ui| {
-                                            ui.add(egui::TextEdit::singleline(&mut self.form_home_dir)
-                                                .desired_width(220.0).hint_text("如: C:\\Users\\ftp")
-                                                .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
-                                        });
-                                        if ui.button("浏览...").clicked() {
-                                            self.file_dialog.pick_directory();
-                                        }
-                                    });
-                                    ui.end_row();
-                                    ui.label(RichText::new("管理员:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
-                                    ui.checkbox(&mut self.form_is_admin, "赋予管理员权限");
-                                    ui.end_row();
-                                    ui.label(RichText::new("权限:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
-                                    ui.horizontal(|ui| {
-                                        if ui.button(if self.show_permissions {"收起权限"} else {"高级权限"}).clicked() {
-                                            self.show_permissions = !self.show_permissions;
-                                        }
-                                    });
-                                    ui.end_row();
+                                } else {
+                                    ui.label(RichText::new(self.form_username.clone()).strong().size(styles::FONT_SIZE_MD).color(styles::TEXT_PRIMARY_COLOR));
+                                }
+                            });
+                            
+                            ui.horizontal(|ui| {
+                                ui.add_sized([label_width, 24.0], egui::Label::new(
+                                    RichText::new(if is_add {"密码:"} else {"新密码:"}).size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR)));
+                                styles::input_frame().show(ui, |ui| {
+                                    ui.add(egui::TextEdit::singleline(&mut self.form_password).password(true)
+                                        .desired_width(input_width).hint_text(if is_add {"请输入密码"} else {"留空则不修改"})
+                                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
                                 });
+                            });
+                            
+                            ui.horizontal(|ui| {
+                                ui.add_sized([label_width, 24.0], egui::Label::new(
+                                    RichText::new("确认密码:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR)));
+                                styles::input_frame().show(ui, |ui| {
+                                    ui.add(egui::TextEdit::singleline(&mut self.form_confirm_password).password(true)
+                                        .desired_width(input_width).hint_text("再次输入密码")
+                                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
+                                });
+                            });
+                            
+                            ui.horizontal(|ui| {
+                                ui.add_sized([label_width, 24.0], egui::Label::new(
+                                    RichText::new("主目录:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR)));
+                                styles::input_frame().show(ui, |ui| {
+                                    ui.add(egui::TextEdit::singleline(&mut self.form_home_dir)
+                                        .desired_width(ui.available_width() - 80.0).hint_text("如: C:\\Users\\ftp")
+                                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
+                                });
+                                if ui.button("浏览...").clicked() {
+                                    self.file_dialog.pick_directory();
+                                }
+                            });
+                            
+                            ui.horizontal(|ui| {
+                                ui.add_sized([label_width, 24.0], egui::Label::new(
+                                    RichText::new("管理员:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR)));
+                                ui.checkbox(&mut self.form_is_admin, "赋予管理员权限");
+                            });
+                            
+                            ui.horizontal(|ui| {
+                                ui.add_sized([label_width, 24.0], egui::Label::new(
+                                    RichText::new("权限:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR)));
+                                if ui.button(if self.show_permissions {"收起权限"} else {"高级权限"}).clicked() {
+                                    self.show_permissions = !self.show_permissions;
+                                }
+                            });
                         });
                     
                     if self.show_permissions {
@@ -194,21 +208,16 @@ impl UserTab {
                             .inner_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 8 })
                             .corner_radius(egui::CornerRadius::same(6))
                             .show(ui, |ui| {
-                                egui::Grid::new("permissions_grid").num_columns(2).spacing([16.0,8.0]).min_col_width(100.0)
-                                    .show(ui, |ui| {
-                                        ui.checkbox(&mut self.form_permissions.can_read, "读取");
-                                        ui.checkbox(&mut self.form_permissions.can_write, "写入");
-                                        ui.end_row();
-                                        ui.checkbox(&mut self.form_permissions.can_delete, "删除");
-                                        ui.checkbox(&mut self.form_permissions.can_list, "列表");
-                                        ui.end_row();
-                                        ui.checkbox(&mut self.form_permissions.can_mkdir, "创建目录");
-                                        ui.checkbox(&mut self.form_permissions.can_rmdir, "删除目录");
-                                        ui.end_row();
-                                        ui.checkbox(&mut self.form_permissions.can_rename, "重命名");
-                                        ui.checkbox(&mut self.form_permissions.can_append, "追加");
-                                        ui.end_row();
-                                    });
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.checkbox(&mut self.form_permissions.can_read, "读取");
+                                    ui.checkbox(&mut self.form_permissions.can_write, "写入");
+                                    ui.checkbox(&mut self.form_permissions.can_delete, "删除");
+                                    ui.checkbox(&mut self.form_permissions.can_list, "列表");
+                                    ui.checkbox(&mut self.form_permissions.can_mkdir, "创建目录");
+                                    ui.checkbox(&mut self.form_permissions.can_rmdir, "删除目录");
+                                    ui.checkbox(&mut self.form_permissions.can_rename, "重命名");
+                                    ui.checkbox(&mut self.form_permissions.can_append, "追加");
+                                });
                             });
                     }
                     
@@ -266,26 +275,10 @@ impl UserTab {
         let ctx = ui.ctx().clone();
         self.show_modal(&ctx);
 
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("👥").size(styles::FONT_SIZE_XL));
-            ui.label(RichText::new("用户管理").size(styles::FONT_SIZE_XL).strong().color(styles::TEXT_PRIMARY_COLOR));
-        });
-        ui.add_space(styles::SPACING_SM);
+        styles::page_header(ui, "👥", "用户管理");
 
         if let Some((msg, ok)) = &self.status_message.clone() {
-            let (bg_color, text_color) = if *ok {
-                (styles::SUCCESS_LIGHT, styles::SUCCESS_COLOR)
-            } else {
-                (styles::DANGER_LIGHT, styles::DANGER_COLOR)
-            };
-            
-            styles::info_card_frame(bg_color).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let icon = if *ok { "✓" } else { "✗" };
-                    ui.label(RichText::new(icon).size(styles::FONT_SIZE_MD).color(text_color));
-                    ui.label(RichText::new(msg).size(styles::FONT_SIZE_MD).color(text_color));
-                });
-            });
+            styles::status_message(ui, msg, *ok);
             ui.add_space(styles::SPACING_MD);
         }
 
@@ -313,92 +306,112 @@ impl UserTab {
         let mut to_delete_confirm: Option<String> = None;
 
         if users.is_empty() {
-            styles::card_frame().show(ui, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(styles::SPACING_LG);
-                    ui.label(RichText::new("📭 暂无用户")
-                        .size(styles::FONT_SIZE_LG).color(styles::TEXT_MUTED_COLOR));
-                    ui.add_space(styles::SPACING_MD);
-                    ui.label(RichText::new("点击 \"➕ 添加用户\" 创建第一个用户")
-                        .size(styles::FONT_SIZE_MD).color(styles::TEXT_LABEL_COLOR));
-                });
-            });
+            styles::empty_state(ui, "📭", "暂无用户", "点击 \"➕ 添加用户\" 创建第一个用户");
         } else {
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    styles::card_frame().show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.add_sized([180.0, 16.0], egui::Label::new(RichText::new("用户名").strong().size(styles::FONT_SIZE_SM).color(styles::TEXT_PRIMARY_COLOR)));
-                            ui.add_sized([280.0, 16.0], egui::Label::new(RichText::new("主目录").strong().size(styles::FONT_SIZE_SM).color(styles::TEXT_PRIMARY_COLOR)));
-                            ui.add_sized([80.0, 16.0], egui::Label::new(RichText::new("权限").strong().size(styles::FONT_SIZE_SM).color(styles::TEXT_PRIMARY_COLOR)));
-                            ui.add_sized([80.0, 16.0], egui::Label::new(RichText::new("状态").strong().size(styles::FONT_SIZE_SM).color(styles::TEXT_PRIMARY_COLOR)));
-                            ui.label(RichText::new("操作").strong().size(styles::FONT_SIZE_SM).color(styles::TEXT_PRIMARY_COLOR));
+            styles::card_frame().show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                
+                let available_width = ui.available_width();
+                let table = TableBuilder::new(ui)
+                    .striped(true)
+                    .resizable(true)
+                    .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                    .column(styles::table_column_percent(available_width, 0.15, 100.0))
+                    .column(styles::table_column_percent(available_width, 0.30, 180.0))
+                    .column(styles::table_column_percent(available_width, 0.12, 80.0))
+                    .column(styles::table_column_percent(available_width, 0.10, 70.0))
+                    .column(styles::table_column_remainder(150.0))
+                    .min_scrolled_height(0.0)
+                    .sense(egui::Sense::hover());
+
+                table
+                    .header(styles::FONT_SIZE_MD, |mut header| {
+                        header.col(|ui| {
+                            ui.label(RichText::new("用户名").strong().color(styles::TEXT_PRIMARY_COLOR));
                         });
-                    });
-
-                    ui.add_space(styles::SPACING_XS);
-
-                    for user in &users {
-                        let row_fill = if user.enabled { 
-                            Color32::WHITE 
-                        } else { 
-                            Color32::from_rgb(255, 250, 250)
-                        };
-                        
-                        egui::Frame::new()
-                            .fill(row_fill)
-                            .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
-                            .inner_margin(egui::Margin { left: 8, right: 8, top: 7, bottom: 7 })
-                            .corner_radius(egui::CornerRadius::same(6))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.add_sized([180.0, 24.0], egui::Label::new(
-                                        RichText::new(&user.username).size(styles::FONT_SIZE_MD).strong().color(styles::TEXT_PRIMARY_COLOR)));
-                                    ui.add_sized([280.0, 24.0], egui::Label::new(
-                                        RichText::new(&user.home_dir).size(styles::FONT_SIZE_SM).color(styles::TEXT_SECONDARY_COLOR)));
-                                    let admin_rt = if user.is_admin {
+                        header.col(|ui| {
+                            ui.label(RichText::new("主目录").strong().color(styles::TEXT_PRIMARY_COLOR));
+                        });
+                        header.col(|ui| {
+                            ui.label(RichText::new("权限").strong().color(styles::TEXT_PRIMARY_COLOR));
+                        });
+                        header.col(|ui| {
+                            ui.label(RichText::new("状态").strong().color(styles::TEXT_PRIMARY_COLOR));
+                        });
+                        header.col(|ui| {
+                            ui.label(RichText::new("操作").strong().color(styles::TEXT_PRIMARY_COLOR));
+                        });
+                    })
+                    .body(|mut body| {
+                        for user in &users {
+                            let user_clone = user.clone();
+                            body.row(styles::FONT_SIZE_MD, |mut row| {
+                                row.col(|ui| {
+                                    ui.label(RichText::new(&user_clone.username)
+                                        .size(styles::FONT_SIZE_MD)
+                                        .strong()
+                                        .color(styles::TEXT_PRIMARY_COLOR));
+                                });
+                                row.col(|ui| {
+                                    ui.label(RichText::new(&user_clone.home_dir)
+                                        .size(styles::FONT_SIZE_SM)
+                                        .color(styles::TEXT_SECONDARY_COLOR));
+                                });
+                                row.col(|ui| {
+                                    let admin_rt = if user_clone.is_admin {
                                         RichText::new("👑 管理员").size(styles::FONT_SIZE_SM).color(styles::PRIMARY_COLOR)
                                     } else {
                                         RichText::new("👤 普通").size(styles::FONT_SIZE_SM).color(styles::TEXT_LABEL_COLOR)
                                     };
-                                    ui.add_sized([80.0, 24.0], egui::Label::new(admin_rt));
-                                    let st_col = if user.enabled { 
+                                    ui.label(admin_rt);
+                                });
+                                row.col(|ui| {
+                                    let st_col = if user_clone.enabled { 
                                         styles::SUCCESS_DARK 
                                     } else { 
                                         styles::DANGER_DARK
                                     };
-                                    let st_icon = if user.enabled { "●" } else { "○" };
-                                    ui.add_sized([80.0, 24.0], egui::Label::new(
-                                        RichText::new(format!("{} 启用", st_icon))
-                                            .size(styles::FONT_SIZE_SM).color(st_col)));
-                                    
-                                    ui.add_space(styles::SPACING_SM);
-                                    let edit_btn = egui::Button::new(RichText::new("✏ 编辑").size(styles::FONT_SIZE_SM))
-                                        .fill(styles::BG_SECONDARY)
-                                        .corner_radius(egui::CornerRadius::same(4));
-                                    if ui.add(edit_btn).clicked() { to_edit = Some(user.clone()); }
-                                    
-                                    let toggle_btn = egui::Button::new(
-                                        RichText::new(if user.enabled {"禁用"} else {"启用"}).size(styles::FONT_SIZE_SM))
-                                        .fill(if user.enabled { 
-                                            styles::DANGER_LIGHT 
-                                        } else { 
-                                            styles::SUCCESS_LIGHT 
-                                        })
-                                        .corner_radius(egui::CornerRadius::same(4));
-                                    if ui.add(toggle_btn).clicked() {
-                                        to_toggle = Some((user.username.clone(), !user.enabled));
-                                    }
-                                    
-                                    let del = egui::Button::new(RichText::new("🗑 删除").size(styles::FONT_SIZE_SM).color(styles::DANGER_DARK))
-                                        .fill(styles::DANGER_LIGHT)
-                                        .corner_radius(egui::CornerRadius::same(4));
-                                    if ui.add(del).clicked() { to_delete_confirm = Some(user.username.clone()); }
+                                    let st_icon = if user_clone.enabled { "●" } else { "○" };
+                                    ui.label(RichText::new(format!("{} 启用", st_icon))
+                                        .size(styles::FONT_SIZE_SM).color(st_col));
+                                });
+                                row.col(|ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 6.0;
+                                        
+                                        let edit_btn = egui::Button::new(RichText::new("编辑").size(styles::FONT_SIZE_SM))
+                                            .fill(styles::BG_SECONDARY)
+                                            .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
+                                            .corner_radius(egui::CornerRadius::same(4));
+                                        if ui.add(edit_btn).clicked() { 
+                                            to_edit = Some(user_clone.clone()); 
+                                        }
+                                        
+                                        let toggle_btn = egui::Button::new(
+                                            RichText::new(if user_clone.enabled {"禁用"} else {"启用"}).size(styles::FONT_SIZE_SM))
+                                            .fill(if user_clone.enabled { 
+                                                styles::DANGER_LIGHT 
+                                            } else { 
+                                                styles::SUCCESS_LIGHT 
+                                            })
+                                            .stroke(egui::Stroke::new(1.0, if user_clone.enabled { styles::DANGER_COLOR } else { styles::SUCCESS_COLOR }))
+                                            .corner_radius(egui::CornerRadius::same(4));
+                                        if ui.add(toggle_btn).clicked() {
+                                            to_toggle = Some((user_clone.username.clone(), !user_clone.enabled));
+                                        }
+                                        
+                                        let del = egui::Button::new(RichText::new("删除").size(styles::FONT_SIZE_SM).color(Color32::WHITE))
+                                            .fill(styles::DANGER_DARK)
+                                            .corner_radius(egui::CornerRadius::same(4));
+                                        if ui.add(del).clicked() { 
+                                            to_delete_confirm = Some(user_clone.username.clone()); 
+                                        }
+                                    });
                                 });
                             });
-                    }
-                });
+                        }
+                    });
+            });
         }
 
         if let Some(u) = to_edit { self.open_edit_modal(&u); }

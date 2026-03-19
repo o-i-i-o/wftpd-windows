@@ -1,4 +1,4 @@
-use egui::{Color32, Style, Visuals, Stroke};
+use egui::{Color32, Style, Visuals, Stroke, Frame, Margin, CornerRadius, RichText};
 
 // 主色调 - 现代柔和紫色主题
 pub const PRIMARY_COLOR: Color32        = Color32::from_rgb(108, 92, 231);
@@ -41,12 +41,12 @@ pub const FONT_SIZE_MD: f32             = 15.0;
 pub const FONT_SIZE_SM: f32             = 13.0;
 pub const FONT_SIZE_XS: f32             = 11.0;
 
-// 间距
-pub const SPACING_XL: f32               = 32.0;
-pub const SPACING_LG: f32               = 24.0;
-pub const SPACING_MD: f32               = 16.0;
-pub const SPACING_SM: f32               = 12.0;
-pub const SPACING_XS: f32               = 8.0;
+// 间距 - 基于 8px 网格系统
+pub const SPACING_XL: f32               = 24.0;
+pub const SPACING_LG: f32               = 16.0;
+pub const SPACING_MD: f32               = 12.0;
+pub const SPACING_SM: f32               = 8.0;
+pub const SPACING_XS: f32               = 4.0;
 
 pub fn get_custom_style() -> Style {
     let mut style = Style::default();
@@ -132,7 +132,7 @@ pub fn get_custom_style() -> Style {
     style
 }
 
-// 卡片样式
+// 卡片样式 - 标准容器，自适应宽度
 pub fn card_frame() -> egui::Frame {
     egui::Frame::new()
         .fill(BG_CARD)
@@ -181,4 +181,143 @@ pub fn secondary_button(text: &str) -> egui::Button<'_> {
     .fill(BG_SECONDARY)
     .stroke(Stroke::new(1.0, BORDER_COLOR))
     .corner_radius(egui::CornerRadius::same(6))
+}
+
+// 按钮样式 - 危险
+pub fn danger_button(text: &str) -> egui::Button<'_> {
+    egui::Button::new(
+        egui::RichText::new(text)
+            .size(FONT_SIZE_MD)
+            .color(Color32::WHITE)
+    )
+    .fill(DANGER_DARK)
+    .corner_radius(egui::CornerRadius::same(6))
+}
+
+// 按钮样式 - 小尺寸
+pub fn small_button(text: &str) -> egui::Button<'_> {
+    egui::Button::new(
+        egui::RichText::new(text)
+            .size(FONT_SIZE_SM)
+    )
+    .fill(BG_SECONDARY)
+    .stroke(Stroke::new(1.0, BORDER_COLOR))
+    .corner_radius(egui::CornerRadius::same(4))
+}
+
+// 状态消息组件
+pub fn status_message(ui: &mut egui::Ui, msg: &str, success: bool) {
+    let (bg_color, text_color, icon) = if success {
+        (SUCCESS_LIGHT, SUCCESS_COLOR, "✓")
+    } else {
+        (DANGER_LIGHT, DANGER_COLOR, "✗")
+    };
+    
+    info_card_frame(bg_color).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(icon).size(FONT_SIZE_MD).color(text_color));
+            ui.label(RichText::new(msg).size(FONT_SIZE_MD).color(text_color));
+        });
+    });
+}
+
+// 页面标题组件
+pub fn page_header(ui: &mut egui::Ui, icon: &str, title: &str) {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(icon).size(FONT_SIZE_XL));
+        ui.label(RichText::new(title).size(FONT_SIZE_XL).strong().color(TEXT_PRIMARY_COLOR));
+    });
+    ui.add_space(SPACING_SM);
+}
+
+// 区域标题组件
+pub fn section_header(ui: &mut egui::Ui, icon: &str, title: &str) {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(icon).size(FONT_SIZE_LG));
+        ui.label(RichText::new(title).size(FONT_SIZE_LG).strong().color(TEXT_PRIMARY_COLOR));
+    });
+    ui.add_space(SPACING_SM);
+}
+
+// 空状态组件
+pub fn empty_state(ui: &mut egui::Ui, icon: &str, title: &str, subtitle: &str) {
+    card_frame().show(ui, |ui| {
+        ui.vertical_centered(|ui| {
+            ui.add_space(SPACING_LG);
+            ui.label(RichText::new(icon).size(FONT_SIZE_LG * 1.5).color(TEXT_MUTED_COLOR));
+            ui.add_space(SPACING_MD);
+            ui.label(RichText::new(title).size(FONT_SIZE_LG).color(TEXT_MUTED_COLOR));
+            ui.add_space(SPACING_SM);
+            ui.label(RichText::new(subtitle).size(FONT_SIZE_MD).color(TEXT_LABEL_COLOR));
+            ui.add_space(SPACING_LG);
+        });
+    });
+}
+
+// 警告信息框
+pub fn warning_box(ui: &mut egui::Ui, title: &str, notes: &[&str]) {
+    Frame::new()
+        .fill(WARNING_LIGHT)
+        .stroke(Stroke::new(1.0, WARNING_BORDER))
+        .inner_margin(Margin::same(16))
+        .corner_radius(CornerRadius::same(8))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.label(RichText::new(format!("⚠ {}", title)).strong().size(FONT_SIZE_MD).color(WARNING_COLOR));
+            ui.add_space(SPACING_SM);
+            
+            for note in notes {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("•").size(FONT_SIZE_MD).color(TEXT_LABEL_COLOR));
+                    ui.label(RichText::new(*note).size(FONT_SIZE_MD).color(TEXT_SECONDARY_COLOR));
+                });
+            }
+        });
+}
+
+// 自适应表单行组件 - 标签 + 输入框
+pub fn form_row<F>(ui: &mut egui::Ui, label_text: &str, label_width: f32, add_content: F)
+where
+    F: FnOnce(&mut egui::Ui),
+{
+    ui.horizontal(|ui| {
+        ui.add_sized(
+            [label_width, 24.0],
+            egui::Label::new(
+                RichText::new(format!("{}:", label_text))
+                    .size(FONT_SIZE_MD)
+                    .color(TEXT_SECONDARY_COLOR),
+            ),
+        );
+        add_content(ui);
+    });
+}
+
+// 自适应表单行组件 - 标签 + 输入框（带单位说明）
+pub fn form_row_with_suffix<F>(ui: &mut egui::Ui, label_text: &str, label_width: f32, add_content: F, suffix: &str)
+where
+    F: FnOnce(&mut egui::Ui),
+{
+    ui.horizontal(|ui| {
+        ui.add_sized(
+            [label_width, 24.0],
+            egui::Label::new(
+                RichText::new(format!("{}:", label_text))
+                    .size(FONT_SIZE_MD)
+                    .color(TEXT_SECONDARY_COLOR),
+            ),
+        );
+        add_content(ui);
+        ui.label(RichText::new(suffix).size(FONT_SIZE_SM).color(TEXT_MUTED_COLOR));
+    });
+}
+
+// 表格列配置助手 - 百分比宽度
+pub fn table_column_percent(available_width: f32, percent: f32, min_width: f32) -> egui_extras::Column {
+    egui_extras::Column::initial(available_width * percent).at_least(min_width)
+}
+
+// 表格列配置助手 - 剩余宽度
+pub fn table_column_remainder(min_width: f32) -> egui_extras::Column {
+    egui_extras::Column::remainder().at_least(min_width)
 }
