@@ -9,6 +9,9 @@ use wftpg::core::ipc::IpcClient;
 use wftpg::core::server_manager::ServerManager;
 use wftpg::gui_egui::{server_tab, user_tab, security_tab, service_tab, log_tab, file_log_tab, styles};
 
+const INIT_TIMEOUT_SECS: u64 = 10;
+const SERVICE_INSTALL_TIMEOUT_SECS: u64 = 30;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum InitState {
     Loading,
@@ -29,7 +32,36 @@ struct InitResult {
     ftp_running: bool,
     sftp_running: bool,
     server_running: bool,
-    error: Option<String>,
+}
+
+struct StatusCheckResult {
+    ftp_running: bool,
+    sftp_running: bool,
+    server_running: bool,
+}
+
+struct CachedStyles {
+    loading_frame: egui::Frame,
+    error_frame: egui::Frame,
+    main_frame: egui::Frame,
+    tab_frame: egui::Frame,
+}
+
+impl CachedStyles {
+    fn new() -> Self {
+        Self {
+            loading_frame: egui::Frame::new().fill(styles::BG_PRIMARY),
+            error_frame: egui::Frame::new().fill(styles::BG_PRIMARY),
+            main_frame: egui::Frame::new()
+                .fill(styles::BG_PRIMARY)
+                .inner_margin(egui::Margin::same(16)),
+            tab_frame: egui::Frame::new()
+                .fill(styles::BG_CARD)
+                .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
+                .inner_margin(egui::Margin::symmetric(20, 12))
+                .corner_radius(egui::CornerRadius::same(8)),
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -103,10 +135,14 @@ struct WftpgApp {
     show_service_install_dialog: bool,
     service_install_status: ServiceInstallStatus,
     service_install_receiver: Option<mpsc::Receiver<Result<(), String>>>,
+    service_install_start_time: Option<Instant>,
     last_refresh:   Instant,
     init_state:     InitState,
     init_error:     Option<String>,
-    init_receiver:  Option<mpsc::Receiver<InitResult>>,
+    init_receiver:  Option<mpsc::Receiver<Result<InitResult, String>>>,
+    init_start_time: Instant,
+    status_check_receiver: Option<mpsc::Receiver<StatusCheckResult>>,
+    cached_styles:  CachedStyles,
 }
 
 impl WftpgApp {
@@ -117,8 +153,26 @@ impl WftpgApp {
         let ctx_clone = cc.egui_ctx.clone();
         
         std::thread::spawn(move || {
-            let result = Self::do_initialization();
-            let _ = init_tx.send(result);
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                Self::do_initialization()
+            }));
+            
+            let init_result = match res {
+                Ok(Ok(result)) => Ok(result),
+                Ok(Err(e)) => Err(e),
+                Err(panic_info) => {
+                    let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                        s.to_string()
+                    } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                        s.clone()
+                    } else {
+                        "未知错误".to_string()
+                    };
+                    Err(format!("初始化时发生 panic: {}", msg))
+                }
+            };
+            
+            let _ = init_tx.send(init_result);
             ctx_clone.request_repaint();
         });
         
@@ -136,14 +190,18 @@ impl WftpgApp {
             show_service_install_dialog: false,
             service_install_status: ServiceInstallStatus::None,
             service_install_receiver: None,
+            service_install_start_time: None,
             last_refresh:   Instant::now(),
             init_state:     InitState::Loading,
             init_error:     None,
             init_receiver:  Some(init_rx),
+            init_start_time: Instant::now(),
+            status_check_receiver: None,
+            cached_styles:  CachedStyles::new(),
         }
     }
     
-    fn do_initialization() -> InitResult {
+    fn do_initialization() -> Result<InitResult, String> {
         let manager = ServerManager::new();
         let is_service_installed = manager.is_service_installed();
         let mut show_service_dialog = false;
@@ -160,46 +218,75 @@ impl WftpgApp {
         let (ftp_running, sftp_running, server_running) = if IpcClient::is_server_running() {
             match IpcClient::get_status() {
                 Ok(resp) => (resp.ftp_running, resp.sftp_running, true),
-                Err(_) => (false, false, false),
+                Err(e) => {
+                    log::warn!("获取服务器状态失败: {}", e);
+                    (false, false, false)
+                }
             }
         } else {
             (false, false, false)
         };
 
-        InitResult {
+        Ok(InitResult {
             show_service_dialog,
             ftp_running,
             sftp_running,
             server_running,
-            error: None,
-        }
+        })
     }
     
     fn check_init_result(&mut self, ctx: &egui::Context) {
+        if self.init_start_time.elapsed() >= Duration::from_secs(INIT_TIMEOUT_SECS) {
+            self.init_receiver = None;
+            self.init_error = Some(format!(
+                "初始化超时（{}秒），请检查程序权限或查看日志。",
+                INIT_TIMEOUT_SECS
+            ));
+            self.init_state = InitState::Error;
+            log::error!("应用初始化超时");
+            return;
+        }
+        
         if let Some(rx) = &self.init_receiver
             && let Ok(result) = rx.try_recv() {
                 self.init_receiver = None;
                 
-                if let Some(error) = result.error {
-                    self.init_error = Some(error);
-                    self.init_state = InitState::Error;
-                    log::error!("应用初始化失败");
-                } else {
-                    self.show_service_install_dialog = result.show_service_dialog;
-                    self.ftp_running = result.ftp_running;
-                    self.sftp_running = result.sftp_running;
-                    self.server_running = result.server_running;
-                    self.server_tab.update_status(result.ftp_running, result.sftp_running);
-                    self.init_state = InitState::Ready;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                match result {
+                    Ok(init_result) => {
+                        self.show_service_install_dialog = init_result.show_service_dialog;
+                        self.ftp_running = init_result.ftp_running;
+                        self.sftp_running = init_result.sftp_running;
+                        self.server_running = init_result.server_running;
+                        self.server_tab.update_status(init_result.ftp_running, init_result.sftp_running);
+                        self.server_tab.load_config();
+                        self.init_state = InitState::Ready;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    }
+                    Err(e) => {
+                        self.init_error = Some(e);
+                        self.init_state = InitState::Error;
+                        log::error!("应用初始化失败");
+                    }
                 }
             }
     }
     
     fn check_service_install_result(&mut self) {
+        if let Some(start_time) = self.service_install_start_time
+            && start_time.elapsed() >= Duration::from_secs(SERVICE_INSTALL_TIMEOUT_SECS)
+        {
+            self.service_install_receiver = None;
+            self.service_install_start_time = None;
+            self.service_install_status = ServiceInstallStatus::Failed(
+                format!("服务安装超时（{}秒），请检查服务状态或手动安装。", SERVICE_INSTALL_TIMEOUT_SECS)
+            );
+            return;
+        }
+        
         if let Some(rx) = &self.service_install_receiver
             && let Ok(result) = rx.try_recv() {
                 self.service_install_receiver = None;
+                self.service_install_start_time = None;
                 
                 match result {
                     Ok(_) => {
@@ -216,42 +303,95 @@ impl WftpgApp {
 }
 
 impl WftpgApp {
-    fn check_server_status(&mut self) {
-        if IpcClient::is_server_running() {
-            if let Ok(resp) = IpcClient::get_status() {
-                self.ftp_running    = resp.ftp_running;
-                self.sftp_running   = resp.sftp_running;
-                self.server_running = true;
-                self.server_tab.update_status(resp.ftp_running, resp.sftp_running);
-            }
-        } else {
-            self.ftp_running    = false;
-            self.sftp_running   = false;
-            self.server_running = false;
+    fn check_server_status_async(&mut self, ctx: &egui::Context) {
+        if self.status_check_receiver.is_some() {
+            return;
         }
-        self.last_refresh = Instant::now();
+        
+        let (tx, rx) = mpsc::channel();
+        self.status_check_receiver = Some(rx);
+        
+        let ctx_clone = ctx.clone();
+        std::thread::spawn(move || {
+            let result = if IpcClient::is_server_running() {
+                match IpcClient::get_status() {
+                    Ok(resp) => StatusCheckResult {
+                        ftp_running: resp.ftp_running,
+                        sftp_running: resp.sftp_running,
+                        server_running: true,
+                    },
+                    Err(e) => {
+                        log::warn!("异步获取服务器状态失败: {}", e);
+                        StatusCheckResult {
+                            ftp_running: false,
+                            sftp_running: false,
+                            server_running: false,
+                        }
+                    }
+                }
+            } else {
+                StatusCheckResult {
+                    ftp_running: false,
+                    sftp_running: false,
+                    server_running: false,
+                }
+            };
+            
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
     }
 
-    fn auto_refresh(&mut self) {
+    fn check_status_result(&mut self) {
+        if let Some(rx) = &self.status_check_receiver
+            && let Ok(result) = rx.try_recv() {
+                self.status_check_receiver = None;
+                self.ftp_running = result.ftp_running;
+                self.sftp_running = result.sftp_running;
+                self.server_running = result.server_running;
+                self.server_tab.update_status(result.ftp_running, result.sftp_running);
+                self.last_refresh = Instant::now();
+            }
+    }
+
+    fn auto_refresh(&mut self, ctx: &egui::Context) {
         if self.last_refresh.elapsed() >= Duration::from_secs(3) {
-            self.check_server_status();
+            self.check_server_status_async(ctx);
         }
+        self.check_status_result();
     }
 
     fn install_service(&mut self, ctx: &egui::Context) {
         self.service_install_status = ServiceInstallStatus::Installing;
+        self.service_install_start_time = Some(Instant::now());
         
         let (tx, rx) = mpsc::channel();
         self.service_install_receiver = Some(rx);
         
         let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
-            let manager = ServerManager::new();
-            let result = manager.install_service()
-                .and_then(|_| manager.start_service())
-                .map_err(|e| format!("服务安装失败: {}。请以管理员身份运行程序。", e));
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let manager = ServerManager::new();
+                manager.install_service()
+                    .and_then(|_| manager.start_service())
+            }));
             
-            let _ = tx.send(result);
+            let final_result = match result {
+                Ok(Ok(_)) => Ok(()),
+                Ok(Err(e)) => Err(format!("服务安装失败: {}。请以管理员身份运行程序。", e)),
+                Err(panic_info) => {
+                    let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                        s.to_string()
+                    } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                        s.clone()
+                    } else {
+                        "未知错误".to_string()
+                    };
+                    Err(format!("服务安装时发生 panic: {}", msg))
+                }
+            };
+            
+            let _ = tx.send(final_result);
             ctx_clone.request_repaint();
         });
     }
@@ -264,7 +404,7 @@ impl WftpgApp {
         egui::Window::new("安装后台服务")
             .collapsible(false)
             .resizable(false)
-            .fixed_size([480.0, 0.0])
+            .fixed_size([520.0, 0.0])
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
@@ -277,11 +417,15 @@ impl WftpgApp {
 
                     match &self.service_install_status {
                         ServiceInstallStatus::Installing => {
-                            ui.spinner();
-                            ui.label(RichText::new("正在安装服务...").size(styles::FONT_SIZE_MD));
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label(RichText::new("正在安装服务...").size(styles::FONT_SIZE_MD));
+                            });
+                            ui.add_space(styles::SPACING_SM);
+                            ui.label(RichText::new("这可能需要几秒钟，请稍候...").size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
                         }
                         ServiceInstallStatus::Success(msg) => {
-                            ui.label(RichText::new(msg).color(styles::SUCCESS_COLOR).size(styles::FONT_SIZE_MD));
+                            ui.label(RichText::new(format!("✓ {}", msg)).color(styles::SUCCESS_COLOR).size(styles::FONT_SIZE_MD));
                             ui.add_space(styles::SPACING_LG);
                             
                             if ui.add(styles::secondary_button("关闭")).clicked() {
@@ -290,13 +434,31 @@ impl WftpgApp {
                             }
                         }
                         ServiceInstallStatus::Failed(msg) => {
-                            ui.label(RichText::new(msg).color(styles::DANGER_COLOR).size(styles::FONT_SIZE_MD));
+                            ui.label(RichText::new(format!("✗ {}", msg)).color(styles::DANGER_COLOR).size(styles::FONT_SIZE_MD));
+                            ui.add_space(styles::SPACING_SM);
+                            
+                            egui::Frame::new()
+                                .fill(styles::BG_SECONDARY)
+                                .inner_margin(egui::Margin::same(8))
+                                .corner_radius(egui::CornerRadius::same(4))
+                                .show(ui, |ui| {
+                                    ui.label(RichText::new("手动安装命令:").size(styles::FONT_SIZE_SM).strong());
+                                    ui.label(RichText::new("sc create wftpd binPath= \"<安装目录>\\wftpd.exe\" start= auto").size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
+                                    ui.add_space(styles::SPACING_XS);
+                                    ui.label(RichText::new("sc start wftpd").size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
+                                });
+                            
                             ui.add_space(styles::SPACING_LG);
                             
-                            if ui.add(styles::secondary_button("关闭")).clicked() {
-                                self.show_service_install_dialog = false;
-                                self.service_install_status = ServiceInstallStatus::None;
-                            }
+                            ui.horizontal(|ui| {
+                                if ui.add(styles::secondary_button("关闭")).clicked() {
+                                    self.show_service_install_dialog = false;
+                                    self.service_install_status = ServiceInstallStatus::None;
+                                }
+                                if ui.add(styles::primary_button("重试")).clicked() {
+                                    self.install_service(ctx);
+                                }
+                            });
                         }
                         ServiceInstallStatus::None => {
                             ui.horizontal(|ui| {
@@ -325,7 +487,7 @@ impl App for WftpgApp {
                 self.check_init_result(ctx);
                 
                 CentralPanel::default()
-                    .frame(egui::Frame::new().fill(styles::BG_PRIMARY))
+                    .frame(self.cached_styles.loading_frame)
                     .show(ctx, |ui| {
                         ui.vertical_centered(|ui| {
                             ui.add_space(ui.available_height() / 2.0 - 50.0);
@@ -338,7 +500,7 @@ impl App for WftpgApp {
             }
             InitState::Error => {
                 CentralPanel::default()
-                    .frame(egui::Frame::new().fill(styles::BG_PRIMARY))
+                    .frame(self.cached_styles.error_frame)
                     .show(ctx, |ui| {
                         ui.vertical_centered(|ui| {
                             ui.add_space(ui.available_height() / 2.0 - 80.0);
@@ -359,22 +521,15 @@ impl App for WftpgApp {
         }
         
         self.check_service_install_result();
-        self.auto_refresh();
+        self.auto_refresh(ctx);
         self.show_service_dialog(ctx);
 
         CentralPanel::default()
-            .frame(egui::Frame::new()
-                .fill(styles::BG_PRIMARY)
-                .inner_margin(egui::Margin::same(16)))
+            .frame(self.cached_styles.main_frame)
             .show(ctx, |ui| {
                 ui.add_space(12.0);
                 
-                egui::Frame::new()
-                    .fill(styles::BG_CARD)
-                    .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
-                    .inner_margin(egui::Margin::symmetric(20, 12))
-                    .corner_radius(egui::CornerRadius::same(8))
-                    .show(ui, |ui| {
+                self.cached_styles.tab_frame.show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
                         
@@ -402,7 +557,7 @@ impl App for WftpgApp {
                                 styles::TEXT_SECONDARY_COLOR
                             };
                             
-                            let text = RichText::new(format!("{}  {}", icon, label))
+                            let text = RichText::new(format!("{icon}  {label}"))
                                 .size(14.0)
                                 .strong()
                                 .color(text_color);
@@ -449,48 +604,114 @@ impl App for WftpgApp {
 fn setup_fonts(ctx: &egui::Context) {
     use egui::{FontData, FontDefinitions, FontFamily};
     let mut fonts = FontDefinitions::default();
+    
     let candidates = [
-        "C:\\Windows\\Fonts\\msyh.ttc",
-        "C:\\Windows\\Fonts\\msyhbd.ttc",
-        "C:\\Windows\\Fonts\\simsun.ttc",
-        "C:\\Windows\\Fonts\\simhei.ttf",
+        ("C:\\Windows\\Fonts\\msyh.ttc", "Microsoft YaHei"),
+        ("C:\\Windows\\Fonts\\msyhbd.ttc", "Microsoft YaHei Bold"),
+        ("C:\\Windows\\Fonts\\simsun.ttc", "SimSun"),
+        ("C:\\Windows\\Fonts\\simhei.ttf", "SimHei"),
     ];
-    for path in &candidates {
-        if let Ok(data) = std::fs::read(path) {
-            fonts.font_data.insert("chinese".into(), FontData::from_owned(data).into());
-            if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
-                family.push("chinese".into());
+    
+    let mut loaded = false;
+    for (path, name) in &candidates {
+        match std::fs::read(path) {
+            Ok(data) => {
+                fonts.font_data.insert((*name).into(), FontData::from_owned(data).into());
+                if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
+                    family.push((*name).into());
+                }
+                if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
+                    family.push((*name).into());
+                }
+                loaded = true;
+                log::info!("成功加载中文字体: {}", name);
+                break;
             }
-            if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
-                family.push("chinese".into());
+            Err(e) => {
+                log::warn!("加载字体 {} 失败: {}", path, e);
             }
-            break;
         }
     }
+    
+    if !loaded {
+        log::warn!("未能加载任何中文字体，将使用系统默认字体");
+    }
+    
     ctx.set_fonts(fonts);
 }
 
-fn load_icon() -> Option<IconData> {
-    let exe_dir = std::env::current_exe().ok()?
-        .parent()?
-        .to_path_buf();
+fn load_icon() -> IconData {
+    let exe_dir = match std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())) {
+        Some(dir) => dir,
+        None => {
+            log::warn!("无法获取程序目录，使用默认图标");
+            return create_default_icon();
+        }
+    };
     
     let icon_path = exe_dir.join("ui/wftpg.ico");
     if !icon_path.exists() {
-        return None;
+        log::warn!("图标文件不存在: {:?}，使用默认图标", icon_path);
+        return create_default_icon();
     }
     
-    let data = std::fs::read(&icon_path).ok()?;
-    let icon = ico::IconDir::read(std::io::Cursor::new(&data)).ok()?;
-    for entry in icon.entries() {
-        if let Ok(image) = entry.decode() {
-            let rgba = image.rgba_data().to_vec();
-            let width = entry.width();
-            let height = entry.height();
-            return Some(IconData { rgba, width, height });
+    match std::fs::read(&icon_path) {
+        Ok(data) => {
+            match ico::IconDir::read(std::io::Cursor::new(&data)) {
+                Ok(icon) => {
+                    for entry in icon.entries() {
+                        if let Ok(image) = entry.decode() {
+                            let rgba = image.rgba_data().to_vec();
+                            let width = entry.width();
+                            let height = entry.height();
+                            log::info!("成功加载图标: {}x{}", width, height);
+                            return IconData { rgba, width, height };
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("解析图标文件失败: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("读取图标文件失败: {}", e);
         }
     }
-    None
+    
+    create_default_icon()
+}
+
+fn create_default_icon() -> IconData {
+    let size = 32u32;
+    let mut rgba = Vec::with_capacity((size * size * 4) as usize);
+    
+    for y in 0..size {
+        for x in 0..size {
+            let dx = (x as i32 - 16).abs();
+            let dy = (y as i32 - 16).abs();
+            let dist = ((dx * dx + dy * dy) as f64).sqrt();
+            
+            let (r, g, b, a) = if dist < 14.0 {
+                (108, 92, 231, 255)
+            } else if dist < 16.0 {
+                (80, 70, 200, 255)
+            } else {
+                (0, 0, 0, 0)
+            };
+            
+            rgba.push(r);
+            rgba.push(g);
+            rgba.push(b);
+            rgba.push(a);
+        }
+    }
+    
+    IconData {
+        rgba,
+        width: size,
+        height: size,
+    }
 }
 
 fn main() -> eframe::Result<()> {
@@ -509,13 +730,7 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([900.0, 650.0])
             .with_resizable(true)
             .with_visible(false)
-            .with_icon(icon.unwrap_or_else(|| {
-                IconData {
-                    rgba: vec![0; 32 * 32 * 4],
-                    width: 32,
-                    height: 32,
-                }
-            })),
+            .with_icon(icon),
         ..Default::default()
     };
     

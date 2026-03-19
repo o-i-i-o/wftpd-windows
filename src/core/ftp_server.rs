@@ -4,6 +4,8 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::core::config::Config;
@@ -13,17 +15,19 @@ use crate::core::file_logger::{FileLogger, FileLogInfo};
 use crate::core::path_utils::{safe_resolve_path, to_ftp_path, resolve_directory_path, PathResolveError};
 
 const DATA_BUFFER_SIZE: usize = 8192;
+const MAX_COMMAND_LENGTH: usize = 8192;
 
-type PassiveListenerMap = Arc<Mutex<HashMap<u16, Arc<Mutex<Option<TcpListener>>>>>>;
+type PassiveListenerMap = Arc<Mutex<HashMap<u16, TcpListener>>>;
 
 pub struct FtpServer {
     config: Arc<Mutex<Config>>,
     user_manager: Arc<Mutex<UserManager>>,
     logger: Arc<Mutex<Logger>>,
     file_logger: Arc<Mutex<FileLogger>>,
-    running: Arc<Mutex<bool>>,
+    running: Arc<AtomicBool>,
     listener: Arc<Mutex<Option<TcpListener>>>,
     passive_listeners: PassiveListenerMap,
+    accept_thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl FtpServer {
@@ -38,18 +42,17 @@ impl FtpServer {
             user_manager,
             logger,
             file_logger,
-            running: Arc::new(Mutex::new(false)),
+            running: Arc::new(AtomicBool::new(false)),
             listener: Arc::new(Mutex::new(None)),
             passive_listeners: Arc::new(Mutex::new(HashMap::new())),
+            accept_thread: Mutex::new(None),
         }
     }
 
     pub fn start(&self) -> Result<()> {
         let (bind_ip, ftp_port, warnings) = {
-            let cfg = match self.config.lock() {
-                Ok(guard) => guard,
-                Err(e) => return Err(anyhow::anyhow!("获取配置锁失败: {}", e)),
-            };
+            let cfg = self.config.lock()
+                .map_err(|e| anyhow::anyhow!("获取配置锁失败: {}", e))?;
             let warnings = cfg.validate_paths();
             (cfg.ftp.bind_ip.clone(), cfg.server.ftp_port, warnings)
         };
@@ -66,19 +69,11 @@ impl FtpServer {
         let listener = TcpListener::bind(&bind_addr)?;
         listener.set_nonblocking(true)?;
         
-        {
-            let mut running = match self.running.lock() {
-                Ok(guard) => guard,
-                Err(e) => return Err(anyhow::anyhow!("获取运行状态锁失败: {}", e)),
-            };
-            *running = true;
-        }
+        self.running.store(true, Ordering::SeqCst);
         
         {
-            let mut listener_guard = match self.listener.lock() {
-                Ok(guard) => guard,
-                Err(e) => return Err(anyhow::anyhow!("获取监听器锁失败: {}", e)),
-            };
+            let mut listener_guard = self.listener.lock()
+                .map_err(|e| anyhow::anyhow!("获取监听器锁失败: {}", e))?;
             *listener_guard = Some(listener.try_clone()?);
         }
 
@@ -90,16 +85,8 @@ impl FtpServer {
         let passive_listeners = Arc::clone(&self.passive_listeners);
         let server_listener = Arc::clone(&self.listener);
 
-        std::thread::spawn(move || {
-            loop {
-                let is_running = match running.lock() {
-                    Ok(guard) => *guard,
-                    Err(_) => break,
-                };
-                if !is_running {
-                    break;
-                }
-
+        let handle = std::thread::spawn(move || {
+            while running.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((stream, _)) => {
                         let _ = stream.set_nonblocking(false);
@@ -117,31 +104,29 @@ impl FtpServer {
                                 &logger,
                                 &file_logger,
                                 &passive_listeners,
-                            ) && let Ok(mut logger) = logger.lock() {
-                                logger.error("FTP", &format!("Connection handler error: {}", e));
+                            ) {
+                                if let Ok(mut log) = logger.lock() {
+                                    log.error("FTP", &format!("Connection handler error: {}", e));
+                                }
                             }
                         });
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        std::thread::sleep(Duration::from_millis(100));
+                        std::thread::sleep(Duration::from_millis(50));
                         continue;
                     }
                     Err(e) => {
-                        let is_running = match running.lock() {
-                            Ok(guard) => *guard,
-                            Err(_) => break,
-                        };
-                        if !is_running {
+                        if !running.load(Ordering::SeqCst) {
                             break;
                         }
-                        eprintln!("Failed to accept connection: {}", e);
+                        log::warn!("Accept connection error: {}", e);
                     }
                 }
             }
             
             {
                 let mut listener_guard = match server_listener.lock() {
-                    Ok(guard) => guard,
+                    Ok(g) => g,
                     Err(e) => {
                         log::error!("获取服务器监听器锁失败: {}", e);
                         return;
@@ -151,24 +136,21 @@ impl FtpServer {
             }
         });
 
+        {
+            let mut thread_guard = self.accept_thread.lock()
+                .map_err(|e| anyhow::anyhow!("获取线程句柄锁失败: {}", e))?;
+            *thread_guard = Some(handle);
+        }
+
         Ok(())
     }
 
     pub fn stop(&self) {
-        {
-            let mut running = match self.running.lock() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    log::error!("获取运行状态锁失败: {}", e);
-                    return;
-                }
-            };
-            *running = false;
-        }
+        self.running.store(false, Ordering::SeqCst);
         
         {
             let mut listener_guard = match self.listener.lock() {
-                Ok(guard) => guard,
+                Ok(g) => g,
                 Err(e) => {
                     log::error!("获取监听器锁失败: {}", e);
                     return;
@@ -177,26 +159,28 @@ impl FtpServer {
             *listener_guard = None;
         }
 
-        let mut listeners = match self.passive_listeners.lock() {
-            Ok(guard) => guard,
-            Err(e) => {
-                log::error!("获取被动监听器锁失败: {}", e);
-                return;
+        {
+            let mut listeners = match self.passive_listeners.lock() {
+                Ok(g) => g,
+                Err(e) => {
+                    log::error!("获取被动监听器锁失败: {}", e);
+                    return;
+                }
+            };
+            listeners.clear();
+        }
+
+        if let Ok(mut thread_guard) = self.accept_thread.lock() {
+            if let Some(handle) = thread_guard.take() {
+                let _ = handle.join();
             }
-        };
-        listeners.clear();
+        }
     }
 
     pub fn is_running(&self) -> bool {
-        let listener_guard = match self.listener.lock() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
-        listener_guard.is_some()
+        self.running.load(Ordering::SeqCst)
     }
 }
-
-use std::sync::atomic::{AtomicBool, Ordering};
 
 fn handle_ftp_connection(
     mut stream: TcpStream,
@@ -274,7 +258,8 @@ fn handle_ftp_connection(
     let mut rename_from: Option<String> = None;
     let abort_flag = Arc::new(AtomicBool::new(false));
 
-    let mut buffer = [0u8; 4096];
+    let mut cmd_buffer: Vec<u8> = Vec::with_capacity(MAX_COMMAND_LENGTH);
+    let mut read_buffer = [0u8; 4096];
     let mut last_timeout = 0u64;
 
     loop {
@@ -287,28 +272,49 @@ fn handle_ftp_connection(
             stream.set_read_timeout(Some(Duration::from_secs(conn_timeout)))?;
             last_timeout = conn_timeout;
         }
-        let bytes_read = stream.read(&mut buffer)?;
-
-        if bytes_read == 0 {
-            break;
-        }
-
-        let command = String::from_utf8_lossy(&buffer[..bytes_read])
-            .trim()
-            .to_string();
-
-        let parts: Vec<&str> = command.splitn(2, ' ').collect();
-        let cmd = parts[0].to_uppercase();
-        let arg = parts.get(1).map(|s| s.trim());
-
-        let (allow_anonymous, anonymous_home) = {
-            match config.lock() {
-                Ok(guard) => (guard.ftp.allow_anonymous, guard.ftp.anonymous_home.clone()),
-                Err(_) => (false, None),
+        
+        let bytes_read = match stream.read(&mut read_buffer) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                continue;
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                stream.write_all(b"421 Connection timed out\r\n")?;
+                break;
+            }
+            Err(e) => {
+                log::debug!("读取错误: {}", e);
+                break;
             }
         };
 
-        match cmd.as_str() {
+        cmd_buffer.extend_from_slice(&read_buffer[..bytes_read]);
+        
+        if cmd_buffer.len() > MAX_COMMAND_LENGTH {
+            stream.write_all(b"500 Command too long\r\n")?;
+            cmd_buffer.clear();
+            continue;
+        }
+
+        while let Some(crlf_pos) = cmd_buffer.windows(2).position(|w| w == b"\r\n") {
+            let command_bytes: Vec<u8> = cmd_buffer.drain(..crlf_pos + 2).collect();
+            let command = String::from_utf8_lossy(&command_bytes[..command_bytes.len().saturating_sub(2)])
+                .trim()
+                .to_string();
+
+            let parts: Vec<&str> = command.splitn(2, ' ').collect();
+            let cmd = parts[0].to_uppercase();
+            let arg = parts.get(1).map(|s| s.trim());
+
+            let (allow_anonymous, anonymous_home) = {
+                match config.lock() {
+                    Ok(guard) => (guard.ftp.allow_anonymous, guard.ftp.anonymous_home.clone()),
+                    Err(_) => (false, None),
+                }
+            };
+
+            match cmd.as_str() {
             "USER" => {
                 if let Some(username) = arg {
                     let username_lower = username.to_lowercase();
@@ -756,7 +762,7 @@ fn handle_ftp_connection(
                             continue;
                         }
                     };
-                    listeners.insert(passive_port, Arc::new(Mutex::new(Some(passive_listener))));
+                    listeners.insert(passive_port, passive_listener);
                 }
 
                 data_port = Some(passive_port);
@@ -834,7 +840,7 @@ fn handle_ftp_connection(
                             continue;
                         }
                     };
-                    listeners.insert(passive_port, Arc::new(Mutex::new(Some(passive_listener))));
+                    listeners.insert(passive_port, passive_listener);
                 }
 
                 data_port = Some(passive_port);
@@ -975,6 +981,10 @@ fn handle_ftp_connection(
                             stream.write_all(b"550 Invalid path\r\n")?;
                             continue;
                         }
+                        Err(PathResolveError::SymlinkNotAllowed) => {
+                            stream.write_all(b"550 Symlinks not allowed\r\n")?;
+                            continue;
+                        }
                     }
                 } else {
                     PathBuf::from(&cwd)
@@ -1070,6 +1080,10 @@ fn handle_ftp_connection(
                         }
                         Err(PathResolveError::InvalidPath) => {
                             stream.write_all(b"550 Invalid path\r\n")?;
+                            continue;
+                        }
+                        Err(PathResolveError::SymlinkNotAllowed) => {
+                            stream.write_all(b"550 Symlinks not allowed\r\n")?;
                             continue;
                         }
                     }
@@ -1908,6 +1922,7 @@ fn handle_ftp_connection(
             _ => {
                 stream.write_all(b"202 Command not implemented\r\n")?;
             }
+            }
         }
     }
 
@@ -1947,31 +1962,19 @@ fn get_data_connection(
     };
 
     if passive_mode {
-        let listener_arc = {
-            let listeners = passive_listeners.lock().unwrap();
-            listeners.get(&port).cloned()
+        let listener = {
+            let mut listeners = passive_listeners.lock().unwrap();
+            listeners.remove(&port)
         };
 
-        if let Some(listener_arc) = listener_arc {
-            let mut listener_guard = listener_arc.lock().unwrap();
-            if let Some(listener) = listener_guard.take() {
-                listener.set_nonblocking(false)?;
-                let result = match listener.accept() {
-                    Ok((stream, _)) => {
-                        let _ = stream.set_nonblocking(false);
-                        Ok(stream)
-                    }
-                    Err(e) => Err(anyhow::anyhow!("Failed to accept passive connection: {}", e))
-                };
-                if result.is_err() {
-                    let mut listeners = passive_listeners.lock().unwrap();
-                    listeners.remove(&port);
+        if let Some(listener) = listener {
+            listener.set_nonblocking(false)?;
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    let _ = stream.set_nonblocking(false);
+                    Ok(stream)
                 }
-                result
-            } else {
-                let mut listeners = passive_listeners.lock().unwrap();
-                listeners.remove(&port);
-                anyhow::bail!("No passive listener")
+                Err(e) => Err(anyhow::anyhow!("Failed to accept passive connection: {}", e))
             }
         } else {
             anyhow::bail!("No passive listener")

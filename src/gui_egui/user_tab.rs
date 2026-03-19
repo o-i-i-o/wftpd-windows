@@ -30,7 +30,13 @@ pub struct UserTab {
 
 impl Default for UserTab {
     fn default() -> Self {
-        let user_manager = UserManager::load(&Config::get_users_path()).unwrap_or_default();
+        let user_manager = match UserManager::load(&Config::get_users_path()) {
+            Ok(um) => um,
+            Err(e) => {
+                log::warn!("加载用户配置失败，使用默认配置: {}", e);
+                UserManager::default()
+            }
+        };
         Self {
             user_manager, modal: ModalMode::None,
             form_username: String::new(), form_password: String::new(),
@@ -48,8 +54,14 @@ impl UserTab {
 
     fn save(&mut self) {
         match self.user_manager.save(&Config::get_users_path()) {
-            Ok(_) => self.status_message = Some(("✓ 用户配置已保存".into(), true)),
-            Err(e) => self.status_message = Some((format!("✗ 保存失败: {}", e), false)),
+            Ok(_) => {
+                log::info!("用户配置已保存");
+                self.status_message = Some(("✓ 用户配置已保存".into(), true));
+            }
+            Err(e) => {
+                log::error!("保存用户配置失败: {}", e);
+                self.status_message = Some((format!("✗ 保存失败: {}", e), false));
+            }
         }
     }
 
@@ -248,21 +260,84 @@ impl UserTab {
                     self.form_home_dir.trim(), self.form_is_admin,
                 ) {
                     Ok(_) => {
-                        let _ = self.user_manager.update_permissions(self.form_username.trim(), self.form_permissions);
-                        self.save(); self.modal = ModalMode::None;
+                        let username = self.form_username.trim();
+                        match self.user_manager.update_permissions(username, self.form_permissions) {
+                            Ok(_) => {
+                                log::info!("用户 {} 权限更新成功", username);
+                            }
+                            Err(e) => {
+                                log::warn!("用户 {} 权限更新失败: {}", username, e);
+                                self.status_message = Some((format!("⚠ 用户已添加，但权限设置失败: {}", e), false));
+                            }
+                        }
+                        self.save(); 
+                        self.modal = ModalMode::None;
                     }
-                    Err(e) => self.form_error = Some(format!("添加失败: {}", e)),
+                    Err(e) => {
+                        log::error!("添加用户 {} 失败: {}", self.form_username.trim(), e);
+                        self.form_error = Some(format!("添加失败: {}", e));
+                    }
                 }
             } else if let ModalMode::EditUser(ref uname) = self.modal.clone() {
-                let _ = self.user_manager.update_home_dir(uname, self.form_home_dir.trim());
-                if !self.form_password.is_empty() {
-                    let _ = self.user_manager.update_password(uname, &self.form_password);
+                let mut has_error = false;
+                let mut error_messages = Vec::new();
+                
+                match self.user_manager.update_home_dir(uname, self.form_home_dir.trim()) {
+                    Ok(_) => {
+                        log::info!("用户 {} 主目录更新成功", uname);
+                    }
+                    Err(e) => {
+                        log::warn!("用户 {} 主目录更新失败: {}", uname, e);
+                        error_messages.push(format!("主目录更新失败: {}", e));
+                        has_error = true;
+                    }
                 }
-                let _ = self.user_manager.update_permissions(uname, self.form_permissions);
-                self.save(); self.modal = ModalMode::None;
+                
+                if !self.form_password.is_empty() {
+                    match self.user_manager.update_password(uname, &self.form_password) {
+                        Ok(_) => {
+                            log::info!("用户 {} 密码更新成功", uname);
+                        }
+                        Err(e) => {
+                            log::warn!("用户 {} 密码更新失败: {}", uname, e);
+                            error_messages.push(format!("密码更新失败: {}", e));
+                            has_error = true;
+                        }
+                    }
+                }
+                
+                match self.user_manager.update_permissions(uname, self.form_permissions) {
+                    Ok(_) => {
+                        log::info!("用户 {} 权限更新成功", uname);
+                    }
+                    Err(e) => {
+                        log::warn!("用户 {} 权限更新失败: {}", uname, e);
+                        error_messages.push(format!("权限更新失败: {}", e));
+                        has_error = true;
+                    }
+                }
+                
+                if has_error {
+                    self.status_message = Some((format!("⚠ 部分更新失败: {}", error_messages.join("; ")), false));
+                }
+                self.save(); 
+                self.modal = ModalMode::None;
             }
         }
-        if let Some(name) = delete_target { let _ = self.user_manager.remove_user(&name); self.save(); }
+        
+        if let Some(name) = delete_target {
+            match self.user_manager.remove_user(&name) {
+                Ok(_) => {
+                    log::info!("用户 {} 已删除", name);
+                    self.save();
+                }
+                Err(e) => {
+                    log::error!("删除用户 {} 失败: {}", name, e);
+                    self.status_message = Some((format!("✗ 删除用户失败: {}", e), false));
+                }
+            }
+        }
+        
         if close_modal && !do_submit { self.modal = ModalMode::None; self.form_error = None; }
 
         self.file_dialog.update(ctx);
@@ -289,7 +364,17 @@ impl UserTab {
             if ui.add(add_btn).clicked() { self.open_add_modal(); }
             ui.add_space(styles::SPACING_SM);
             if ui.button("🔄 刷新").clicked() {
-                self.user_manager = UserManager::load(&Config::get_users_path()).unwrap_or_default();
+                match UserManager::load(&Config::get_users_path()) {
+                    Ok(um) => {
+                        self.user_manager = um;
+                        log::info!("用户列表已刷新");
+                        self.status_message = Some(("✓ 用户列表已刷新".into(), true));
+                    }
+                    Err(e) => {
+                        log::error!("刷新用户列表失败: {}", e);
+                        self.status_message = Some((format!("✗ 刷新失败: {}", e), false));
+                    }
+                }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let count = self.user_manager.get_all_users().len();
@@ -416,7 +501,15 @@ impl UserTab {
 
         if let Some(u) = to_edit { self.open_edit_modal(&u); }
         if let Some((name, enabled)) = to_toggle {
-            let _ = self.user_manager.set_user_enabled(&name, enabled);
+            match self.user_manager.set_user_enabled(&name, enabled) {
+                Ok(_) => {
+                    log::info!("用户 {} 状态已更改为 {}", name, if enabled { "启用" } else { "禁用" });
+                }
+                Err(e) => {
+                    log::error!("更改用户 {} 状态失败: {}", name, e);
+                    self.status_message = Some((format!("✗ 更改用户状态失败: {}", e), false));
+                }
+            }
             self.save();
         }
         if let Some(name) = to_delete_confirm { self.modal = ModalMode::ConfirmDelete(name); }

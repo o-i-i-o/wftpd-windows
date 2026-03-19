@@ -24,6 +24,9 @@ const SSH_FXF_CREAT: u32 = 0x00000008;
 const SSH_FXF_TRUNC: u32 = 0x00000010;
 const SSH_FXF_EXCL: u32 = 0x00000020;
 
+const MAX_PACKET_SIZE: usize = 256 * 1024;
+const MAX_BUFFER_SIZE: usize = 10 * 1024 * 1024;
+
 #[derive(Clone)]
 pub struct SftpServer {
     config: Arc<StdMutex<Config>>,
@@ -266,6 +269,7 @@ struct SftpState {
     buffer: Vec<u8>,
     locked_files: HashSet<PathBuf>,
     client_ip: String,
+    cached_permissions: Option<crate::core::users::Permissions>,
 }
 
 enum SftpFileHandle {
@@ -488,7 +492,7 @@ impl russh::server::Handler for SftpHandler {
                 
                 let username = self.username.clone();
                 
-                self.sftp_state = Some(Arc::new(Mutex::new(SftpState {
+                let mut state = SftpState {
                     home_dir: home_dir.clone(),
                     cwd: home_dir.clone(),
                     username,
@@ -501,7 +505,11 @@ impl russh::server::Handler for SftpHandler {
                     buffer: Vec::new(),
                     locked_files: HashSet::new(),
                     client_ip: self.client_ip.clone(),
-                })));
+                    cached_permissions: None,
+                };
+                state.cache_permissions();
+                
+                self.sftp_state = Some(Arc::new(Mutex::new(state)));
             } else {
                 log::error!("SFTP subsystem request failed: home directory not set");
                 let _ = session.channel_failure(channel);
@@ -541,6 +549,17 @@ impl russh::server::Handler for SftpHandler {
 
 impl SftpState {
     async fn process_sftp_data(&mut self, data: &[u8]) -> Result<Vec<u8>> {
+        if self.buffer.len() + data.len() > MAX_BUFFER_SIZE {
+            log::warn!(
+                "SFTP buffer overflow attempt: buffer={}, incoming={}, max={}",
+                self.buffer.len(),
+                data.len(),
+                MAX_BUFFER_SIZE
+            );
+            self.buffer.clear();
+            return Ok(self.build_status_packet(0, 4, "Buffer overflow", ""));
+        }
+        
         self.buffer.extend_from_slice(data);
 
         let mut responses: Vec<u8> = Vec::new();
@@ -549,6 +568,12 @@ impl SftpState {
             let packet_len = u32::from_be_bytes([
                 self.buffer[0], self.buffer[1], self.buffer[2], self.buffer[3],
             ]) as usize;
+
+            if packet_len > MAX_PACKET_SIZE {
+                log::warn!("SFTP packet too large: {} bytes (max {})", packet_len, MAX_PACKET_SIZE);
+                self.buffer.clear();
+                return Ok(self.build_status_packet(0, 4, "Packet too large", ""));
+            }
 
             if self.buffer.len() < 4 + packet_len {
                 break;
@@ -567,12 +592,19 @@ impl SftpState {
     }
 
     fn check_permission(&self, check_fn: impl Fn(&crate::core::users::Permissions) -> bool) -> bool {
+        if let Some(perms) = &self.cached_permissions {
+            return check_fn(perms);
+        }
+        false
+    }
+    
+    fn cache_permissions(&mut self) {
         if let Ok(users) = self.user_manager.lock()
             && let Some(username) = &self.username
-                && let Some(user) = users.get_user(username) {
-                    return check_fn(&user.permissions);
-                }
-        false
+            && let Some(user) = users.get_user(username)
+        {
+            self.cached_permissions = Some(user.permissions.clone());
+        }
     }
 
     async fn handle_sftp_packet(&mut self, data: &[u8]) -> Result<Vec<u8>> {
