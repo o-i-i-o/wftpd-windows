@@ -679,7 +679,8 @@ fn handle_ftp_connection(
 
                 if target_path.exists() && target_path.starts_with(&home_dir) {
                     if let Ok(metadata) = target_path.metadata() {
-                        let facts = build_mlst_facts(&metadata);
+                        let owner = current_user.as_deref().unwrap_or("anonymous");
+                        let facts = build_mlst_facts(&metadata, owner);
                         let ftp_path = to_ftp_path(&target_path, Path::new(&home_dir));
                         let name = target_path.file_name()
                             .map(|n| n.to_string_lossy().to_string())
@@ -981,22 +982,26 @@ fn handle_ftp_connection(
 
                 stream.write_all(b"150 Here comes the directory listing\r\n")?;
 
+                let current_username = current_user.clone().unwrap_or_else(|| "anonymous".to_string());
+                
                 if let Ok(mut data_stream) = get_data_connection(passive_mode, data_port, &data_addr, &remote_ip, passive_listeners)
                     && let Ok(entries) = std::fs::read_dir(&list_path)
                 {
                     for entry in entries.flatten() {
                         if let Ok(metadata) = entry.metadata() {
                             let name = entry.file_name().to_string_lossy().to_string();
-                            let perms = if metadata.is_dir() {
+                            let is_dir = metadata.is_dir();
+                            let perms = if is_dir {
                                 "drwxr-xr-x"
                             } else {
                                 "-rw-r--r--"
                             };
                             let size = metadata.len();
                             let mtime = get_file_mtime(&metadata);
+                            let nlink = if is_dir { 2 } else { 1 };
                             let line = format!(
-                                "{} 1 user user {:>10} {} {}\r\n",
-                                perms, size, mtime, name
+                                "{} {:>2} {:<8} {:<8} {:>10} {} {}\r\n",
+                                perms, nlink, current_username, current_username, size, mtime, name
                             );
                             let _ = data_stream.write_all(line.as_bytes());
                         }
@@ -1074,13 +1079,15 @@ fn handle_ftp_connection(
 
                 stream.write_all(b"150 Here comes the directory listing\r\n")?;
 
+                let mlst_owner = current_user.clone().unwrap_or_else(|| "anonymous".to_string());
+                
                 if let Ok(mut data_stream) = get_data_connection(passive_mode, data_port, &data_addr, &remote_ip, passive_listeners)
                     && let Ok(entries) = std::fs::read_dir(&list_path)
                 {
                     for entry in entries.flatten() {
                         if let Ok(metadata) = entry.metadata() {
                             let name = entry.file_name().to_string_lossy().to_string();
-                            let facts = build_mlst_facts(&metadata);
+                            let facts = build_mlst_facts(&metadata, &mlst_owner);
                             let line = format!("{} {}\r\n", facts, name);
                             let _ = data_stream.write_all(line.as_bytes());
                         }
@@ -2007,7 +2014,7 @@ fn get_file_mtime_raw(metadata: &std::fs::Metadata) -> String {
     "19700101000000".to_string()
 }
 
-fn build_mlst_facts(metadata: &std::fs::Metadata) -> String {
+fn build_mlst_facts(metadata: &std::fs::Metadata, owner: &str) -> String {
     let mut facts: Vec<String> = Vec::new();
 
     if metadata.is_dir() {
@@ -2022,6 +2029,9 @@ fn build_mlst_facts(metadata: &std::fs::Metadata) -> String {
         let dt: chrono::DateTime<chrono::Utc> = time.into();
         facts.push(format!("modify={}", dt.format("%Y%m%d%H%M%S")));
     }
+    
+    facts.push(format!("UNIX.owner={}", owner));
+    facts.push(format!("UNIX.group={}", owner));
 
     format!("{};", facts.join(";"))
 }

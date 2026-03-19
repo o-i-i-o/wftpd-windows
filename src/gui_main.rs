@@ -148,16 +148,14 @@ impl WftpgApp {
         let is_service_installed = manager.is_service_installed();
         let mut show_service_dialog = false;
 
-        if !is_service_installed {
-            if let Ok(current_exe) = std::env::current_exe() {
-                if let Some(exe_dir) = current_exe.parent() {
-                    let wftpd_exe = exe_dir.join("wftpd.exe");
-                    if wftpd_exe.exists() {
-                        show_service_dialog = true;
-                    }
+        if !is_service_installed
+            && let Ok(current_exe) = std::env::current_exe()
+            && let Some(exe_dir) = current_exe.parent() {
+                let wftpd_exe = exe_dir.join("wftpd.exe");
+                if wftpd_exe.exists() {
+                    show_service_dialog = true;
                 }
             }
-        }
 
         let (ftp_running, sftp_running, server_running) = if IpcClient::is_server_running() {
             match IpcClient::get_status() {
@@ -178,8 +176,8 @@ impl WftpgApp {
     }
     
     fn check_init_result(&mut self, ctx: &egui::Context) {
-        if let Some(rx) = &self.init_receiver {
-            if let Ok(result) = rx.try_recv() {
+        if let Some(rx) = &self.init_receiver
+            && let Ok(result) = rx.try_recv() {
                 self.init_receiver = None;
                 
                 if let Some(error) = result.error {
@@ -196,12 +194,11 @@ impl WftpgApp {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                 }
             }
-        }
     }
     
     fn check_service_install_result(&mut self) {
-        if let Some(rx) = &self.service_install_receiver {
-            if let Ok(result) = rx.try_recv() {
+        if let Some(rx) = &self.service_install_receiver
+            && let Ok(result) = rx.try_recv() {
                 self.service_install_receiver = None;
                 
                 match result {
@@ -215,7 +212,6 @@ impl WftpgApp {
                     }
                 }
             }
-        }
     }
 }
 
