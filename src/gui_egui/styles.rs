@@ -7,22 +7,32 @@ pub const PRIMARY_LIGHT: Color32        = Color32::from_rgb(139, 92, 246);
 // 状态色 - 更柔和的配色
 pub const SUCCESS_COLOR: Color32        = Color32::from_rgb(16, 124, 16);
 pub const SUCCESS_LIGHT: Color32        = Color32::from_rgb(220, 252, 231);
+pub const SUCCESS_DARK: Color32         = Color32::from_rgb(39, 174, 96);
 pub const DANGER_COLOR: Color32         = Color32::from_rgb(185, 28, 28);
 pub const DANGER_LIGHT: Color32         = Color32::from_rgb(254, 226, 226);
+pub const DANGER_DARK: Color32          = Color32::from_rgb(192, 57, 43);
+pub const WARNING_COLOR: Color32        = Color32::from_rgb(180, 120, 0);
+pub const WARNING_LIGHT: Color32        = Color32::from_rgb(255, 252, 235);
+pub const WARNING_BORDER: Color32       = Color32::from_rgb(241, 196, 15);
+pub const INFO_COLOR: Color32           = Color32::from_rgb(41, 128, 185);
+pub const INFO_LIGHT: Color32           = Color32::from_rgb(225, 243, 252);
 
 // 文本色 - 更清晰的深色
 pub const TEXT_PRIMARY_COLOR: Color32   = Color32::from_rgb(30, 41, 59);
 pub const TEXT_SECONDARY_COLOR: Color32 = Color32::from_rgb(55, 65, 81);
 pub const TEXT_MUTED_COLOR: Color32     = Color32::from_rgb(75, 85, 99);
+pub const TEXT_LABEL_COLOR: Color32     = Color32::from_rgb(100, 100, 100);
 
 // 背景色 - 更温暖的白色
 pub const BG_PRIMARY: Color32           = Color32::from_rgb(249, 250, 251);
 pub const BG_SECONDARY: Color32         = Color32::from_rgb(243, 244, 246);
 pub const BG_CARD: Color32              = Color32::WHITE;
 pub const BG_HEADER: Color32            = Color32::from_rgb(79, 70, 229);
+pub const BG_INFO: Color32              = Color32::from_rgb(248, 250, 252);
 
 // 边框色 - 更柔和的边框
 pub const BORDER_COLOR: Color32         = Color32::from_rgb(229, 231, 235);
+pub const BORDER_LIGHT: Color32         = Color32::from_rgb(220, 225, 230);
 
 // 字体大小
 pub const FONT_SIZE_XL: f32             = 24.0;

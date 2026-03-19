@@ -1,7 +1,7 @@
 #![windows_subsystem = "windows"]
 
 use eframe::{App, Frame};
-use egui::{CentralPanel, TopBottomPanel, RichText, Color32, IconData};
+use egui::{CentralPanel, RichText, Color32, IconData};
 use std::time::{Duration, Instant};
 
 use wftpg::core::ipc::IpcClient;
@@ -66,6 +66,7 @@ struct WftpgApp {
     show_service_install_dialog: bool,
     service_install_status: Option<(String, bool)>,
     last_refresh:   Instant,
+    initialized:    bool,
 }
 
 impl Default for WftpgApp {
@@ -84,6 +85,7 @@ impl Default for WftpgApp {
             show_service_install_dialog: false,
             service_install_status: None,
             last_refresh:   Instant::now(),
+            initialized:    false,
         }
     }
 }
@@ -123,7 +125,6 @@ impl WftpgApp {
     }
 
     fn auto_refresh(&mut self) {
-        // 每 3 秒自动刷新一次状态
         if self.last_refresh.elapsed() >= Duration::from_secs(3) {
             self.check_server_status();
         }
@@ -199,79 +200,22 @@ impl WftpgApp {
 
 impl App for WftpgApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
-        // 自动刷新状态
+        if !self.initialized {
+            self.check_server_and_service();
+            self.initialized = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+        }
+
         self.auto_refresh();
         
         self.show_service_dialog(ctx);
         ctx.set_style(styles::get_custom_style());
 
-        // 顶部标题栏 - 移除刷新按钮
-        TopBottomPanel::top("header")
-            .frame(egui::Frame::new()
-                .fill(styles::BG_HEADER)
-                .inner_margin(egui::Margin::symmetric(20, 12)))
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("◉").size(22.0).color(styles::PRIMARY_COLOR));
-                    ui.add_space(8.0);
-                    ui.label(RichText::new("WFTPG").size(22.0).strong().color(Color32::WHITE));
-                    ui.add_space(12.0);
-                    ui.label(RichText::new("SFTP/FTP 管理工具").size(14.0)
-                        .color(styles::TEXT_MUTED_COLOR));
-                });
-            });
-
-        // 底部状态栏 - 优化布局
-        TopBottomPanel::bottom("status_bar")
-            .frame(egui::Frame::new()
-                .fill(styles::BG_SECONDARY)
-                .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
-                .inner_margin(egui::Margin::symmetric(20, 10)))
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    let ftp_col  = if self.ftp_running  { styles::SUCCESS_COLOR } else { styles::DANGER_COLOR };
-                    let sftp_col = if self.sftp_running { styles::SUCCESS_COLOR } else { styles::DANGER_COLOR };
-                    let srv_col  = if self.server_running { styles::SUCCESS_COLOR } else { styles::TEXT_SECONDARY_COLOR };
-
-                    // FTP 状态
-                    ui.label(RichText::new("●").size(14.0).color(ftp_col));
-                    ui.label(RichText::new("FTP").size(14.0).strong().color(styles::TEXT_PRIMARY_COLOR));
-                    ui.label(RichText::new(if self.ftp_running { "运行中" } else { "已停止" })
-                        .size(12.0).color(ftp_col));
-                    
-                    ui.add_space(20.0);
-                    ui.label(RichText::new("|").color(styles::BORDER_COLOR));
-                    ui.add_space(20.0);
-                    
-                    // SFTP 状态
-                    ui.label(RichText::new("●").size(14.0).color(sftp_col));
-                    ui.label(RichText::new("SFTP").size(14.0).strong().color(styles::TEXT_PRIMARY_COLOR));
-                    ui.label(RichText::new(if self.sftp_running { "运行中" } else { "已停止" })
-                        .size(12.0).color(sftp_col));
-                    
-                    ui.add_space(20.0);
-                    ui.label(RichText::new("|").color(styles::BORDER_COLOR));
-                    ui.add_space(20.0);
-                    
-                    // 服务状态
-                    ui.label(RichText::new("●").size(14.0).color(srv_col));
-                    ui.label(RichText::new("后台服务").size(14.0).strong().color(styles::TEXT_PRIMARY_COLOR));
-                    ui.label(RichText::new(if self.server_running { "在线" } else { "离线" })
-                        .size(12.0).color(srv_col));
-                    
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new("WFTPG v3.0.0").size(12.0).color(styles::TEXT_SECONDARY_COLOR));
-                    });
-                });
-            });
-
-        // 中央面板
         CentralPanel::default()
             .frame(egui::Frame::new().fill(styles::BG_PRIMARY))
             .show(ctx, |ui| {
                 ui.add_space(12.0);
                 
-                // Tab 导航栏 - 优化布局
                 styles::card_frame().show(ui, |ui| {
                     ui.horizontal(|ui| {
                         let tabs = [
@@ -312,7 +256,6 @@ impl App for WftpgApp {
 
                 ui.add_space(12.0);
 
-                // Tab 内容
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
@@ -393,6 +336,7 @@ fn main() -> eframe::Result<()> {
             .with_inner_size([1100.0, 750.0])
             .with_min_inner_size([900.0, 650.0])
             .with_resizable(true)
+            .with_visible(false)
             .with_icon(icon.unwrap_or_else(|| {
                 IconData {
                     rgba: vec![0; 32 * 32 * 4],
@@ -408,9 +352,7 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|cc| {
             setup_fonts(&cc.egui_ctx);
-            let mut app = WftpgApp::default();
-            app.check_server_and_service();
-            Ok(Box::new(app))
+            Ok(Box::new(WftpgApp::default()))
         }),
     )
 }

@@ -47,27 +47,36 @@ impl LogTab {
     }
 
     pub fn ui(&mut self, ui: &mut Ui) {
-        ui.heading(RichText::new("📋 日志查看").color(styles::TEXT_PRIMARY_COLOR));
-        ui.separator();
-
         ui.horizontal(|ui| {
-            if ui.button("🔄 刷新").clicked() {
-                self.refresh();
-            }
-            ui.checkbox(&mut self.auto_refresh, "自动刷新");
-            ui.label("显示条数:");
-            let mut count_str = self.fetch_count.to_string();
-            if ui
-                .add(egui::TextEdit::singleline(&mut count_str).desired_width(60.0))
-                .changed()
-                && let Ok(v) = count_str.parse::<usize>() {
+            ui.label(RichText::new("📋").size(styles::FONT_SIZE_XL));
+            ui.label(RichText::new("系统日志").size(styles::FONT_SIZE_XL).strong().color(styles::TEXT_PRIMARY_COLOR));
+        });
+        ui.add_space(styles::SPACING_SM);
+
+        egui::Grid::new("log_toolbar_grid")
+            .num_columns(5)
+            .spacing([12.0, 8.0])
+            .show(ui, |ui| {
+                if ui.button("🔄 刷新").clicked() {
+                    self.refresh();
+                }
+                ui.checkbox(&mut self.auto_refresh, "自动刷新");
+                
+                ui.label(RichText::new("显示条数:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
+                let mut count_str = self.fetch_count.to_string();
+                styles::input_frame().show(ui, |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut count_str)
+                        .desired_width(60.0)
+                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
+                });
+                if let Ok(v) = count_str.parse::<usize>() {
                     self.fetch_count = v.clamp(1, 10_000);
                 }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                
                 ui.label(RichText::new(format!("共 {} 条日志", self.logs.len()))
-                    .size(11.0).color(Color32::from_rgb(120, 120, 120)));
+                    .size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
+                ui.end_row();
             });
-        });
 
         if self.auto_refresh {
             ui.ctx()
@@ -76,49 +85,49 @@ impl LogTab {
         }
 
         if let Some(err) = &self.last_error {
-            egui::Frame::new()
-                .fill(Color32::from_rgb(253, 230, 230))
-                .inner_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 8 })
-                .corner_radius(egui::CornerRadius::same(6))
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("⚠").size(16.0).color(Color32::from_rgb(220, 38, 38)));
-                        ui.label(RichText::new(err).color(Color32::from_rgb(185, 28, 28)));
-                    });
+            styles::info_card_frame(styles::DANGER_LIGHT).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("⚠").size(styles::FONT_SIZE_MD).color(styles::DANGER_COLOR));
+                    ui.label(RichText::new(err).size(styles::FONT_SIZE_MD).color(styles::DANGER_COLOR));
                 });
-            ui.add_space(8.0);
+            });
+            ui.add_space(styles::SPACING_MD);
         }
-
-        ui.separator();
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .stick_to_bottom(true)
             .show(ui, |ui| {
                 if self.logs.is_empty() {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(40.0);
-                        ui.label(RichText::new("📭 暂无日志记录")
-                            .size(14.0).color(Color32::from_rgb(150, 150, 150)));
-                        ui.add_space(8.0);
-                        ui.label(RichText::new("点击刷新按钮获取最新日志")
-                            .size(12.0).color(Color32::from_rgb(180, 180, 180)));
+                    styles::card_frame().show(ui, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(styles::SPACING_LG);
+                            ui.label(RichText::new("📭 暂无日志记录")
+                                .size(styles::FONT_SIZE_LG).color(styles::TEXT_MUTED_COLOR));
+                            ui.add_space(styles::SPACING_MD);
+                            ui.label(RichText::new("点击刷新按钮获取最新日志")
+                                .size(styles::FONT_SIZE_MD).color(styles::TEXT_LABEL_COLOR));
+                        });
                     });
                     return;
                 }
 
-                egui::Frame::new()
-                    .fill(Color32::from_rgb(248, 249, 250))
-                    .inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 6 })
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.add_sized([140.0, 16.0], egui::Label::new(RichText::new("时间").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR)));
-                            ui.add_sized([60.0, 16.0], egui::Label::new(RichText::new("级别").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR)));
-                            ui.add_sized([80.0, 16.0], egui::Label::new(RichText::new("来源").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR)));
-                            ui.add_sized([110.0, 16.0], egui::Label::new(RichText::new("客户端 IP").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR)));
-                            ui.label(RichText::new("消息详情").strong().size(12.0).color(styles::TEXT_PRIMARY_COLOR));
+                styles::card_frame().show(ui, |ui| {
+                    egui::Grid::new("log_header_grid")
+                        .num_columns(5)
+                        .spacing([8.0, 4.0])
+                        .min_col_width(60.0)
+                        .show(ui, |ui| {
+                            ui.add_sized([140.0, 16.0], egui::Label::new(RichText::new("时间").strong().size(styles::FONT_SIZE_SM).color(styles::TEXT_PRIMARY_COLOR)));
+                            ui.add_sized([60.0, 16.0], egui::Label::new(RichText::new("级别").strong().size(styles::FONT_SIZE_SM).color(styles::TEXT_PRIMARY_COLOR)));
+                            ui.add_sized([80.0, 16.0], egui::Label::new(RichText::new("来源").strong().size(styles::FONT_SIZE_SM).color(styles::TEXT_PRIMARY_COLOR)));
+                            ui.add_sized([110.0, 16.0], egui::Label::new(RichText::new("客户端 IP").strong().size(styles::FONT_SIZE_SM).color(styles::TEXT_PRIMARY_COLOR)));
+                            ui.label(RichText::new("消息详情").strong().size(styles::FONT_SIZE_SM).color(styles::TEXT_PRIMARY_COLOR));
+                            ui.end_row();
                         });
-                    });
+                });
+
+                ui.add_space(styles::SPACING_XS);
 
                 egui::ScrollArea::horizontal().show(ui, |ui| {
                     for (idx, entry) in self.logs.iter().enumerate() {
@@ -130,52 +139,61 @@ impl LogTab {
                         
                         egui::Frame::new()
                             .fill(bg_color)
+                            .stroke(egui::Stroke::new(1.0, styles::BORDER_LIGHT))
                             .inner_margin(egui::Margin { left: 8, right: 8, top: 5, bottom: 5 })
+                            .corner_radius(egui::CornerRadius::same(4))
                             .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.add_sized([140.0, 20.0], egui::Label::new(
-                                        RichText::new(&entry.timestamp)
-                                            .size(12.0)
-                                            .color(Color32::from_rgb(90, 90, 90)),
-                                    ));
+                                egui::Grid::new(format!("log_row_{}", idx))
+                                    .num_columns(5)
+                                    .spacing([8.0, 4.0])
+                                    .min_col_width(60.0)
+                                    .show(ui, |ui| {
+                                        ui.add_sized([140.0, 20.0], egui::Label::new(
+                                            RichText::new(&entry.timestamp)
+                                                .size(styles::FONT_SIZE_SM)
+                                                .color(styles::TEXT_SECONDARY_COLOR),
+                                        ));
 
-                                    let (_level_bg, level_color) = match entry.level.as_str() {
-                                        "ERROR" => (Color32::from_rgb(254, 226, 226), Color32::from_rgb(185, 28, 28)),
-                                        "WARN" => (Color32::from_rgb(254, 249, 195), Color32::from_rgb(161, 98, 7)),
-                                        "DEBUG" => (Color32::from_rgb(240, 244, 248), Color32::from_rgb(82, 95, 107)),
-                                        _ => (Color32::from_rgb(220, 252, 231), Color32::from_rgb(16, 124, 16)),
-                                    };
-                                    ui.add_sized([60.0, 20.0], egui::Label::new(
-                                        RichText::new(&entry.level)
-                                            .size(11.0)
-                                            .strong()
-                                            .color(level_color)
-                                    ));
+                                        let level_color = match entry.level.as_str() {
+                                            "ERROR" => styles::DANGER_COLOR,
+                                            "WARN" => styles::WARNING_COLOR,
+                                            "DEBUG" => styles::TEXT_MUTED_COLOR,
+                                            _ => styles::SUCCESS_COLOR,
+                                        };
+                                        ui.add_sized([60.0, 20.0], egui::Label::new(
+                                            RichText::new(&entry.level)
+                                                .size(styles::FONT_SIZE_SM)
+                                                .strong()
+                                                .color(level_color)
+                                        ));
 
-                                    ui.add_sized([80.0, 20.0], egui::Label::new(
-                                        RichText::new(&entry.source)
-                                            .size(12.0)
-                                            .color(Color32::from_rgb(60, 60, 60))
-                                    ));
+                                        ui.add_sized([80.0, 20.0], egui::Label::new(
+                                            RichText::new(&entry.source)
+                                                .size(styles::FONT_SIZE_SM)
+                                                .color(styles::TEXT_SECONDARY_COLOR)
+                                        ));
 
-                                    ui.add_sized([110.0, 20.0], egui::Label::new(
-                                        RichText::new(
-                                            entry.client_ip.as_deref().unwrap_or("-"),
-                                        )
-                                        .size(12.0)
-                                        .color(Color32::from_rgb(100, 100, 100)),
-                                    ));
+                                        ui.add_sized([110.0, 20.0], egui::Label::new(
+                                            RichText::new(
+                                                entry.client_ip.as_deref().unwrap_or("-"),
+                                            )
+                                            .size(styles::FONT_SIZE_SM)
+                                            .color(styles::TEXT_LABEL_COLOR),
+                                        ));
 
-                                    let msg = if let Some(user) = &entry.username {
-                                        format!("[{}] {}", user, entry.message)
-                                    } else {
-                                        entry.message.clone()
-                                    };
-                                    ui.label(RichText::new(&msg).size(12.0).color(Color32::from_rgb(50, 50, 50)));
-                                });
+                                        let msg = if let Some(user) = &entry.username {
+                                            format!("[{}] {}", user, entry.message)
+                                        } else {
+                                            entry.message.clone()
+                                        };
+                                        ui.label(RichText::new(&msg).size(styles::FONT_SIZE_SM).color(styles::TEXT_PRIMARY_COLOR));
+                                        ui.end_row();
+                                    });
                             });
                     }
                 });
+                
+                ui.add_space(styles::SPACING_MD);
             });
     }
 }
