@@ -262,8 +262,17 @@ impl Config {
             let log_path = Path::new(log_dir);
             if !log_path.exists() {
                 warnings.push(format!("日志目录不存在: {}", log_dir));
-            } else if fs::metadata(log_path).map(|m| m.permissions().readonly()).unwrap_or(true) {
-                warnings.push(format!("日志目录不可写: {}", log_dir));
+            } else {
+                match fs::metadata(log_path) {
+                    Ok(m) => {
+                        if m.permissions().readonly() {
+                            warnings.push(format!("日志目录不可写: {}", log_dir));
+                        }
+                    }
+                    Err(e) => {
+                        warnings.push(format!("无法访问日志目录 '{}': {}", log_dir, e));
+                    }
+                }
             }
         }
         

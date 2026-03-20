@@ -810,11 +810,12 @@ async fn handle_command(
                     }
                 }
             } else {
-                if state.transfer_mode == "binary" {
-                    let _ = control_stream.write_all(b"200 Type is I (Binary)\r\n").await;
-                } else {
-                    let _ = control_stream.write_all(b"200 Type is A (ASCII)\r\n").await;
-                }
+                let type_str = match state.transfer_mode.as_str() {
+                    "binary" => "200 Type is I (Binary)\r\n",
+                    "ascii" => "200 Type is A (ASCII)\r\n",
+                    _ => "200 Type set\r\n",
+                };
+                let _ = control_stream.write_all(type_str.as_bytes()).await;
             }
         }
 
@@ -1057,6 +1058,7 @@ async fn handle_command(
 
         ABOR => {
             state.abort_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+            state.rest_offset = 0;
             let _ = control_stream.write_all(b"426 Connection closed; transfer aborted\r\n").await;
             let _ = control_stream.write_all(b"226 Abort successful\r\n").await;
         }
@@ -1232,7 +1234,7 @@ async fn handle_command(
             }
 
             let can_list = if state.current_user.as_deref() == Some("anonymous") {
-                *allow_anonymous
+                true
             } else {
                 let users = user_manager.lock()
                     .map_err(|_| anyhow::anyhow!("Failed to lock user manager"))?;

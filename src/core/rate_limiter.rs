@@ -23,11 +23,9 @@ impl RateLimiter {
             speed_limit_kbps * 1024
         };
         
-        let tokens_per_interval = bytes_per_second / (1000 / REFILL_INTERVAL_MS);
-        
         RateLimiter {
             state: Arc::new(Mutex::new(RateLimiterState {
-                tokens: tokens_per_interval.min(BUCKET_CAPACITY),
+                tokens: BUCKET_CAPACITY,
                 last_refill: Instant::now(),
             })),
             bytes_per_second,

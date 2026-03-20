@@ -579,6 +579,20 @@ impl russh::server::Handler for SftpHandler {
             }
         Ok(())
     }
+
+    async fn channel_eof(
+        &mut self,
+        channel: ChannelId,
+        _session: &mut server::Session,
+    ) -> Result<(), Self::Error> {
+        if self.sftp_channel == Some(channel) {
+            if let Some(state) = &self.sftp_state {
+                let mut state = state.lock().await;
+                state.cleanup();
+            }
+        }
+        Ok(())
+    }
 }
 
 impl SftpState {
@@ -661,6 +675,19 @@ impl SftpState {
         }
     }
 
+    fn cleanup(&mut self) {
+        for (_, handle) in self.handles.drain() {
+            if let SftpFileHandle::File { locked, path, .. } = handle {
+                if locked {
+                    log::info!("Releasing lock on {:?} during cleanup", path);
+                    self.locked_files.remove(&path);
+                }
+            }
+        }
+        self.locked_files.clear();
+        log::info!("SFTP session cleanup completed");
+    }
+
     async fn handle_sftp_packet(&mut self, data: &[u8]) -> Result<Vec<u8>> {
         if data.is_empty() {
             return Ok(self.build_status_packet(0, 5, "Bad packet", ""));
@@ -714,6 +741,10 @@ impl SftpState {
     async fn handle_opendir(&mut self, data: &[u8]) -> Result<Vec<u8>> {
         let id = self.parse_u32(data, 1);
         let path = self.parse_string(data, 5)?;
+
+        if !self.check_permission(|p| p.can_list) {
+            return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
+        }
 
         let full_path = match self.resolve_path(&path) {
             Ok(p) => p,
@@ -814,10 +845,6 @@ impl SftpState {
     async fn handle_readdir(&mut self, data: &[u8]) -> Result<Vec<u8>> {
         let id = self.parse_u32(data, 1);
         let handle_str = self.parse_string(data, 5)?;
-
-        if !self.check_permission(|p| p.can_list) {
-            return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
-        }
 
         let entries_result = {
             let handle = self.handles.get_mut(&handle_str);
@@ -991,10 +1018,6 @@ impl SftpState {
 
                 *written_bytes += data_len as u64;
                 log::info!("SFTP WRITE: {} bytes to {:?} at offset {}", data_len, path, offset);
-
-                if !*existed && *written_bytes > 0 {
-                    *existed = true;
-                }
 
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
