@@ -8,6 +8,7 @@ use tokio::net::TcpStream;
 use std::net::ToSocketAddrs;
 
 use super::passive::PassiveManager;
+use crate::core::rate_limiter::RateLimiter;
 
 const DATA_BUFFER_SIZE: usize = 8192;
 
@@ -263,6 +264,147 @@ pub async fn receive_file_append(
     }
 
     Ok(total_written)
+}
+
+pub async fn receive_file_with_limits(
+    data_stream: &mut TcpStream,
+    file_path: &Path,
+    offset: u64,
+    abort: Arc<AtomicBool>,
+    is_ascii: bool,
+    rate_limiter: Option<&RateLimiter>,
+) -> Result<u64> {
+    log::debug!("receive_file_with_limits: path={}, offset={}, is_ascii={}", file_path.display(), offset, is_ascii);
+    
+    let file_result = if offset > 0 {
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(file_path).await
+    } else {
+        tokio::fs::File::create(file_path).await
+    };
+
+    let mut file = match file_result {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("Failed to create/open file '{}': {}", file_path.display(), e);
+            return Err(anyhow::anyhow!("Failed to create file: {}", e));
+        }
+    };
+    
+    if offset > 0
+        && let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await
+    {
+        log::error!("Failed to seek in file '{}': {}", file_path.display(), e);
+        return Err(anyhow::anyhow!("Seek failed: {}", e));
+    }
+
+    let mut buf = [0u8; DATA_BUFFER_SIZE];
+    let mut total_written: u64 = 0;
+    let mut transfer_error: Option<anyhow::Error> = None;
+    
+    loop {
+        if abort.load(Ordering::Relaxed) {
+            log::debug!("Transfer aborted by client");
+            break;
+        }
+        match data_stream.read(&mut buf).await {
+            Ok(0) => {
+                log::debug!("Data connection closed (EOF), total written: {}", total_written);
+                break;
+            }
+            Ok(n) => {
+                if let Some(limiter) = rate_limiter {
+                    limiter.acquire(n).await;
+                }
+                
+                let data = if is_ascii {
+                    convert_crlf_to_lf(&buf[..n])
+                } else {
+                    buf[..n].to_vec()
+                };
+                if let Err(e) = file.write_all(&data).await {
+                    log::error!("STOR write error for file '{}': {}", file_path.display(), e);
+                    transfer_error = Some(anyhow::anyhow!("Write error: {}", e));
+                    break;
+                }
+                total_written += data.len() as u64;
+            }
+            Err(e) => {
+                log::error!("STOR read error from data stream: {}", e);
+                transfer_error = Some(anyhow::anyhow!("Read error: {}", e));
+                break;
+            }
+        }
+    }
+
+    if let Err(e) = file.sync_all().await {
+        log::error!("Failed to sync file {:?}: {}", file_path, e);
+    }
+
+    if let Some(e) = transfer_error {
+        log::error!("STOR failed: {} bytes written before error to {}", total_written, file_path.display());
+        return Err(e);
+    }
+
+    log::info!("STOR completed: {} bytes written to {}", total_written, file_path.display());
+    Ok(total_written)
+}
+
+pub async fn send_file_with_limits(
+    data_stream: &mut TcpStream,
+    file_path: &Path,
+    offset: u64,
+    abort: Arc<AtomicBool>,
+    is_ascii: bool,
+    rate_limiter: Option<&RateLimiter>,
+) -> Result<()> {
+    let mut file = tokio::fs::File::open(file_path).await?;
+    
+    if offset > 0 {
+        file.seek(std::io::SeekFrom::Start(offset)).await?;
+    }
+
+    let mut buf = [0u8; DATA_BUFFER_SIZE];
+    let mut transfer_error: Option<anyhow::Error> = None;
+    
+    loop {
+        if abort.load(Ordering::Relaxed) {
+            break;
+        }
+        match file.read(&mut buf).await {
+            Ok(0) => break,
+            Ok(n) => {
+                if let Some(limiter) = rate_limiter {
+                    limiter.acquire(n).await;
+                }
+                
+                let data = if is_ascii {
+                    convert_lf_to_crlf(&buf[..n])
+                } else {
+                    buf[..n].to_vec()
+                };
+                if let Err(e) = data_stream.write_all(&data).await {
+                    log::error!("RETR write error for file '{}': {}", file_path.display(), e);
+                    transfer_error = Some(anyhow::anyhow!("Write error: {}", e));
+                    break;
+                }
+            }
+            Err(e) => {
+                log::error!("RETR read error from file '{}': {}", file_path.display(), e);
+                transfer_error = Some(anyhow::anyhow!("Read error: {}", e));
+                break;
+            }
+        }
+    }
+
+    if let Some(e) = transfer_error {
+        return Err(e);
+    }
+
+    Ok(())
 }
 
 pub async fn send_directory_listing(

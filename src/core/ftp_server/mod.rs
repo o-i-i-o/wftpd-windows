@@ -10,10 +10,11 @@ use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::core::config::Config;
+use crate::core::config::{Config, get_program_data_path};
 use crate::core::logger::Logger;
 use crate::core::users::UserManager;
 use crate::core::file_logger::FileLogger;
+use crate::core::quota::QuotaManager;
 
 use crate::core::ftp_server::tls::TlsConfig;
 
@@ -22,6 +23,7 @@ pub struct FtpServer {
     user_manager: Arc<std::sync::Mutex<UserManager>>,
     logger: Arc<std::sync::Mutex<Logger>>,
     file_logger: Arc<std::sync::Mutex<FileLogger>>,
+    quota_manager: Arc<std::sync::Mutex<QuotaManager>>,
     running: Arc<std::sync::Mutex<bool>>,
     shutdown_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     ftps_shutdown_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
@@ -53,11 +55,14 @@ impl FtpServer {
             }
         };
         
+        let quota_manager = QuotaManager::new(&get_program_data_path());
+        
         FtpServer {
             config,
             user_manager,
             logger,
             file_logger,
+            quota_manager: Arc::new(std::sync::Mutex::new(quota_manager)),
             running: Arc::new(std::sync::Mutex::new(false)),
             shutdown_tx: Arc::new(Mutex::new(None)),
             ftps_shutdown_tx: Arc::new(Mutex::new(None)),
@@ -122,6 +127,7 @@ impl FtpServer {
         let user_manager = Arc::clone(&self.user_manager);
         let logger = Arc::clone(&self.logger);
         let file_logger = Arc::clone(&self.file_logger);
+        let quota_manager = Arc::clone(&self.quota_manager);
         let running_clone = Arc::clone(&self.running);
 
         if let Ok(mut log) = self.logger.lock() {
@@ -146,6 +152,7 @@ impl FtpServer {
                 let user_manager_clone = Arc::clone(&user_manager);
                 let logger_clone = Arc::clone(&logger);
                 let file_logger_clone = Arc::clone(&file_logger);
+                let quota_manager_clone = Arc::clone(&quota_manager);
                 
                 tokio::spawn(async move {
                     if let Err(e) = ftps_listener::start_ftps_implicit_server(
@@ -153,6 +160,7 @@ impl FtpServer {
                         user_manager_clone,
                         logger_clone,
                         file_logger_clone,
+                        quota_manager_clone,
                         tls_cfg,
                         ftps_shutdown_rx,
                     ).await {
@@ -175,6 +183,7 @@ impl FtpServer {
                                 let user_manager = Arc::clone(&user_manager);
                                 let logger = Arc::clone(&logger);
                                 let file_logger = Arc::clone(&file_logger);
+                                let quota_manager = Arc::clone(&quota_manager);
                                 let client_ip = peer_addr.ip().to_string();
 
                                 if let Ok(mut log) = logger.lock() {
@@ -194,6 +203,7 @@ impl FtpServer {
                                         user_manager,
                                         logger,
                                         file_logger,
+                                        quota_manager,
                                         client_ip,
                                     ).await {
                                         log::debug!("FTP session error: {}", e);

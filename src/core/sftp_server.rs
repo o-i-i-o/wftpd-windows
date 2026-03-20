@@ -15,6 +15,8 @@ use crate::core::config::{Config, get_program_data_path};
 use crate::core::logger::Logger;
 use crate::core::users::UserManager;
 use crate::core::file_logger::{FileLogger, FileLogInfo};
+use crate::core::quota::QuotaManager;
+use crate::core::rate_limiter::RateLimiter;
 use crate::core::path_utils::{safe_resolve_path_with_cwd, to_ftp_path, PathResolveError, path_starts_with_ignore_case};
 
 const SSH_FXF_READ: u32 = 0x00000001;
@@ -33,6 +35,7 @@ pub struct SftpServer {
     user_manager: Arc<StdMutex<UserManager>>,
     logger: Arc<StdMutex<Logger>>,
     file_logger: Arc<StdMutex<FileLogger>>,
+    quota_manager: Arc<StdMutex<QuotaManager>>,
     running: Arc<StdMutex<bool>>,
     shutdown_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
 }
@@ -44,11 +47,14 @@ impl SftpServer {
         logger: Arc<StdMutex<Logger>>,
         file_logger: Arc<StdMutex<FileLogger>>,
     ) -> Self {
+        let quota_manager = QuotaManager::new(&get_program_data_path());
+        
         SftpServer {
             config,
             user_manager,
             logger,
             file_logger,
+            quota_manager: Arc::new(StdMutex::new(quota_manager)),
             running: Arc::new(StdMutex::new(false)),
             shutdown_tx: Arc::new(Mutex::new(None)),
         }
@@ -174,6 +180,7 @@ impl SftpServer {
                                         user_manager,
                                         logger,
                                         file_logger,
+                                        quota_manager,
                                         authenticated: false,
                                         username: None,
                                         home_dir: None,
@@ -184,7 +191,7 @@ impl SftpServer {
                                     };
 
                                     if let Err(e) = russh::server::run_stream(config, socket, handler).await {
-                                        eprintln!("SSH connection error from {}: {}", peer_addr, e);
+                                        log::error!("SSH connection error from {}: {}", peer_addr, e);
                                     }
                                 });
                             }
@@ -265,6 +272,7 @@ struct SftpHandler {
     user_manager: Arc<StdMutex<UserManager>>,
     logger: Arc<StdMutex<Logger>>,
     file_logger: Arc<StdMutex<FileLogger>>,
+    quota_manager: Arc<StdMutex<QuotaManager>>,
     authenticated: bool,
     username: Option<String>,
     home_dir: Option<String>,
@@ -281,6 +289,7 @@ struct SftpState {
     user_manager: Arc<StdMutex<UserManager>>,
     logger: Arc<StdMutex<Logger>>,
     file_logger: Arc<StdMutex<FileLogger>>,
+    quota_manager: Arc<StdMutex<QuotaManager>>,
     handles: HashMap<String, SftpFileHandle>,
     next_handle_id: u32,
     sftp_version: u32,
@@ -288,6 +297,7 @@ struct SftpState {
     locked_files: HashSet<PathBuf>,
     client_ip: String,
     cached_permissions: Option<crate::core::users::Permissions>,
+    rate_limiter: Option<RateLimiter>,
 }
 
 enum SftpFileHandle {
@@ -518,6 +528,7 @@ impl russh::server::Handler for SftpHandler {
                     user_manager: Arc::clone(&self.user_manager),
                     logger: Arc::clone(&self.logger),
                     file_logger: Arc::clone(&self.file_logger),
+                    quota_manager: Arc::clone(&self.quota_manager),
                     handles: HashMap::new(),
                     next_handle_id: 0,
                     sftp_version: 3,
@@ -525,8 +536,10 @@ impl russh::server::Handler for SftpHandler {
                     locked_files: HashSet::new(),
                     client_ip: self.client_ip.clone(),
                     cached_permissions: None,
+                    rate_limiter: None,
                 };
                 state.cache_permissions();
+                state.init_rate_limiter();
                 
                 self.sftp_state = Some(Arc::new(Mutex::new(state)));
             } else {

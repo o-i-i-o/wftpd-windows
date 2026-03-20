@@ -38,10 +38,6 @@ impl PassiveManager {
         )
     }
 
-    pub fn set_listener(&mut self, port: u16, listener: TcpListener) {
-        self.listeners.insert(port, listener);
-    }
-
     pub fn get_listener(&mut self, port: u16) -> Option<TcpListener> {
         self.listeners.remove(&port)
     }
