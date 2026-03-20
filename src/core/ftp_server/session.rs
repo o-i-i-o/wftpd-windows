@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, TcpListener};
+use tokio::net::TcpStream;
 
 use crate::core::config::Config;
 use crate::core::logger::Logger;
@@ -855,8 +855,8 @@ async fn handle_command(
                 (cfg.ftp.passive_ports, cfg.ftp.bind_ip.clone())
             };
 
-            let (passive_port, passive_listener) = match state.passive_manager.try_bind_port(port_min, port_max, &bind_ip) {
-                Ok(result) => result,
+            let passive_port = match state.passive_manager.try_bind_port(port_min, port_max, &bind_ip).await {
+                Ok(port) => port,
                 Err(e) => {
                     let _ = control_stream.write_all(format!("425 Could not enter passive mode: {}\r\n", e).as_bytes()).await;
                     return Ok(true);
@@ -907,8 +907,8 @@ async fn handle_command(
                 (cfg.ftp.passive_ports, cfg.ftp.bind_ip.clone())
             };
 
-            let (passive_port, passive_listener) = match state.passive_manager.try_bind_port(port_min, port_max, &bind_ip) {
-                Ok(result) => result,
+            let passive_port = match state.passive_manager.try_bind_port(port_min, port_max, &bind_ip).await {
+                Ok(port) => port,
                 Err(e) => {
                     let _ = control_stream.write_all(format!("425 Could not enter extended passive mode: {}\r\n", e).as_bytes()).await;
                     return Ok(true);

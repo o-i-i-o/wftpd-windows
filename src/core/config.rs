@@ -239,8 +239,8 @@ impl Config {
             }
         }
         
-        if self.ftp.tls_enabled {
-            if let Some(cert_path) = &self.ftp.cert_path {
+        if self.ftp.ftps.enabled {
+            if let Some(cert_path) = &self.ftp.ftps.cert_path {
                 if !Path::new(cert_path).exists() {
                     warnings.push(format!("FTPS已启用，但证书文件不存在: {}", cert_path));
                 }
@@ -248,7 +248,7 @@ impl Config {
                 warnings.push("FTPS已启用，但未配置证书路径".to_string());
             }
             
-            if let Some(key_path) = &self.ftp.key_path {
+            if let Some(key_path) = &self.ftp.ftps.key_path {
                 if !Path::new(key_path).exists() {
                     warnings.push(format!("FTPS已启用，但私钥文件不存在: {}", key_path));
                 }
@@ -257,7 +257,8 @@ impl Config {
             }
         }
         
-        if let Some(log_dir) = &self.logging.directory {
+        {
+            let log_dir = &self.logging.log_dir;
             let log_path = Path::new(log_dir);
             if !log_path.exists() {
                 warnings.push(format!("日志目录不存在: {}", log_dir));
