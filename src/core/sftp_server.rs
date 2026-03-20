@@ -775,6 +775,10 @@ impl SftpState {
         let id = self.parse_u32(data, 1);
         let handle_str = self.parse_string(data, 5)?;
 
+        if !self.check_permission(|p| p.can_list) {
+            return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
+        }
+
         let entries_result = {
             let handle = self.handles.get_mut(&handle_str);
             match handle {
@@ -1198,6 +1202,10 @@ impl SftpState {
         let id = self.parse_u32(data, 1);
         let path = self.parse_string(data, 5)?;
 
+        if !self.check_permission(|p| p.can_read || p.can_list) {
+            return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
+        }
+
         let full_path = match self.resolve_path(&path) {
             Ok(p) => p,
             Err(e) => {
@@ -1218,6 +1226,10 @@ impl SftpState {
     }
 
     async fn handle_lstat(&mut self, data: &[u8]) -> Result<Vec<u8>> {
+        if !self.check_permission(|p| p.can_read || p.can_list) {
+            let id = self.parse_u32(data, 1);
+            return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
+        }
         self.handle_stat(data).await
     }
 

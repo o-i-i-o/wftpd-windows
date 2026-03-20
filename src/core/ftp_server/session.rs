@@ -145,6 +145,60 @@ impl SessionState {
         }
         true
     }
+
+    pub fn validate_eprt_ip(&self, net_addr: &str) -> bool {
+        let client_ip: std::net::IpAddr = match self.client_ip.parse() {
+            Ok(ip) => ip,
+            Err(e) => {
+                log::error!(
+                    "EPRT security: Failed to parse client IP '{}': {}",
+                    self.client_ip, e
+                );
+                return false;
+            }
+        };
+        
+        let eprt_ip: std::net::IpAddr = match net_addr.parse() {
+            Ok(ip) => ip,
+            Err(e) => {
+                log::warn!(
+                    "EPRT security: Failed to parse EPRT IP '{}': {}",
+                    net_addr, e
+                );
+                return false;
+            }
+        };
+        
+        match (&client_ip, &eprt_ip) {
+            (std::net::IpAddr::V4(client), std::net::IpAddr::V4(eprt)) => {
+                if client != eprt {
+                    log::warn!(
+                        "EPRT security: IPv4 mismatch - expected {}, got {}",
+                        client, eprt
+                    );
+                    return false;
+                }
+            }
+            (std::net::IpAddr::V6(client), std::net::IpAddr::V6(eprt)) => {
+                if client != eprt {
+                    log::warn!(
+                        "EPRT security: IPv6 mismatch - expected {}, got {}",
+                        client, eprt
+                    );
+                    return false;
+                }
+            }
+            _ => {
+                log::warn!(
+                    "EPRT security: IP version mismatch - client is {}, eprt is {}",
+                    client_ip, eprt_ip
+                );
+                return false;
+            }
+        }
+        
+        true
+    }
 }
 
 struct SessionConfig {
@@ -957,6 +1011,10 @@ async fn handle_command(
                     match net_proto {
                         "1" => {
                             if let Ok(port) = tcp_port.parse::<u16>() {
+                                if !state.validate_eprt_ip(net_addr) {
+                                    let _ = control_stream.write_all(b"500 EPRT command rejected: IP address must match control connection\r\n").await;
+                                    return Ok(true);
+                                }
                                 state.data_port = Some(port);
                                 state.data_addr = Some(format!("{}:{}", net_addr, port));
                                 state.passive_mode = false;
@@ -967,6 +1025,10 @@ async fn handle_command(
                         }
                         "2" => {
                             if let Ok(port) = tcp_port.parse::<u16>() {
+                                if !state.validate_eprt_ip(net_addr) {
+                                    let _ = control_stream.write_all(b"500 EPRT command rejected: IP address must match control connection\r\n").await;
+                                    return Ok(true);
+                                }
                                 state.data_port = Some(port);
                                 state.data_addr = Some(format!("[{}]:{}", net_addr, port));
                                 state.passive_mode = false;
@@ -1163,11 +1225,13 @@ async fn handle_command(
                 return Ok(true);
             }
 
-            let can_list = {
+            let can_list = if state.current_user.as_deref() == Some("anonymous") {
+                *allow_anonymous
+            } else {
                 let users = user_manager.lock()
                     .map_err(|_| anyhow::anyhow!("Failed to lock user manager"))?;
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
-                user.is_none_or(|u| u.permissions.can_list)
+                user.is_some_and(|u| u.permissions.can_list)
             };
 
             if !can_list {
