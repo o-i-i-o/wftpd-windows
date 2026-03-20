@@ -35,7 +35,7 @@ pub struct SftpServer {
     user_manager: Arc<StdMutex<UserManager>>,
     logger: Arc<StdMutex<Logger>>,
     file_logger: Arc<StdMutex<FileLogger>>,
-    quota_manager: Arc<StdMutex<QuotaManager>>,
+    quota_manager: Arc<QuotaManager>,
     running: Arc<StdMutex<bool>>,
     shutdown_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
 }
@@ -54,7 +54,7 @@ impl SftpServer {
             user_manager,
             logger,
             file_logger,
-            quota_manager: Arc::new(StdMutex::new(quota_manager)),
+            quota_manager: Arc::new(quota_manager),
             running: Arc::new(StdMutex::new(false)),
             shutdown_tx: Arc::new(Mutex::new(None)),
         }
@@ -113,6 +113,7 @@ impl SftpServer {
         let file_logger_clone = Arc::clone(&self.file_logger);
         let running_clone = Arc::clone(&self.running);
         let config_clone = Arc::clone(&self.config);
+        let quota_manager_clone = Arc::clone(&self.quota_manager);
 
         let bind_addr = format!("{}:{}", bind_ip, sftp_port);
         
@@ -146,6 +147,7 @@ impl SftpServer {
                                 let user_manager = Arc::clone(&user_manager_clone);
                                 let logger = Arc::clone(&logger_clone);
                                 let file_logger = Arc::clone(&file_logger_clone);
+                                let quota_manager = Arc::clone(&quota_manager_clone);
                                 let client_ip = peer_addr.ip().to_string();
 
                                 let ip_allowed = {
@@ -272,7 +274,7 @@ struct SftpHandler {
     user_manager: Arc<StdMutex<UserManager>>,
     logger: Arc<StdMutex<Logger>>,
     file_logger: Arc<StdMutex<FileLogger>>,
-    quota_manager: Arc<StdMutex<QuotaManager>>,
+    quota_manager: Arc<QuotaManager>,
     authenticated: bool,
     username: Option<String>,
     home_dir: Option<String>,
@@ -289,7 +291,7 @@ struct SftpState {
     user_manager: Arc<StdMutex<UserManager>>,
     logger: Arc<StdMutex<Logger>>,
     file_logger: Arc<StdMutex<FileLogger>>,
-    quota_manager: Arc<StdMutex<QuotaManager>>,
+    quota_manager: Arc<QuotaManager>,
     handles: HashMap<String, SftpFileHandle>,
     next_handle_id: u32,
     sftp_version: u32,
@@ -651,6 +653,13 @@ impl SftpState {
         self.cached_permissions = None;
         self.cache_permissions();
     }
+    
+    fn init_rate_limiter(&mut self) {
+        if let Some(perms) = &self.cached_permissions
+            && let Some(speed_kbps) = perms.speed_limit_kbps {
+                self.rate_limiter = Some(RateLimiter::new(speed_kbps));
+        }
+    }
 
     async fn handle_sftp_packet(&mut self, data: &[u8]) -> Result<Vec<u8>> {
         if data.is_empty() {
@@ -949,9 +958,20 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
+        let quota_mb = self.cached_permissions.as_ref().and_then(|p| p.quota_mb);
+        
+        if let Some(quota) = quota_mb {
+            let current_usage = self.quota_manager.get_usage(self.username.as_deref().unwrap_or("anonymous")).await;
+            let quota_bytes = quota * 1024 * 1024;
+            if current_usage >= quota_bytes {
+                log::warn!("SFTP WRITE denied: quota exceeded for user {:?}", self.username);
+                return Ok(self.build_status_packet(id, 4, "Quota exceeded", ""));
+            }
+        }
+
         let handle = self.handles.get_mut(&handle_str);
         match handle {
-            Some(SftpFileHandle::File { path, file, written_bytes, .. }) => {
+            Some(SftpFileHandle::File { path, file, written_bytes, existed, .. }) => {
                 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
                 
                 if let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await {
@@ -971,6 +991,10 @@ impl SftpState {
 
                 *written_bytes += data_len as u64;
                 log::info!("SFTP WRITE: {} bytes to {:?} at offset {}", data_len, path, offset);
+
+                if !*existed && *written_bytes > 0 {
+                    *existed = true;
+                }
 
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }

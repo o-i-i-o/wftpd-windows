@@ -240,7 +240,7 @@ pub async fn handle_session(
     user_manager: Arc<std::sync::Mutex<UserManager>>,
     logger: Arc<std::sync::Mutex<Logger>>,
     file_logger: Arc<std::sync::Mutex<FileLogger>>,
-    quota_manager: Arc<std::sync::Mutex<QuotaManager>>,
+    quota_manager: Arc<QuotaManager>,
     client_ip: String,
 ) -> Result<()> {
     let session_config = {
@@ -339,7 +339,7 @@ pub async fn handle_session_tls(
     user_manager: Arc<std::sync::Mutex<UserManager>>,
     logger: Arc<std::sync::Mutex<Logger>>,
     file_logger: Arc<std::sync::Mutex<FileLogger>>,
-    quota_manager: Arc<std::sync::Mutex<QuotaManager>>,
+    quota_manager: Arc<QuotaManager>,
     client_ip: String,
 ) -> Result<()> {
     let session_config = {
@@ -457,7 +457,7 @@ async fn handle_command(
     user_manager: &Arc<std::sync::Mutex<UserManager>>,
     logger: &Arc<std::sync::Mutex<Logger>>,
     file_logger: &Arc<std::sync::Mutex<FileLogger>>,
-    quota_manager: &Arc<std::sync::Mutex<QuotaManager>>,
+    quota_manager: &Arc<QuotaManager>,
     client_ip: &str,
     allow_anonymous: &bool,
     anonymous_home: &Option<String>,
@@ -1410,11 +1410,14 @@ async fn handle_command(
                     return Ok(true);
                 }
 
-                let can_read = {
+                let (can_read, speed_limit_kbps) = {
                     let users = user_manager.lock()
                         .map_err(|_| anyhow::anyhow!("Failed to lock user manager"))?;
                     let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
-                    user.is_none_or(|u| u.permissions.can_read)
+                    (
+                        user.is_none_or(|u| u.permissions.can_read),
+                        user.and_then(|u| u.permissions.speed_limit_kbps)
+                    )
                 };
 
                 if !can_read {
@@ -1447,6 +1450,7 @@ async fn handle_command(
                 ).await;
 
                 let is_ascii = state.transfer_mode == "ascii";
+                let rate_limiter = speed_limit_kbps.map(crate::core::rate_limiter::RateLimiter::new);
                 
                 if let Ok(mut data_stream) = transfer::get_data_connection(
                     state.passive_mode,
@@ -1456,7 +1460,7 @@ async fn handle_command(
                     &mut state.passive_manager,
                 ).await {
                     let abort = Arc::clone(&state.abort_flag);
-                    if let Err(e) = transfer::send_file(&mut data_stream, &file_path, state.rest_offset, abort, is_ascii).await {
+                    if let Err(e) = transfer::send_file_with_limits(&mut data_stream, &file_path, state.rest_offset, abort, is_ascii, rate_limiter.as_ref()).await {
                         log::warn!("RETR transfer error: {}", e);
                     }
                 }
@@ -1549,27 +1553,20 @@ async fn handle_command(
                 }
 
                 if let Some(quota) = quota_mb {
-                    match quota_manager.lock() {
-                        Ok(qm) => {
-                            let current_usage = qm.get_usage(state.current_user.as_deref().unwrap_or("anonymous")).await;
-                            let quota_bytes = quota * 1024 * 1024;
-                            if current_usage >= quota_bytes {
-                                let _ = control_stream.write_all(b"552 Quota exceeded\r\n").await;
-                                if let Ok(mut log) = logger.lock() {
-                                    log.client_action(
-                                        "FTP",
-                                        &format!("Upload denied: quota exceeded for user {}", state.current_user.as_deref().unwrap_or("unknown")),
-                                        client_ip,
-                                        state.current_user.as_deref(),
-                                        "QUOTA_EXCEEDED",
-                                    );
-                                }
-                                return Ok(true);
-                            }
+                    let current_usage = quota_manager.get_usage(state.current_user.as_deref().unwrap_or("anonymous")).await;
+                    let quota_bytes = quota * 1024 * 1024;
+                    if current_usage >= quota_bytes {
+                        let _ = control_stream.write_all(b"552 Quota exceeded\r\n").await;
+                        if let Ok(mut log) = logger.lock() {
+                            log.client_action(
+                                "FTP",
+                                &format!("Upload denied: quota exceeded for user {}", state.current_user.as_deref().unwrap_or("unknown")),
+                                client_ip,
+                                state.current_user.as_deref(),
+                                "QUOTA_EXCEEDED",
+                            );
                         }
-                        Err(e) => {
-                            log::error!("Failed to lock quota manager: {}", e);
-                        }
+                        return Ok(true);
                     }
                 }
 
@@ -1579,7 +1576,7 @@ async fn handle_command(
                 let mut transfer_success = false;
                 let mut total_written: u64 = 0;
                 let is_ascii = state.transfer_mode == "ascii";
-                let rate_limiter = speed_limit_kbps.map(|kbps| crate::core::rate_limiter::RateLimiter::new(kbps));
+                let rate_limiter = speed_limit_kbps.map(crate::core::rate_limiter::RateLimiter::new);
 
                 if let Ok(mut data_stream) = transfer::get_data_connection(
                     state.passive_mode,
@@ -1620,17 +1617,9 @@ async fn handle_command(
 
                     let uploaded_size = tokio::fs::metadata(&file_path).await.map(|m| m.len()).unwrap_or(total_written);
                     
-                    if let Some(_) = quota_mb {
-                        match quota_manager.lock() {
-                            Ok(qm) => {
-                                if let Err(e) = qm.add_usage(state.current_user.as_deref().unwrap_or("anonymous"), uploaded_size).await {
-                                    log::error!("Failed to update quota usage: {}", e);
-                                }
-                            }
-                            Err(e) => {
-                                log::error!("Failed to lock quota manager for update: {}", e);
-                            }
-                        }
+                    if quota_mb.is_some()
+                        && let Err(e) = quota_manager.add_usage(state.current_user.as_deref().unwrap_or("anonymous"), uploaded_size).await {
+                            log::error!("Failed to update quota usage: {}", e);
                     }
                     
                     if let Ok(mut fl) = file_logger.lock() {

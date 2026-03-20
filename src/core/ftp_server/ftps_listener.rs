@@ -13,7 +13,7 @@ pub async fn start_ftps_implicit_server(
     user_manager: Arc<std::sync::Mutex<UserManager>>,
     logger: Arc<std::sync::Mutex<Logger>>,
     file_logger: Arc<std::sync::Mutex<FileLogger>>,
-    quota_manager: Arc<std::sync::Mutex<QuotaManager>>,
+    quota_manager: Arc<QuotaManager>,
     tls_config: TlsConfig,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<()> {

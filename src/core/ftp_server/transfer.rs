@@ -82,55 +82,6 @@ pub async fn get_data_connection(
     }
 }
 
-pub async fn send_file(
-    data_stream: &mut TcpStream,
-    file_path: &Path,
-    offset: u64,
-    abort: Arc<AtomicBool>,
-    is_ascii: bool,
-) -> Result<()> {
-    let mut file = tokio::fs::File::open(file_path).await?;
-    
-    if offset > 0 {
-        file.seek(std::io::SeekFrom::Start(offset)).await?;
-    }
-
-    let mut buf = [0u8; DATA_BUFFER_SIZE];
-    let mut transfer_error: Option<anyhow::Error> = None;
-    
-    loop {
-        if abort.load(Ordering::Relaxed) {
-            break;
-        }
-        match file.read(&mut buf).await {
-            Ok(0) => break,
-            Ok(n) => {
-                let data = if is_ascii {
-                    convert_lf_to_crlf(&buf[..n])
-                } else {
-                    buf[..n].to_vec()
-                };
-                if let Err(e) = data_stream.write_all(&data).await {
-                    log::error!("RETR write error for file '{}': {}", file_path.display(), e);
-                    transfer_error = Some(anyhow::anyhow!("Write error: {}", e));
-                    break;
-                }
-            }
-            Err(e) => {
-                log::error!("RETR read error from file '{}': {}", file_path.display(), e);
-                transfer_error = Some(anyhow::anyhow!("Read error: {}", e));
-                break;
-            }
-        }
-    }
-
-    if let Some(e) = transfer_error {
-        return Err(e);
-    }
-
-    Ok(())
-}
-
 pub async fn receive_file(
     data_stream: &mut TcpStream,
     file_path: &Path,
