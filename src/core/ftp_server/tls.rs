@@ -3,13 +3,15 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
-use native_tls::{Identity, TlsAcceptor};
+use native_tls::Identity;
 use tokio::net::TcpStream;
+use tokio_native_tls::TlsAcceptor;
 use tokio_native_tls::TlsStream as AsyncTlsStream;
 
 pub type AsyncTlsTcpStream = AsyncTlsStream<TcpStream>;
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct TlsConfig {
     pub enabled: bool,
     pub require_ssl: bool,
@@ -85,6 +87,7 @@ fn load_tls_acceptor(cert_path: &str, key_path: &str) -> Result<TlsAcceptor> {
         }
     };
     
-    let acceptor = TlsAcceptor::builder(identity).build()?;
+    let native_acceptor = native_tls::TlsAcceptor::builder(identity).build()?;
+    let acceptor = TlsAcceptor::from(native_acceptor);
     Ok(acceptor)
 }

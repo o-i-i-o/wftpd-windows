@@ -44,11 +44,10 @@ impl ControlStream {
         matches!(self, ControlStream::Tls(_))
     }
 
-    pub async fn upgrade_to_tls(&mut self, acceptor: &native_tls::TlsAcceptor) -> Result<()> {
+    pub async fn upgrade_to_tls(&mut self, acceptor: &tokio_native_tls::TlsAcceptor) -> Result<()> {
         if let ControlStream::Plain(stream_opt) = self
             && let Some(stream) = stream_opt.take() {
-                let async_acceptor = tokio_native_tls::TlsAcceptor::from(acceptor.clone());
-                let tls_stream = async_acceptor.accept(stream).await?;
+                let tls_stream = acceptor.accept(stream).await?;
                 *self = ControlStream::Tls(Box::new(tls_stream));
             }
         Ok(())
@@ -268,6 +267,119 @@ pub async fn handle_session(
                 break;
             }
             Err(_) => {
+                let _ = control_stream.write_all(b"421 Connection timed out\r\n").await;
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn handle_session_tls(
+    socket: AsyncTlsTcpStream,
+    config: Arc<std::sync::Mutex<Config>>,
+    user_manager: Arc<std::sync::Mutex<UserManager>>,
+    logger: Arc<std::sync::Mutex<Logger>>,
+    file_logger: Arc<std::sync::Mutex<FileLogger>>,
+    client_ip: String,
+) -> Result<()> {
+    let session_config = {
+        let cfg = config.lock().map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
+        SessionConfig::from_config(&cfg, &client_ip)
+    };
+
+    if !session_config.ip_allowed {
+        if let Ok(mut log) = logger.try_lock() {
+            log.warning("FTPS", &format!("Connection rejected from {} by IP filter", client_ip));
+        }
+        return Ok(());
+    }
+
+    let mut control_stream = ControlStream::Tls(Box::new(socket));
+    let _ = control_stream.write_all(format!("220 {}\r\n", session_config.welcome_msg).as_bytes()).await;
+
+    let mut state = SessionState::new(&client_ip);
+    state.transfer_mode = session_config.default_transfer_mode;
+    state.passive_mode = session_config.default_passive_mode;
+    state.tls_enabled = true;
+
+    let mut cmd_buffer: Vec<u8> = Vec::with_capacity(MAX_COMMAND_LENGTH);
+    let mut read_buffer = [0u8; 4096];
+
+    loop {
+        let conn_timeout = {
+            let cfg = config.lock().map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
+            cfg.server.connection_timeout
+        };
+
+        let timeout_result = tokio::time::timeout(
+            std::time::Duration::from_secs(conn_timeout),
+            control_stream.read(&mut read_buffer)
+        ).await;
+
+        match timeout_result {
+            Ok(Ok(0)) => break,
+            Ok(Ok(n)) => {
+                cmd_buffer.extend_from_slice(&read_buffer[..n]);
+                
+                if cmd_buffer.len() > MAX_COMMAND_LENGTH {
+                    let _ = control_stream.write_all(b"500 Command too long\r\n").await;
+                    cmd_buffer.clear();
+                    continue;
+                }
+                
+                while let Some(pos) = cmd_buffer.iter().position(|&b| b == b'\n') {
+                    let line: Vec<u8> = cmd_buffer.drain(..=pos).collect();
+                    let line_str = String::from_utf8_lossy(&line);
+                    let line_str = line_str.trim_end_matches('\r').trim_end_matches('\n');
+                    
+                    if line_str.is_empty() {
+                        continue;
+                    }
+                    
+                    let cmd = {
+                        let parts: Vec<&str> = line_str.splitn(2, ' ').collect();
+                        let cmd_str = parts[0].to_uppercase();
+                        let arg = parts.get(1).map(|s| s.trim());
+                        FtpCommand::parse(&cmd_str, arg)
+                    };
+                    
+                    let (allow_anonymous, anonymous_home, tls_config, require_ssl) = {
+                        let cfg = config.lock().map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
+                        (
+                            cfg.ftp.allow_anonymous,
+                            cfg.ftp.anonymous_home.clone(),
+                            TlsConfig::new(
+                                cfg.ftp.ftps.cert_path.as_deref(),
+                                cfg.ftp.ftps.key_path.as_deref(),
+                                cfg.ftp.ftps.require_ssl
+                            ),
+                            cfg.ftp.ftps.require_ssl
+                        )
+                    };
+                    
+                    let should_continue = handle_command(
+                        &mut control_stream,
+                        &cmd,
+                        &mut state,
+                        &config,
+                        &user_manager,
+                        &logger,
+                        &file_logger,
+                        &client_ip,
+                        &allow_anonymous,
+                        &anonymous_home,
+                        &tls_config,
+                        require_ssl,
+                    ).await?;
+                    
+                    if !should_continue {
+                        return Ok(());
+                    }
+                }
+            }
+            Ok(Err(_)) | Err(_) => {
                 let _ = control_stream.write_all(b"421 Connection timed out\r\n").await;
                 break;
             }

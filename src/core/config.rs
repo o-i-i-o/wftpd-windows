@@ -41,6 +41,28 @@ pub struct FtpConfig {
     pub default_transfer_mode: String,
     #[serde(default = "default_passive_mode")]
     pub default_passive_mode: bool,
+    #[serde(default)]
+    pub ftps: FtpsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FtpsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub require_ssl: bool,
+    #[serde(default)]
+    pub cert_path: Option<String>,
+    #[serde(default)]
+    pub key_path: Option<String>,
+    #[serde(default)]
+    pub implicit_ssl: bool,
+    #[serde(default = "default_ftps_port")]
+    pub implicit_ssl_port: u16,
+}
+
+fn default_ftps_port() -> u16 {
+    990
 }
 
 fn default_bind_ip() -> String {
@@ -137,6 +159,14 @@ impl Default for Config {
                 encoding: "UTF-8".to_string(),
                 default_transfer_mode: "binary".to_string(),
                 default_passive_mode: true,
+                ftps: FtpsConfig {
+                    enabled: false,
+                    require_ssl: false,
+                    cert_path: None,
+                    key_path: None,
+                    implicit_ssl: false,
+                    implicit_ssl_port: 990,
+                },
             },
             sftp: SftpConfig {
                 enabled: true,
