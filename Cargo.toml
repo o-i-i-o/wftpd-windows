@@ -1,6 +1,6 @@
 [package]
 name = "wftpg"
-version = "3.0.59"
+version = "3.0.66"
 edition = "2024"
 authors = ["WFTPG Developer"]
 description = "SFTP+FTP GUI Management Tool for Windows (Rust + egui)"
@@ -35,7 +35,9 @@ async-trait = "0.1"
 bytes = "1"
 fs2 = "0.4"
 socket2 = "0.6"
-polling = "3.7"
+polling = "3.11.0"
+native-tls = "0.2"
+tokio-native-tls = "0.3"
 
 windows = { version = "0.62", features = [
     "Win32_Foundation",

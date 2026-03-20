@@ -15,7 +15,7 @@ use crate::core::config::{Config, get_program_data_path};
 use crate::core::logger::Logger;
 use crate::core::users::UserManager;
 use crate::core::file_logger::{FileLogger, FileLogInfo};
-use crate::core::path_utils::{safe_resolve_path_with_cwd, to_ftp_path, PathResolveError};
+use crate::core::path_utils::{safe_resolve_path_with_cwd, to_ftp_path, PathResolveError, path_starts_with_ignore_case};
 
 const SSH_FXF_READ: u32 = 0x00000001;
 const SSH_FXF_WRITE: u32 = 0x00000002;
@@ -603,7 +603,7 @@ impl SftpState {
             && let Some(username) = &self.username
             && let Some(user) = users.get_user(username)
         {
-            self.cached_permissions = Some(user.permissions.clone());
+            self.cached_permissions = Some(user.permissions);
         }
     }
 
@@ -1071,7 +1071,7 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 2, "No such file", ""));
         }
 
-        if !old_full.starts_with(&self.home_dir) || !new_full.starts_with(&self.home_dir) {
+        if !path_starts_with_ignore_case(&old_full, &self.home_dir) || !path_starts_with_ignore_case(&new_full, &self.home_dir) {
             log::warn!("SFTP RENAME denied: path outside home - old={}, new={}", old_full.display(), new_full.display());
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
@@ -1094,7 +1094,7 @@ impl SftpState {
                         }
                     };
                     
-                    if !canon_target.starts_with(&self.home_dir) {
+                    if !path_starts_with_ignore_case(&canon_target, &self.home_dir) {
                         log::warn!("SFTP RENAME denied: symlink points outside home - {} -> {}", old_full.display(), canon_target.display());
                         return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
                     }
@@ -1124,7 +1124,7 @@ impl SftpState {
                         }
                     };
                     
-                    if !canon_target.starts_with(&self.home_dir) {
+                    if !path_starts_with_ignore_case(&canon_target, &self.home_dir) {
                         log::warn!("SFTP RENAME denied: destination symlink points outside home - {} -> {}", new_full.display(), canon_target.display());
                         return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
                     }
@@ -1281,7 +1281,13 @@ impl SftpState {
             full_path
         };
 
-        let path_str = to_ftp_path(&resolved, std::path::Path::new(&self.home_dir));
+        let path_str = match to_ftp_path(&resolved, std::path::Path::new(&self.home_dir)) {
+            Ok(p) => p,
+            Err(e) => {
+                log::error!("REALPATH failed: {}", e);
+                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
+            }
+        };
 
         let mut payload = vec![104];
         payload.extend_from_slice(&id.to_be_bytes());

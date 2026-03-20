@@ -12,6 +12,7 @@ pub enum PathResolveError {
     CanonicalizeFailed,
     InvalidPath,
     SymlinkNotAllowed,
+    PathNotUnderHome,
 }
 
 impl std::fmt::Display for PathResolveError {
@@ -25,30 +26,66 @@ impl std::fmt::Display for PathResolveError {
             PathResolveError::CanonicalizeFailed => write!(f, "路径规范化失败"),
             PathResolveError::InvalidPath => write!(f, "无效路径"),
             PathResolveError::SymlinkNotAllowed => write!(f, "不允许符号链接"),
+            PathResolveError::PathNotUnderHome => write!(f, "路径不在主目录下"),
         }
     }
 }
 
 impl std::error::Error for PathResolveError {}
 
-pub fn to_ftp_path(path: &Path, home_dir: &Path) -> String {
-    let relative = match path.strip_prefix(home_dir) {
+fn normalize_windows_path(path: &Path) -> PathBuf {
+    let path_str = path.to_string_lossy();
+    let stripped = path_str.strip_prefix(r"\\?\").unwrap_or(&path_str);
+    PathBuf::from(stripped)
+}
+
+#[cfg(windows)]
+pub fn path_starts_with_ignore_case<P: AsRef<Path>>(path: &Path, prefix: P) -> bool {
+    let path_str = path.to_string_lossy().to_lowercase();
+    let prefix_str = prefix.as_ref().to_string_lossy().to_lowercase();
+    path_str.starts_with(&prefix_str)
+}
+
+#[cfg(not(windows))]
+pub fn path_starts_with_ignore_case<P: AsRef<Path>>(path: &Path, prefix: P) -> bool {
+    path.starts_with(prefix.as_ref())
+}
+
+#[cfg(windows)]
+pub fn paths_equal_ignore_case<P1: AsRef<Path>, P2: AsRef<Path>>(path1: P1, path2: P2) -> bool {
+    let str1 = path1.as_ref().to_string_lossy().to_lowercase();
+    let str2 = path2.as_ref().to_string_lossy().to_lowercase();
+    str1 == str2
+}
+
+#[cfg(not(windows))]
+pub fn paths_equal_ignore_case<P1: AsRef<Path>, P2: AsRef<Path>>(path1: P1, path2: P2) -> bool {
+    path1.as_ref() == path2.as_ref()
+}
+
+pub fn to_ftp_path(path: &Path, home_dir: &Path) -> Result<String, PathResolveError> {
+    let normalized_path = normalize_windows_path(path);
+    let normalized_home = normalize_windows_path(home_dir);
+    
+    let relative = match normalized_path.strip_prefix(&normalized_home) {
         Ok(r) => r,
         Err(_) => {
             log::warn!(
-                "to_ftp_path: path {:?} is not under home_dir {:?}",
+                "to_ftp_path: path {:?} is not under home_dir {:?} (normalized: path={:?}, home={:?})",
                 path,
-                home_dir
+                home_dir,
+                normalized_path,
+                normalized_home
             );
-            path
+            return Err(PathResolveError::PathNotUnderHome);
         }
     };
     let path_str = relative.to_string_lossy();
     let normalized = path_str.replace('\\', "/");
     if normalized.is_empty() || normalized == "." {
-        "/".to_string()
+        Ok("/".to_string())
     } else {
-        format!("/{}", normalized.trim_start_matches('/'))
+        Ok(format!("/{}", normalized.trim_start_matches('/')))
     }
 }
 
@@ -155,7 +192,19 @@ fn resolve_path_internal(
             }
         }
         
-        Ok(home_canon.join(relative))
+        let resolved_path = home_canon.join(relative);
+        
+        if !resolved_path.starts_with(home_canon) {
+            log::warn!(
+                "resolve_path_internal: Absolute path outside home directory - resolved: {:?}, home: {:?}, input: {:?}",
+                resolved_path,
+                home_canon,
+                clean_path
+            );
+            return Err(PathResolveError::PathEscape);
+        }
+        
+        Ok(resolved_path)
     } else {
         let clean_path_path = Path::new(clean_path);
         for component in clean_path_path.components() {
@@ -182,18 +231,20 @@ fn resolve_path_internal(
             home_canon.to_path_buf()
         } else {
             let cwd_path = PathBuf::from(cwd);
-            if !cwd_path.starts_with(home_canon) {
+            if !path_starts_with_ignore_case(&cwd_path, home_canon) {
                 log::warn!(
                     "resolve_path_internal: CWD outside home - cwd: {:?}, home: {:?}",
                     cwd,
-                    home_canon
+                    home_canon.display()
                 );
                 return Err(PathResolveError::PathEscape);
             }
             cwd_path
         };
         
-        Ok(base.join(clean_path))
+        let resolved_path = base.join(clean_path);
+        
+        Ok(resolved_path)
     }
 }
 
@@ -211,16 +262,7 @@ fn build_safe_path(
     for (i, component) in resolved_components.iter().enumerate() {
         match component {
             Component::Prefix(_) | Component::RootDir => {
-                if i < home_components.len() {
-                    continue;
-                }
-                log::warn!(
-                    "build_safe_path: Unexpected prefix/root at index {} - input: {:?}, resolved: {:?}",
-                    i,
-                    input_desc,
-                    resolved
-                );
-                return Err(PathResolveError::InvalidPath);
+                continue;
             }
             Component::CurDir => {}
             Component::ParentDir => {
@@ -242,7 +284,7 @@ fn build_safe_path(
                     return Err(PathResolveError::PathEscape);
                 }
                 
-                if !safe_path.starts_with(home_canon) {
+                if !path_starts_with_ignore_case(&safe_path, home_canon) {
                     log::warn!(
                         "build_safe_path: Path escape after pop - input: {:?}, safe_path: {:?}, home: {:?}",
                         input_desc,
@@ -255,6 +297,10 @@ fn build_safe_path(
                 relative_depth = relative_depth.saturating_sub(1);
             }
             Component::Normal(name) => {
+                if i < home_components.len() {
+                    continue;
+                }
+                
                 if !is_valid_path_component(name) {
                     log::warn!(
                         "build_safe_path: Invalid component name - component: {:?}, input: {:?}",
@@ -280,7 +326,7 @@ fn build_safe_path(
         }
     }
     
-    if !safe_path.starts_with(home_canon) {
+    if !path_starts_with_ignore_case(&safe_path, home_canon) {
         log::warn!(
             "build_safe_path: Final path outside home - safe_path: {:?}, home: {:?}, input: {:?}",
             safe_path,
@@ -301,7 +347,7 @@ fn canonicalize_and_validate(
 ) -> Result<PathBuf, PathResolveError> {
     match path.canonicalize() {
         Ok(canon) => {
-            if !canon.starts_with(home_canon) {
+            if !path_starts_with_ignore_case(&canon, home_canon) {
                 log::warn!(
                     "canonicalize_and_validate: Path escape detected - canonicalized: {:?}, home: {:?}, input: {:?}",
                     canon,
@@ -385,18 +431,36 @@ pub fn resolve_directory_path(
 
     let resolved = resolve_path_internal(cwd, &home_canon, path)?;
     
-    let canon = canonicalize_and_validate(&resolved, &home_canon, &input_desc, true)?;
-    
-    if !canon.is_dir() {
-        log::warn!(
-            "resolve_directory_path: Path is not a directory - path: {:?}, input: {:?}",
-            canon,
-            input_desc
-        );
-        return Err(PathResolveError::NotADirectory);
+    match canonicalize_and_validate(&resolved, &home_canon, &input_desc, false) {
+        Ok(canon) => {
+            if !canon.is_dir() {
+                log::warn!(
+                    "resolve_directory_path: Path is not a directory - path: {:?}, input: {:?}",
+                    canon,
+                    input_desc
+                );
+                return Err(PathResolveError::NotADirectory);
+            }
+            Ok(canon)
+        }
+        Err(PathResolveError::CanonicalizeFailed) => {
+            let safe_path = build_safe_path(&home_canon, &resolved, &input_desc)?;
+            
+            if let Ok(metadata) = safe_path.symlink_metadata()
+                && metadata.file_type().is_symlink()
+            {
+                log::warn!(
+                    "resolve_directory_path: Symlink detected in non-existent path - path: {:?}, input: {:?}",
+                    safe_path,
+                    input_desc
+                );
+                return Err(PathResolveError::SymlinkNotAllowed);
+            }
+            
+            Ok(safe_path)
+        }
+        Err(e) => Err(e),
     }
-
-    Ok(canon)
 }
 
 pub fn safe_resolve_path_with_cwd(
@@ -496,10 +560,37 @@ mod tests {
     }
 
     #[test]
-    fn test_to_ftp_path() {
-        let home = Path::new("/home/user");
-        assert_eq!(to_ftp_path(Path::new("/home/user/file.txt"), home), "/file.txt");
-        assert_eq!(to_ftp_path(Path::new("/home/user"), home), "/");
-        assert_eq!(to_ftp_path(Path::new("/home/user/subdir/file.txt"), home), "/subdir/file.txt");
+    fn test_to_ftp_path_windows() {
+        let home = Path::new("C:\\share_test");
+        assert_eq!(to_ftp_path(Path::new("C:\\share_test\\file.txt"), home).unwrap(), "/file.txt");
+        assert_eq!(to_ftp_path(Path::new("C:\\share_test"), home).unwrap(), "/");
+        assert_eq!(to_ftp_path(Path::new("C:\\share_test\\subdir\\file.txt"), home).unwrap(), "/subdir/file.txt");
+    }
+
+    #[test]
+    fn test_resolve_path_internal_absolute() {
+        let home = PathBuf::from("C:\\share_test");
+        if home.exists() {
+            let home_canon = home.canonicalize().unwrap();
+            
+            let result = resolve_path_internal("", &home_canon, "/subdir/file.txt").unwrap();
+            assert!(result.starts_with(&home_canon));
+            assert!(result.to_string_lossy().contains("subdir"));
+            
+            let result2 = resolve_path_internal("", &home_canon, "/").unwrap();
+            assert_eq!(result2, home_canon);
+        }
+    }
+
+    #[test]
+    fn test_resolve_path_internal_relative() {
+        let home = PathBuf::from("C:\\share_test");
+        if home.exists() {
+            let home_canon = home.canonicalize().unwrap();
+            
+            let result = resolve_path_internal("", &home_canon, "file.txt").unwrap();
+            assert!(result.starts_with(&home_canon));
+            assert!(result.to_string_lossy().ends_with("file.txt"));
+        }
     }
 }

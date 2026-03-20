@@ -9,20 +9,28 @@ use crate::core::file_logger::FileLogger;
 use crate::core::ftp_server::FtpServer;
 use crate::core::sftp_server::SftpServer;
 
+struct FtpState {
+    server: Option<FtpServer>,
+    runtime: Option<tokio::runtime::Runtime>,
+}
+
 struct SftpState {
     server: Option<SftpServer>,
     runtime: Option<tokio::runtime::Runtime>,
 }
 
 pub struct ServerManager {
-    ftp_server: Arc<Mutex<Option<FtpServer>>>,
+    ftp_state: Arc<Mutex<FtpState>>,
     sftp_state: Arc<Mutex<SftpState>>,
 }
 
 impl ServerManager {
     pub fn new() -> Self {
         ServerManager {
-            ftp_server: Arc::new(Mutex::new(None)),
+            ftp_state: Arc::new(Mutex::new(FtpState {
+                server: None,
+                runtime: None,
+            })),
             sftp_state: Arc::new(Mutex::new(SftpState {
                 server: None,
                 runtime: None,
@@ -37,41 +45,174 @@ impl ServerManager {
         logger: Arc<Mutex<Logger>>,
         file_logger: Arc<Mutex<FileLogger>>,
     ) -> anyhow::Result<()> {
-        let mut ftp_server = self.ftp_server.lock()
-            .map_err(|e| anyhow::anyhow!("获取FTP服务器锁失败: {}", e))?;
-        
-        if ftp_server.is_some() {
-            return Ok(());
+        {
+            let state = self.ftp_state.lock()
+                .map_err(|e| anyhow::anyhow!("获取FTP状态锁失败: {}", e))?;
+            if state.server.is_some() {
+                return Ok(());
+            }
         }
 
-        let server = FtpServer::new(config, user_manager, logger, file_logger);
-        server.start()?;
-        *ftp_server = Some(server);
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()?;
+
+        let server = FtpServer::new(
+            config,
+            user_manager,
+            Arc::clone(&logger),
+            file_logger,
+        );
+
+        runtime.block_on(server.start())?;
+
+        {
+            let mut state = self.ftp_state.lock()
+                .map_err(|e| anyhow::anyhow!("获取FTP状态锁失败: {}", e))?;
+            state.server = Some(server);
+            state.runtime = Some(runtime);
+        }
+
+        if let Ok(mut log) = logger.lock() {
+            log.info("FTP", "FTP server started successfully");
+        }
+
         Ok(())
     }
 
-    pub fn stop_ftp(&self, logger: &Arc<Mutex<Logger>>) {
-        let mut ftp_server = match self.ftp_server.lock() {
-            Ok(guard) => guard,
-            Err(e) => {
-                log::error!("获取FTP服务器锁失败: {}", e);
+    pub fn start_ftp_async(
+        &self,
+        config: Arc<Mutex<Config>>,
+        user_manager: Arc<Mutex<UserManager>>,
+        logger: Arc<Mutex<Logger>>,
+        file_logger: Arc<Mutex<FileLogger>>,
+    ) -> mpsc::Receiver<Result<(), String>> {
+        let (tx, rx) = mpsc::channel();
+        let ftp_state = Arc::clone(&self.ftp_state);
+        
+        std::thread::spawn(move || {
+            {
+                let state = match ftp_state.lock() {
+                    Ok(guard) => guard,
+                    Err(e) => {
+                        let _ = tx.send(Err(format!("获取FTP状态锁失败: {}", e)));
+                        return;
+                    }
+                };
+                if state.server.is_some() {
+                    let _ = tx.send(Ok(()));
+                    return;
+                }
+            }
+
+            let runtime = match tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => rt,
+                Err(e) => {
+                    let _ = tx.send(Err(format!("创建Tokio运行时失败: {}", e)));
+                    return;
+                }
+            };
+
+            let server = FtpServer::new(
+                config,
+                user_manager,
+                Arc::clone(&logger),
+                file_logger,
+            );
+
+            if let Err(e) = runtime.block_on(server.start()) {
+                runtime.shutdown_background();
+                let _ = tx.send(Err(format!("启动FTP服务器失败: {}", e)));
                 return;
             }
-        };
-        if let Some(server) = ftp_server.take() {
-            server.stop();
-            if let Ok(mut log) = logger.lock() {
-                log.info("FTP", "FTP server stopped");
+
+            {
+                let mut state = match ftp_state.lock() {
+                    Ok(guard) => guard,
+                    Err(e) => {
+                        runtime.shutdown_background();
+                        let _ = tx.send(Err(format!("获取FTP状态锁失败: {}", e)));
+                        return;
+                    }
+                };
+                state.server = Some(server);
+                state.runtime = Some(runtime);
             }
+
+            if let Ok(mut log) = logger.lock() {
+                log.info("FTP", "FTP server started successfully");
+            }
+
+            let _ = tx.send(Ok(()));
+        });
+
+        rx
+    }
+
+    pub fn stop_ftp(&self, logger: &Arc<Mutex<Logger>>) {
+        let (maybe_server, maybe_runtime) = {
+            let mut state = match self.ftp_state.lock() {
+                Ok(guard) => guard,
+                Err(e) => {
+                    log::error!("获取FTP状态锁失败: {}", e);
+                    return;
+                }
+            };
+            (state.server.take(), state.runtime.take())
+        };
+
+        if let (Some(server), Some(runtime)) = (maybe_server, maybe_runtime) {
+            runtime.block_on(server.stop());
+            runtime.shutdown_background();
+        }
+
+        if let Ok(mut log) = logger.lock() {
+            log.info("FTP", "FTP server stopped");
         }
     }
 
+    pub fn stop_ftp_async(&self, logger: Arc<Mutex<Logger>>) -> mpsc::Receiver<Result<(), String>> {
+        let (tx, rx) = mpsc::channel();
+        let ftp_state = Arc::clone(&self.ftp_state);
+        
+        std::thread::spawn(move || {
+            let (maybe_server, maybe_runtime) = {
+                let mut state = match ftp_state.lock() {
+                    Ok(guard) => guard,
+                    Err(e) => {
+                        let _ = tx.send(Err(format!("获取FTP状态锁失败: {}", e)));
+                        return;
+                    }
+                };
+                (state.server.take(), state.runtime.take())
+            };
+
+            if let (Some(server), Some(runtime)) = (maybe_server, maybe_runtime) {
+                runtime.block_on(server.stop());
+                runtime.shutdown_background();
+            }
+
+            if let Ok(mut log) = logger.lock() {
+                log.info("FTP", "FTP server stopped");
+            }
+
+            let _ = tx.send(Ok(()));
+        });
+
+        rx
+    }
+
     pub fn is_ftp_running(&self) -> bool {
-        let ftp_server = match self.ftp_server.lock() {
+        let state = match self.ftp_state.lock() {
             Ok(guard) => guard,
             Err(_) => return false,
         };
-        ftp_server.as_ref().is_some_and(|s| s.is_running())
+        state.server.as_ref().is_some_and(|s| s.is_running())
     }
 
     pub fn start_sftp(
