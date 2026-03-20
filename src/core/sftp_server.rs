@@ -279,6 +279,7 @@ enum SftpFileHandle {
         locked: bool,
         existed: bool,
         written_bytes: u64,
+        read_bytes: u64,
     },
     Dir {
         path: PathBuf,
@@ -595,6 +596,14 @@ impl SftpState {
         if let Some(perms) = &self.cached_permissions {
             return check_fn(perms);
         }
+        
+        if let Ok(users) = self.user_manager.lock()
+            && let Some(username) = &self.username
+            && let Some(user) = users.get_user(username)
+        {
+            return check_fn(&user.permissions);
+        }
+        
         false
     }
     
@@ -605,6 +614,11 @@ impl SftpState {
         {
             self.cached_permissions = Some(user.permissions);
         }
+    }
+    
+    fn refresh_permissions(&mut self) {
+        self.cached_permissions = None;
+        self.cache_permissions();
     }
 
     async fn handle_sftp_packet(&mut self, data: &[u8]) -> Result<Vec<u8>> {
@@ -649,6 +663,8 @@ impl SftpState {
         };
 
         self.sftp_version = version.min(6);
+        
+        self.refresh_permissions();
 
         let mut payload = vec![2];
         payload.extend_from_slice(&self.sftp_version.to_be_bytes());
@@ -689,7 +705,7 @@ impl SftpState {
         let id = self.parse_u32(data, 1);
         let handle = self.parse_string(data, 5)?;
 
-        if let Some(SftpFileHandle::File { path, locked, existed, written_bytes, .. }) = self.handles.remove(&handle) {
+        if let Some(SftpFileHandle::File { path, locked, existed, written_bytes, read_bytes, .. }) = self.handles.remove(&handle) {
             if locked {
                 self.locked_files.remove(&path);
             }
@@ -724,6 +740,28 @@ impl SftpState {
                         &self.client_ip,
                         self.username.as_deref(),
                         if existed { "UPDATE" } else { "UPLOAD" },
+                    );
+                }
+            }
+            
+            if read_bytes > 0 {
+                if let Ok(mut file_logger) = self.file_logger.lock() {
+                    file_logger.log_download(
+                        self.username.as_deref().unwrap_or("anonymous"),
+                        &self.client_ip,
+                        &path.to_string_lossy(),
+                        read_bytes,
+                        "SFTP",
+                    );
+                }
+
+                if let Ok(mut logger) = self.logger.lock() {
+                    logger.client_action(
+                        "SFTP",
+                        &format!("Downloaded: {} ({} bytes)", path.display(), read_bytes),
+                        &self.client_ip,
+                        self.username.as_deref(),
+                        "DOWNLOAD",
                     );
                 }
             }
@@ -812,7 +850,7 @@ impl SftpState {
 
         let handle = self.handles.get_mut(&handle_str);
         match handle {
-            Some(SftpFileHandle::File { path, file, .. }) => {
+            Some(SftpFileHandle::File { path, file, read_bytes, .. }) => {
                 use tokio::io::{AsyncSeekExt, AsyncReadExt};
                 
                 if let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await {
@@ -829,6 +867,7 @@ impl SftpState {
                     }
                     Ok(n) => {
                         buffer.truncate(n);
+                        *read_bytes += n as u64;
                         
                         log::info!("SFTP READ: {} bytes from {:?} at offset {}", n, path, offset);
 
@@ -839,16 +878,6 @@ impl SftpState {
                                 &self.client_ip,
                                 self.username.as_deref(),
                                 "READ",
-                            );
-                        }
-
-                        if let Ok(mut file_logger) = self.file_logger.lock() {
-                            file_logger.log_download(
-                                self.username.as_deref().unwrap_or("anonymous"),
-                                &self.client_ip,
-                                &path.to_string_lossy(),
-                                n as u64,
-                                "SFTP",
                             );
                         }
 
@@ -1487,6 +1516,7 @@ impl SftpState {
                     locked: false,
                     existed: file_existed,
                     written_bytes: 0,
+                    read_bytes: 0,
                 });
                 log::info!("SFTP OPEN: handle '{}' created for {}", handle, path);
                 Ok(self.build_handle_packet(id, &handle))

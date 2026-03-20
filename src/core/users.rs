@@ -272,6 +272,16 @@ impl UserManager {
         Ok(())
     }
 
+    pub fn set_user_admin(&mut self, username: &str, is_admin: bool) -> Result<()> {
+        let user = self
+            .users
+            .get_mut(username)
+            .ok_or_else(|| anyhow::anyhow!("User not found: {}", username))?;
+
+        user.is_admin = is_admin;
+        Ok(())
+    }
+
     pub fn authenticate(&mut self, username: &str, password: &str) -> Result<bool> {
         let user = self
             .users

@@ -684,6 +684,10 @@ async fn handle_command(
         }
 
         CDUP | XCUP => {
+            if !state.authenticated {
+                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                return Ok(true);
+            }
             match state.resolve_path("..") {
                 Ok(new_path) => {
                     if path_starts_with_ignore_case(&new_path, &state.home_dir) && new_path.exists() {
@@ -851,23 +855,14 @@ async fn handle_command(
                 (cfg.ftp.passive_ports, cfg.ftp.bind_ip.clone())
             };
 
-            let passive_port = match state.passive_manager.find_available_port(port_min, port_max) {
-                Ok(port) => port,
+            let (passive_port, passive_listener) = match state.passive_manager.try_bind_port(port_min, port_max, &bind_ip) {
+                Ok(result) => result,
                 Err(e) => {
                     let _ = control_stream.write_all(format!("425 Could not enter passive mode: {}\r\n", e).as_bytes()).await;
                     return Ok(true);
                 }
             };
 
-            let passive_listener = match TcpListener::bind(format!("{}:{}", bind_ip, passive_port)).await {
-                Ok(l) => l,
-                Err(e) => {
-                    let _ = control_stream.write_all(format!("425 Could not bind passive port: {}\r\n", e).as_bytes()).await;
-                    return Ok(true);
-                }
-            };
-
-            state.passive_manager.set_listener(passive_port, passive_listener);
             state.passive_mode = true;
             state.data_port = Some(passive_port);
 
@@ -912,23 +907,14 @@ async fn handle_command(
                 (cfg.ftp.passive_ports, cfg.ftp.bind_ip.clone())
             };
 
-            let passive_port = match state.passive_manager.find_available_port(port_min, port_max) {
-                Ok(port) => port,
+            let (passive_port, passive_listener) = match state.passive_manager.try_bind_port(port_min, port_max, &bind_ip) {
+                Ok(result) => result,
                 Err(e) => {
                     let _ = control_stream.write_all(format!("425 Could not enter extended passive mode: {}\r\n", e).as_bytes()).await;
                     return Ok(true);
                 }
             };
 
-            let passive_listener = match TcpListener::bind(format!("{}:{}", bind_ip, passive_port)).await {
-                Ok(l) => l,
-                Err(e) => {
-                    let _ = control_stream.write_all(format!("425 Could not bind passive port: {}\r\n", e).as_bytes()).await;
-                    return Ok(true);
-                }
-            };
-
-            state.passive_manager.set_listener(passive_port, passive_listener);
             state.passive_mode = true;
             state.data_port = Some(passive_port);
 
@@ -1016,7 +1002,6 @@ async fn handle_command(
             state.data_addr = None;
             state.rest_offset = 0;
             state.rename_from = None;
-            state.tls_enabled = false;
             state.data_protection = false;
             state.pbsz_set = false;
             let _ = control_stream.write_all(b"220 Service ready for new user\r\n").await;
@@ -1943,6 +1928,10 @@ async fn handle_command(
         }
 
         SIZE(filename) => {
+            if !state.authenticated {
+                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                return Ok(true);
+            }
             if let Some(filename) = filename {
                 let file_path = match state.resolve_path(filename) {
                     Ok(p) => p,
@@ -1965,6 +1954,10 @@ async fn handle_command(
         }
 
         MDTM(filename) => {
+            if !state.authenticated {
+                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                return Ok(true);
+            }
             if let Some(filename) = filename {
                 let file_path = match state.resolve_path(filename) {
                     Ok(p) => p,

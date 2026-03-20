@@ -317,6 +317,17 @@ impl UserTab {
                     }
                 }
                 
+                match self.user_manager.set_user_admin(uname, self.form_is_admin) {
+                    Ok(_) => {
+                        log::info!("用户 {} 管理员状态更新成功", uname);
+                    }
+                    Err(e) => {
+                        log::warn!("用户 {} 管理员状态更新失败: {}", uname, e);
+                        error_messages.push(format!("管理员状态更新失败: {}", e));
+                        has_error = true;
+                    }
+                }
+                
                 if has_error {
                     self.status_message = Some((format!("⚠ 部分更新失败: {}", error_messages.join("; ")), false));
                 }

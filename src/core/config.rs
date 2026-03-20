@@ -232,6 +232,40 @@ impl Config {
             }
         }
         
+        if self.sftp.enabled {
+            let host_key_path = Path::new(&self.sftp.host_key_path);
+            if !host_key_path.exists() {
+                warnings.push(format!("SFTP已启用，但主机密钥文件不存在: {}", self.sftp.host_key_path));
+            }
+        }
+        
+        if self.ftp.tls_enabled {
+            if let Some(cert_path) = &self.ftp.cert_path {
+                if !Path::new(cert_path).exists() {
+                    warnings.push(format!("FTPS已启用，但证书文件不存在: {}", cert_path));
+                }
+            } else {
+                warnings.push("FTPS已启用，但未配置证书路径".to_string());
+            }
+            
+            if let Some(key_path) = &self.ftp.key_path {
+                if !Path::new(key_path).exists() {
+                    warnings.push(format!("FTPS已启用，但私钥文件不存在: {}", key_path));
+                }
+            } else {
+                warnings.push("FTPS已启用，但未配置私钥路径".to_string());
+            }
+        }
+        
+        if let Some(log_dir) = &self.logging.directory {
+            let log_path = Path::new(log_dir);
+            if !log_path.exists() {
+                warnings.push(format!("日志目录不存在: {}", log_dir));
+            } else if fs::metadata(log_path).map(|m| m.permissions().readonly()).unwrap_or(true) {
+                warnings.push(format!("日志目录不可写: {}", log_dir));
+            }
+        }
+        
         warnings
     }
 

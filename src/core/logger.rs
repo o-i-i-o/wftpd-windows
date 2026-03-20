@@ -137,12 +137,25 @@ impl Logger {
         let mut log_files: Vec<_> = fs::read_dir(&self.log_dir)?
             .filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().starts_with("wftpg-"))
+            .filter_map(|e| {
+                e.metadata().ok().map(|m| {
+                    let modified = m.modified().ok();
+                    (e, modified)
+                })
+            })
             .collect();
 
-        log_files.sort_by_key(|e| e.file_name());
+        log_files.sort_by(|a, b| {
+            match (&a.1, &b.1) {
+                (Some(a_time), Some(b_time)) => a_time.cmp(b_time),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            }
+        });
 
         while log_files.len() > self.max_files {
-            if let Some(old_file) = log_files.first() {
+            if let Some((old_file, _)) = log_files.first() {
                 fs::remove_file(old_file.path())?;
                 log_files.remove(0);
             }

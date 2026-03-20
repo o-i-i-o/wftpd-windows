@@ -13,10 +13,21 @@ impl PassiveManager {
         }
     }
 
-    pub fn find_available_port(&self, port_min: u16, port_max: u16) -> Result<u16> {
+    pub fn try_bind_port(&mut self, port_min: u16, port_max: u16, bind_ip: &str) -> Result<(u16, TcpListener)> {
         for port in port_min..=port_max {
-            if !self.listeners.contains_key(&port) {
-                return Ok(port);
+            if self.listeners.contains_key(&port) {
+                continue;
+            }
+            
+            let addr = format!("{}:{}", bind_ip, port);
+            match TcpListener::bind(&addr) {
+                Ok(listener) => {
+                    self.listeners.insert(port, listener);
+                    return Ok((port, self.listeners.remove(&port).unwrap()));
+                }
+                Err(_) => {
+                    continue;
+                }
             }
         }
 
