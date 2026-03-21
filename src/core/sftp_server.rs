@@ -585,12 +585,11 @@ impl russh::server::Handler for SftpHandler {
         channel: ChannelId,
         _session: &mut server::Session,
     ) -> Result<(), Self::Error> {
-        if self.sftp_channel == Some(channel) {
-            if let Some(state) = &self.sftp_state {
+        if self.sftp_channel == Some(channel)
+            && let Some(state) = &self.sftp_state {
                 let mut state = state.lock().await;
                 state.cleanup();
             }
-        }
         Ok(())
     }
 }
@@ -677,12 +676,11 @@ impl SftpState {
 
     fn cleanup(&mut self) {
         for (_, handle) in self.handles.drain() {
-            if let SftpFileHandle::File { locked, path, .. } = handle {
-                if locked {
+            if let SftpFileHandle::File { locked, path, .. } = handle
+                && locked {
                     log::info!("Releasing lock on {:?} during cleanup", path);
                     self.locked_files.remove(&path);
                 }
-            }
         }
         self.locked_files.clear();
         log::info!("SFTP session cleanup completed");
@@ -998,7 +996,7 @@ impl SftpState {
 
         let handle = self.handles.get_mut(&handle_str);
         match handle {
-            Some(SftpFileHandle::File { path, file, written_bytes, existed, .. }) => {
+            Some(SftpFileHandle::File { path, file, written_bytes, .. }) => {
                 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
                 
                 if let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await {

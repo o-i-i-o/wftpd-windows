@@ -216,9 +216,9 @@ struct SessionConfig {
 impl SessionConfig {
     fn from_config(config: &Config, client_ip: &str) -> Self {
         let tls_config = TlsConfig::new(
-            config.security.cert_path.as_deref(),
-            config.security.key_path.as_deref(),
-            config.security.require_ssl,
+            config.ftp.ftps.cert_path.as_deref(),
+            config.ftp.ftps.key_path.as_deref(),
+            config.ftp.ftps.require_ssl,
         );
         
         SessionConfig {
@@ -229,7 +229,7 @@ impl SessionConfig {
             default_passive_mode: config.ftp.default_passive_mode,
             ip_allowed: config.is_ip_allowed(client_ip),
             tls_config,
-            require_ssl: config.security.require_ssl,
+            require_ssl: config.ftp.ftps.require_ssl,
         }
     }
 }
@@ -910,10 +910,10 @@ async fn handle_command(
         }
 
         PASV => {
-            let ((port_min, port_max), bind_ip) = {
+            let ((port_min, port_max), bind_ip, passive_ip_override) = {
                 let cfg = config.lock()
                     .map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
-                (cfg.ftp.passive_ports, cfg.ftp.bind_ip.clone())
+                (cfg.ftp.passive_ports, cfg.ftp.bind_ip.clone(), cfg.ftp.passive_ip_override.clone())
             };
 
             let passive_port = match state.passive_manager.try_bind_port(port_min, port_max, &bind_ip).await {
@@ -927,7 +927,9 @@ async fn handle_command(
             state.passive_mode = true;
             state.data_port = Some(passive_port);
 
-            let response_ip = if bind_ip == "0.0.0.0" || bind_ip.is_empty() {
+            let response_ip = if let Some(ref override_ip) = passive_ip_override {
+                override_ip.clone()
+            } else if bind_ip == "0.0.0.0" || bind_ip.is_empty() {
                 client_ip.to_string()
             } else {
                 bind_ip.clone()

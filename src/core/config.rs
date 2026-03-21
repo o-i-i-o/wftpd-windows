@@ -19,8 +19,16 @@ pub struct ServerConfig {
     pub ftp_port: u16,
     pub sftp_port: u16,
     pub max_connections: usize,
+    #[serde(default = "default_max_connections_per_ip")]
+    pub max_connections_per_ip: usize,
     pub connection_timeout: u64,
     pub idle_timeout: u64,
+    #[serde(default)]
+    pub hide_version_info: bool,
+}
+
+fn default_max_connections_per_ip() -> usize {
+    10
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +51,10 @@ pub struct FtpConfig {
     pub default_passive_mode: bool,
     #[serde(default)]
     pub ftps: FtpsConfig,
+    #[serde(default)]
+    pub passive_ip_override: Option<String>,
+    #[serde(default)]
+    pub masquerade_address: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -91,6 +103,16 @@ pub struct SftpConfig {
     pub auth_timeout: u64,
     #[serde(default = "default_log_level")]
     pub log_level: String,
+    #[serde(default = "default_max_sessions_per_user")]
+    pub max_sessions_per_user: u32,
+    #[serde(default)]
+    pub allow_tcp_forwarding: bool,
+    #[serde(default)]
+    pub allow_x11_forwarding: bool,
+}
+
+fn default_max_sessions_per_user() -> u32 {
+    5
 }
 
 fn default_log_level() -> String {
@@ -103,11 +125,6 @@ pub struct SecurityConfig {
     pub denied_ips: Vec<String>,
     pub max_login_attempts: u32,
     pub ban_duration: u64,
-    pub require_ssl: bool,
-    #[serde(default)]
-    pub cert_path: Option<String>,
-    #[serde(default)]
-    pub key_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,8 +162,10 @@ impl Default for Config {
                 ftp_port: 21,
                 sftp_port: 2222,
                 max_connections: 100,
+                max_connections_per_ip: 10,
                 connection_timeout: 300,
                 idle_timeout: 600,
+                hide_version_info: false,
             },
             ftp: FtpConfig {
                 enabled: true,
@@ -167,6 +186,8 @@ impl Default for Config {
                     implicit_ssl: false,
                     implicit_ssl_port: 990,
                 },
+                passive_ip_override: None,
+                masquerade_address: None,
             },
             sftp: SftpConfig {
                 enabled: true,
@@ -175,15 +196,15 @@ impl Default for Config {
                 max_auth_attempts: 3,
                 auth_timeout: 60,
                 log_level: "info".to_string(),
+                max_sessions_per_user: 5,
+                allow_tcp_forwarding: false,
+                allow_x11_forwarding: false,
             },
             security: SecurityConfig {
                 allowed_ips: vec!["0.0.0.0/0".to_string()],
                 denied_ips: vec![],
                 max_login_attempts: 5,
                 ban_duration: 300,
-                require_ssl: false,
-                cert_path: None,
-                key_path: None,
             },
             logging: LoggingConfig {
                 log_dir,

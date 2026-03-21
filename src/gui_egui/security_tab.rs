@@ -2,7 +2,6 @@ use egui::RichText;
 use crate::core::config::Config;
 use crate::core::ipc::IpcClient;
 use crate::gui_egui::styles;
-use egui_file_dialog::FileDialog;
 use std::sync::mpsc;
 use std::time::Instant;
 
@@ -104,15 +103,12 @@ pub struct SecurityTab {
     config: Config,
     max_login_attempts_buf: String,
     ban_duration_buf: String,
-    host_key_path_buf: String,
     allowed_ips_text: String,
     denied_ips_text: String,
     status_message: Option<(String, bool)>,
     validation_errors: Vec<ValidationError>,
     max_login_attempts_error: Option<String>,
     ban_duration_error: Option<String>,
-    host_key_path_error: Option<String>,
-    file_dialog: FileDialog,
     save_sender: mpsc::Sender<SaveResult>,
     save_receiver: Option<mpsc::Receiver<SaveResult>>,
     is_saving: bool,
@@ -124,7 +120,6 @@ impl Default for SecurityTab {
         let config = Config::load(&Config::get_config_path()).unwrap_or_default();
         let max_login_attempts_buf = config.security.max_login_attempts.to_string();
         let ban_duration_buf = config.security.ban_duration.to_string();
-        let host_key_path_buf = config.sftp.host_key_path.clone();
         let allowed_ips_text = config.security.allowed_ips.join("\n");
         let denied_ips_text = config.security.denied_ips.join("\n");
         
@@ -134,15 +129,12 @@ impl Default for SecurityTab {
             config,
             max_login_attempts_buf,
             ban_duration_buf,
-            host_key_path_buf,
             allowed_ips_text,
             denied_ips_text,
             status_message: None,
             validation_errors: Vec::new(),
             max_login_attempts_error: None,
             ban_duration_error: None,
-            host_key_path_error: None,
-            file_dialog: FileDialog::new().title("选择主机密钥文件"),
             save_sender: tx,
             save_receiver: Some(rx),
             is_saving: false,
@@ -160,7 +152,6 @@ impl SecurityTab {
         self.validation_errors.clear();
         self.max_login_attempts_error = None;
         self.ban_duration_error = None;
-        self.host_key_path_error = None;
         
         let mut valid = true;
         
@@ -176,11 +167,6 @@ impl SecurityTab {
         
         if self.ban_duration_buf.parse::<u64>().is_err() {
             self.ban_duration_error = Some("请输入有效的数字".to_string());
-            valid = false;
-        }
-        
-        if self.host_key_path_buf.trim().is_empty() {
-            self.host_key_path_error = Some("主机密钥路径不能为空".to_string());
             valid = false;
         }
         
@@ -203,7 +189,6 @@ impl SecurityTab {
         if let Ok(v) = self.ban_duration_buf.parse::<u64>() {
             self.config.security.ban_duration = v;
         }
-        self.config.sftp.host_key_path = self.host_key_path_buf.trim().to_string();
         
         self.config.security.allowed_ips = self
             .allowed_ips_text
@@ -368,53 +353,6 @@ impl SecurityTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "🔑", "SFTP 主机密钥");
-            
-            let available_width = ui.available_width();
-            let label_width = (available_width * 0.2).clamp(100.0, 160.0);
-            
-            styles::form_row(ui, "密钥文件路径", label_width, |ui| {
-                styles::input_frame().show(ui, |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut self.host_key_path_buf)
-                        .desired_width(ui.available_width() - 80.0)
-                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
-                });
-                
-                if ui.button("浏览...").clicked() {
-                    self.file_dialog.pick_file();
-                }
-            });
-            
-            if let Some(err) = &self.host_key_path_error {
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(RichText::new(format!("⚠ {}", err))
-                        .size(styles::FONT_SIZE_SM)
-                        .color(styles::DANGER_COLOR));
-                });
-            }
-            
-            let path = std::path::Path::new(self.host_key_path_buf.trim());
-            let path_exists = path.exists();
-            let path_status = if path_exists {
-                ("✓ 文件已存在", styles::SUCCESS_COLOR)
-            } else {
-                ("ℹ 文件不存在，启动时将自动生成", styles::TEXT_MUTED_COLOR)
-            };
-            
-            ui.horizontal(|ui| {
-                ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                ui.label(RichText::new(path_status.0)
-                    .size(styles::FONT_SIZE_SM)
-                    .color(path_status.1)
-                    .italics());
-            });
-        });
-
-        ui.add_space(styles::SPACING_MD);
-
-        styles::card_frame().show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
             Self::section_header(ui, "🌐", "IP 访问控制");
             
             ui.label(RichText::new("允许的 IP/CIDR").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
@@ -501,11 +439,5 @@ impl SecurityTab {
                     .color(styles::TEXT_MUTED_COLOR));
             });
         });
-
-        self.file_dialog.update(ui.ctx());
-        if let Some(path) = self.file_dialog.take_picked() {
-            self.host_key_path_buf = path.to_string_lossy().to_string();
-            self.host_key_path_error = None;
-        }
     }
 }
