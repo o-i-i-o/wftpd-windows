@@ -325,7 +325,7 @@ impl WftpgApp {
 
                     match &self.service_install_status {
                         ServiceInstallStatus::Installing => {
-                            ui.horizontal_centered(|ui| {
+                            ui.vertical_centered(|ui| {
                                 ui.spinner();
                                 ui.add_space(styles::SPACING_MD);
                                 ui.label(RichText::new("正在安装服务...").size(styles::FONT_SIZE_MD));
@@ -338,7 +338,7 @@ impl WftpgApp {
                                 ui.label(RichText::new(msg).color(styles::SUCCESS_COLOR).size(styles::FONT_SIZE_MD));
                             });
                             ui.add_space(styles::SPACING_LG);
-                            ui.horizontal_centered(|ui| {
+                            ui.vertical_centered(|ui| {
                                 if ui.add(styles::secondary_button("关闭")).clicked() {
                                     self.show_service_install_dialog = false;
                                     self.service_install_status = ServiceInstallStatus::None;
@@ -374,7 +374,7 @@ impl WftpgApp {
                             });
                         }
                         ServiceInstallStatus::None => {
-                            ui.horizontal_centered(|ui| {
+                            ui.vertical_centered(|ui| {
                                 if ui.add(styles::secondary_button("稍后手动安装")).clicked() {
                                     self.show_service_install_dialog = false;
                                 }
