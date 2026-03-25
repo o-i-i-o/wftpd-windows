@@ -5,9 +5,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::core::config::Config;
-use crate::core::logger::Logger;
+use crate::core::logger::AsyncLogger;
 use crate::core::users::UserManager;
-use crate::core::file_logger::FileLogger;
+use crate::core::file_logger::AsyncFileLogger;
 use crate::core::quota::QuotaManager;
 use crate::core::path_utils::{safe_resolve_path, to_ftp_path, resolve_directory_path, PathResolveError, path_starts_with_ignore_case};
 
@@ -238,8 +238,8 @@ pub async fn handle_session(
     mut socket: TcpStream,
     config: Arc<std::sync::Mutex<Config>>,
     user_manager: Arc<std::sync::Mutex<UserManager>>,
-    logger: Arc<std::sync::Mutex<Logger>>,
-    file_logger: Arc<std::sync::Mutex<FileLogger>>,
+    logger: AsyncLogger,
+    file_logger: AsyncFileLogger,
     quota_manager: Arc<QuotaManager>,
     client_ip: String,
 ) -> Result<()> {
@@ -249,9 +249,7 @@ pub async fn handle_session(
     };
 
     if !session_config.ip_allowed {
-        if let Ok(mut log) = logger.try_lock() {
-            log.warning("FTP", &format!("Connection rejected from {} by IP filter", client_ip));
-        }
+        logger.warning("FTP", &format!("Connection rejected from {} by IP filter", client_ip));
         let _ = socket.write_all(b"530 Connection denied by IP filter\r\n").await;
         return Ok(());
     }
@@ -337,8 +335,8 @@ pub async fn handle_session_tls(
     socket: AsyncTlsTcpStream,
     config: Arc<std::sync::Mutex<Config>>,
     user_manager: Arc<std::sync::Mutex<UserManager>>,
-    logger: Arc<std::sync::Mutex<Logger>>,
-    file_logger: Arc<std::sync::Mutex<FileLogger>>,
+    logger: AsyncLogger,
+    file_logger: AsyncFileLogger,
     quota_manager: Arc<QuotaManager>,
     client_ip: String,
 ) -> Result<()> {
@@ -348,9 +346,7 @@ pub async fn handle_session_tls(
     };
 
     if !session_config.ip_allowed {
-        if let Ok(mut log) = logger.try_lock() {
-            log.warning("FTPS", &format!("Connection rejected from {} by IP filter", client_ip));
-        }
+        logger.warning("FTPS", &format!("Connection rejected from {} by IP filter", client_ip));
         return Ok(());
     }
 
@@ -455,8 +451,8 @@ async fn handle_command(
     state: &mut SessionState,
     config: &Arc<std::sync::Mutex<Config>>,
     user_manager: &Arc<std::sync::Mutex<UserManager>>,
-    logger: &Arc<std::sync::Mutex<Logger>>,
-    file_logger: &Arc<std::sync::Mutex<FileLogger>>,
+    logger: &AsyncLogger,
+    file_logger: &AsyncFileLogger,
     quota_manager: &Arc<QuotaManager>,
     client_ip: &str,
     allow_anonymous: &bool,
@@ -587,15 +583,13 @@ async fn handle_command(
                                     state.home_dir = state.cwd.clone();
                                     state.authenticated = true;
                                     let _ = control_stream.write_all(b"230 Anonymous user logged in\r\n").await;
-                                    if let Ok(mut logger_guard) = logger.lock() {
-                                        logger_guard.client_action(
-                                            "FTP",
-                                            "Anonymous user logged in",
-                                            client_ip,
-                                            Some("anonymous"),
-                                            "LOGIN",
-                                        );
-                                    }
+                                    logger.client_action(
+                                        "FTP",
+                                        "Anonymous user logged in",
+                                        client_ip,
+                                        Some("anonymous"),
+                                        "LOGIN",
+                                    );
                                 }
                                 Err(e) => {
                                     log::error!("PASS failed: cannot canonicalize anonymous home directory '{}': {}", anon_home, e);
@@ -643,38 +637,32 @@ async fn handle_command(
                                 }
                             }
                             let _ = control_stream.write_all(b"230 User logged in\r\n").await;
-                            if let Ok(mut logger_guard) = logger.lock() {
-                                logger_guard.client_action(
-                                    "FTP",
-                                    &format!("User {} logged in", username),
-                                    client_ip,
-                                    Some(username),
-                                    "LOGIN",
-                                );
-                            }
+                            logger.client_action(
+                                "FTP",
+                                &format!("User {} logged in", username),
+                                client_ip,
+                                Some(username),
+                                "LOGIN",
+                            );
                         }
                         Ok(false) => {
-                            if let Ok(mut logger_guard) = logger.lock() {
-                                logger_guard.client_action(
-                                    "FTP",
-                                    &format!("Authentication failed for user {}", username),
-                                    client_ip,
-                                    Some(username),
-                                    "AUTH_FAIL",
-                                );
-                            }
+                            logger.client_action(
+                                "FTP",
+                                &format!("Authentication failed for user {}", username),
+                                client_ip,
+                                Some(username),
+                                "AUTH_FAIL",
+                            );
                             let _ = control_stream.write_all(b"530 Not logged in, user cannot be authenticated\r\n").await;
                         }
                         Err(e) => {
-                            if let Ok(mut logger_guard) = logger.lock() {
-                                logger_guard.client_action(
-                                    "FTP",
-                                    &format!("Authentication error for user {}: {}", username, e),
-                                    client_ip,
-                                    Some(username),
-                                    "AUTH_ERROR",
-                                );
-                            }
+                            logger.client_action(
+                                "FTP",
+                                &format!("Authentication error for user {}: {}", username, e),
+                                client_ip,
+                                Some(username),
+                                "AUTH_ERROR",
+                            );
                             let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
                         }
                     }
@@ -891,15 +879,13 @@ async fn handle_command(
                 if let Ok(offset) = offset_str.parse::<u64>() {
                     state.rest_offset = offset;
                     let _ = control_stream.write_all(format!("350 Restarting at {}\r\n", offset).as_bytes()).await;
-                    if let Ok(mut log) = logger.lock() {
-                        log.client_action_debug(
-                            "FTP",
-                            &format!("REST command: offset {}", offset),
-                            client_ip,
-                            state.current_user.as_deref(),
-                            "REST",
-                        );
-                    }
+                    logger.client_action_debug(
+                        "FTP",
+                        &format!("REST command: offset {}", offset),
+                        client_ip,
+                        state.current_user.as_deref(),
+                        "REST",
+                    );
                 } else {
                     let _ = control_stream.write_all(b"501 Syntax error in REST parameter\r\n").await;
                 }
@@ -952,15 +938,13 @@ async fn handle_command(
                 .as_bytes(),
             ).await;
 
-            if let Ok(mut log) = logger.lock() {
-                log.client_action(
-                    "FTP",
-                    &format!("PASV mode: port {}", passive_port),
-                    client_ip,
-                    state.current_user.as_deref(),
-                    "PASV",
-                );
-            }
+            logger.client_action(
+                "FTP",
+                &format!("PASV mode: port {}", passive_port),
+                client_ip,
+                state.current_user.as_deref(),
+                "PASV",
+            );
         }
 
         EPSV => {
@@ -1477,28 +1461,24 @@ async fn handle_command(
                 let _ = control_stream.write_all(b"226 Transfer complete\r\n").await;
 
                 let final_size = tokio::fs::metadata(&file_path).await.map(|m| m.len()).unwrap_or(remaining);
-                if let Ok(mut fl) = file_logger.lock() {
-                    fl.log_download(
-                        state.current_user.as_deref().unwrap_or("anonymous"),
-                        client_ip,
-                        &file_path.to_string_lossy(),
-                        final_size,
-                        "FTP",
-                    );
-                }
+                file_logger.log_download(
+                    state.current_user.as_deref().unwrap_or("anonymous"),
+                    client_ip,
+                    &file_path.to_string_lossy(),
+                    final_size,
+                    "FTP",
+                );
 
-                if let Ok(mut log) = logger.lock() {
-                    log.client_action(
-                        "FTP",
-                        &format!(
-                            "Downloaded: {} ({} bytes from offset {})",
-                            filename, remaining, state.rest_offset
-                        ),
-                        client_ip,
-                        state.current_user.as_deref(),
-                        "DOWNLOAD",
-                    );
-                }
+                logger.client_action(
+                    "FTP",
+                    &format!(
+                        "Downloaded: {} ({} bytes from offset {})",
+                        filename, remaining, state.rest_offset
+                    ),
+                    client_ip,
+                    state.current_user.as_deref(),
+                    "DOWNLOAD",
+                );
 
                 state.rest_offset = 0;
             }
@@ -1561,15 +1541,13 @@ async fn handle_command(
                     let quota_bytes = quota * 1024 * 1024;
                     if current_usage >= quota_bytes {
                         let _ = control_stream.write_all(b"552 Quota exceeded\r\n").await;
-                        if let Ok(mut log) = logger.lock() {
-                            log.client_action(
-                                "FTP",
-                                &format!("Upload denied: quota exceeded for user {}", state.current_user.as_deref().unwrap_or("unknown")),
-                                client_ip,
-                                state.current_user.as_deref(),
-                                "QUOTA_EXCEEDED",
-                            );
-                        }
+                        logger.client_action(
+                            "FTP",
+                            &format!("Upload denied: quota exceeded for user {}", state.current_user.as_deref().unwrap_or("unknown")),
+                            client_ip,
+                            state.current_user.as_deref(),
+                            "QUOTA_EXCEEDED",
+                        );
                         return Ok(true);
                     }
                 }
@@ -1626,47 +1604,41 @@ async fn handle_command(
                             log::error!("Failed to update quota usage: {}", e);
                     }
                     
-                    if let Ok(mut fl) = file_logger.lock() {
-                        if file_existed {
-                            fl.log_update(
-                                state.current_user.as_deref().unwrap_or("anonymous"),
-                                client_ip,
-                                &file_path.to_string_lossy(),
-                                uploaded_size,
-                                "FTP",
-                            );
-                        } else {
-                            fl.log_upload(
-                                state.current_user.as_deref().unwrap_or("anonymous"),
-                                client_ip,
-                                &file_path.to_string_lossy(),
-                                uploaded_size,
-                                "FTP",
-                            );
-                        }
-                    }
-
-                    if let Ok(mut log) = logger.lock() {
-                        log.client_action(
-                            "FTP",
-                            &format!("Uploaded: {} ({} bytes) at offset {}", filename, uploaded_size, state.rest_offset),
-                            client_ip,
-                            state.current_user.as_deref(),
-                            "UPLOAD",
-                        );
-                    }
-                } else {
-                    let _ = control_stream.write_all(b"451 Transfer failed\r\n").await;
-                    if let Ok(mut fl) = file_logger.lock() {
-                        fl.log_failed(
+                    if file_existed {
+                        file_logger.log_update(
                             state.current_user.as_deref().unwrap_or("anonymous"),
                             client_ip,
-                            "UPLOAD",
                             &file_path.to_string_lossy(),
+                            uploaded_size,
                             "FTP",
-                            "Transfer failed",
+                        );
+                    } else {
+                        file_logger.log_upload(
+                            state.current_user.as_deref().unwrap_or("anonymous"),
+                            client_ip,
+                            &file_path.to_string_lossy(),
+                            uploaded_size,
+                            "FTP",
                         );
                     }
+
+                    logger.client_action(
+                        "FTP",
+                        &format!("Uploaded: {} ({} bytes) at offset {}", filename, uploaded_size, state.rest_offset),
+                        client_ip,
+                        state.current_user.as_deref(),
+                        "UPLOAD",
+                    );
+                } else {
+                    let _ = control_stream.write_all(b"451 Transfer failed\r\n").await;
+                    file_logger.log_failed(
+                        state.current_user.as_deref().unwrap_or("anonymous"),
+                        client_ip,
+                        "UPLOAD",
+                        &file_path.to_string_lossy(),
+                        "FTP",
+                        "Transfer failed",
+                    );
                 }
 
                 state.rest_offset = 0;
@@ -1729,28 +1701,24 @@ async fn handle_command(
                 let _ = control_stream.write_all(b"226 Transfer complete\r\n").await;
 
                 let appended_size = tokio::fs::metadata(&file_path).await.map(|m| m.len()).unwrap_or(0);
-                if let Ok(mut fl) = file_logger.lock() {
-                    fl.log(crate::core::file_logger::FileLogInfo {
-                        username: state.current_user.as_deref().unwrap_or("anonymous"),
-                        client_ip,
-                        operation: "APPEND",
-                        file_path: &file_path.to_string_lossy(),
-                        file_size: appended_size,
-                        protocol: "FTP",
-                        success: true,
-                        message: "文件追加成功",
-                    });
-                }
+                file_logger.log(crate::core::file_logger::FileLogInfo {
+                    username: state.current_user.as_deref().unwrap_or("anonymous"),
+                    client_ip,
+                    operation: "APPEND",
+                    file_path: &file_path.to_string_lossy(),
+                    file_size: appended_size,
+                    protocol: "FTP",
+                    success: true,
+                    message: "文件追加成功",
+                });
 
-                if let Ok(mut log) = logger.lock() {
-                    log.client_action(
-                        "FTP",
-                        &format!("Appended: {}", filename),
-                        client_ip,
-                        state.current_user.as_deref(),
-                        "APPEND",
-                    );
-                }
+                logger.client_action(
+                    "FTP",
+                    &format!("Appended: {}", filename),
+                    client_ip,
+                    state.current_user.as_deref(),
+                    "APPEND",
+                );
             }
         }
 
@@ -1793,23 +1761,19 @@ async fn handle_command(
                 
                 if tokio::fs::remove_file(&file_path).await.is_ok() {
                     let _ = control_stream.write_all(b"250 File deleted\r\n").await;
-                    if let Ok(mut fl) = file_logger.lock() {
-                        fl.log_delete(
-                            state.current_user.as_deref().unwrap_or("anonymous"),
-                            client_ip,
-                            &file_path.to_string_lossy(),
-                            "FTP",
-                        );
-                    }
-                    if let Ok(mut log) = logger.lock() {
-                        log.client_action(
-                            "FTP",
-                            &format!("Deleted: {}", filename),
-                            client_ip,
-                            state.current_user.as_deref(),
-                            "DELETE",
-                        );
-                    }
+                    file_logger.log_delete(
+                        state.current_user.as_deref().unwrap_or("anonymous"),
+                        client_ip,
+                        &file_path.to_string_lossy(),
+                        "FTP",
+                    );
+                    logger.client_action(
+                        "FTP",
+                        &format!("Deleted: {}", filename),
+                        client_ip,
+                        state.current_user.as_deref(),
+                        "DELETE",
+                    );
                 } else {
                     let _ = control_stream.write_all(b"450 File unavailable: delete operation failed\r\n").await;
                 }
@@ -1857,23 +1821,19 @@ async fn handle_command(
                             let _ = control_stream.write_all(b"257 Directory created\r\n").await;
                         }
                     }
-                    if let Ok(mut fl) = file_logger.lock() {
-                        fl.log_mkdir(
-                            state.current_user.as_deref().unwrap_or("anonymous"),
-                            client_ip,
-                            &dir_path.to_string_lossy(),
-                            "FTP",
-                        );
-                    }
-                    if let Ok(mut log) = logger.lock() {
-                        log.client_action(
-                            "FTP",
-                            &format!("Created directory: {}", dirname),
-                            client_ip,
-                            state.current_user.as_deref(),
-                            "MKDIR",
-                        );
-                    }
+                    file_logger.log_mkdir(
+                        state.current_user.as_deref().unwrap_or("anonymous"),
+                        client_ip,
+                        &dir_path.to_string_lossy(),
+                        "FTP",
+                    );
+                    logger.client_action(
+                        "FTP",
+                        &format!("Created directory: {}", dirname),
+                        client_ip,
+                        state.current_user.as_deref(),
+                        "MKDIR",
+                    );
                 } else {
                     let _ = control_stream.write_all(b"550 Create directory operation failed\r\n").await;
                 }
@@ -1913,23 +1873,19 @@ async fn handle_command(
                 }
                 if tokio::fs::remove_dir_all(&dir_path).await.is_ok() {
                     let _ = control_stream.write_all(b"250 Directory removed\r\n").await;
-                    if let Ok(mut fl) = file_logger.lock() {
-                        fl.log_rmdir(
-                            state.current_user.as_deref().unwrap_or("anonymous"),
-                            client_ip,
-                            &dir_path.to_string_lossy(),
-                            "FTP",
-                        );
-                    }
-                    if let Ok(mut log) = logger.lock() {
-                        log.client_action(
-                            "FTP",
-                            &format!("Removed directory: {}", dirname),
-                            client_ip,
-                            state.current_user.as_deref(),
-                            "RMDIR",
-                        );
-                    }
+                    file_logger.log_rmdir(
+                        state.current_user.as_deref().unwrap_or("anonymous"),
+                        client_ip,
+                        &dir_path.to_string_lossy(),
+                        "FTP",
+                    );
+                    logger.client_action(
+                        "FTP",
+                        &format!("Removed directory: {}", dirname),
+                        client_ip,
+                        state.current_user.as_deref(),
+                        "RMDIR",
+                    );
                 } else {
                     let _ = control_stream.write_all(b"550 Remove directory operation failed\r\n").await;
                 }
@@ -1968,9 +1924,7 @@ async fn handle_command(
                 if from_path.exists() && path_starts_with_ignore_case(&from_path, &state.home_dir) {
                     state.rename_from = Some(from_path.to_string_lossy().to_string());
                     let _ = control_stream.write_all(b"350 File exists, ready for destination name\r\n").await;
-                    if let Ok(mut log) = logger.lock() {
-                        log.client_action("FTP", &format!("RNFR: {}", from_path.display()), client_ip, state.current_user.as_deref(), "RNFR");
-                    }
+                    logger.client_action("FTP", &format!("RNFR: {}", from_path.display()), client_ip, state.current_user.as_deref(), "RNFR");
                 } else {
                     log::warn!("RNFR failed: file not found or outside home - raw='{}', resolved='{}'", from_name, from_path.display());
                     let _ = control_stream.write_all(b"450 File unavailable: file not found\r\n").await;
@@ -2003,24 +1957,20 @@ async fn handle_command(
                     match tokio::fs::rename(&from_path_buf, &to_path).await {
                         Ok(()) => {
                             let _ = control_stream.write_all(b"250 Rename successful\r\n").await;
-                            if let Ok(mut fl) = file_logger.lock() {
-                                fl.log_rename(
-                                    state.current_user.as_deref().unwrap_or("anonymous"),
-                                    client_ip,
-                                    from_path,
-                                    &to_path.to_string_lossy(),
-                                    "FTP",
-                                );
-                            }
-                            if let Ok(mut log) = logger.lock() {
-                                log.client_action(
-                                    "FTP",
-                                    &format!("Renamed: {} -> {}", from_path, to_path.display()),
-                                    client_ip,
-                                    state.current_user.as_deref(),
-                                    "RENAME",
-                                );
-                            }
+                            file_logger.log_rename(
+                                state.current_user.as_deref().unwrap_or("anonymous"),
+                                client_ip,
+                                from_path,
+                                &to_path.to_string_lossy(),
+                                "FTP",
+                            );
+                            logger.client_action(
+                                "FTP",
+                                &format!("Renamed: {} -> {}", from_path, to_path.display()),
+                                client_ip,
+                                state.current_user.as_deref(),
+                                "RENAME",
+                            );
                         }
                         Err(e) => {
                             log::error!("Rename failed: {} -> {}: {} (os error {})", from_path, to_path.display(), e, e.raw_os_error().unwrap_or(0));
@@ -2151,25 +2101,21 @@ async fn handle_command(
             let _ = control_stream.write_all(b"226 Transfer complete\r\n").await;
 
             let uploaded_size = tokio::fs::metadata(&file_path).await.map(|m| m.len()).unwrap_or(0);
-            if let Ok(mut fl) = file_logger.lock() {
-                fl.log_upload(
-                    state.current_user.as_deref().unwrap_or("anonymous"),
-                    client_ip,
-                    &file_path.to_string_lossy(),
-                    uploaded_size,
-                    "FTP",
-                );
-            }
+            file_logger.log_upload(
+                state.current_user.as_deref().unwrap_or("anonymous"),
+                client_ip,
+                &file_path.to_string_lossy(),
+                uploaded_size,
+                "FTP",
+            );
 
-            if let Ok(mut log) = logger.lock() {
-                log.client_action(
-                    "FTP",
-                    &format!("Uploaded unique file: {}", unique_name),
-                    client_ip,
-                    state.current_user.as_deref(),
-                    "UPLOAD",
-                );
-            }
+            logger.client_action(
+                "FTP",
+                &format!("Uploaded unique file: {}", unique_name),
+                client_ip,
+                state.current_user.as_deref(),
+                "UPLOAD",
+            );
         }
 
         Unknown(cmd_str) => {

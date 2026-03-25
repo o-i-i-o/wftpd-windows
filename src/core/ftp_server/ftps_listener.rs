@@ -2,23 +2,23 @@ use anyhow::Result;
 use std::sync::Arc;
 
 use crate::core::config::Config;
-use crate::core::logger::Logger;
+use crate::core::logger::AsyncLogger;
 use crate::core::users::UserManager;
-use crate::core::file_logger::FileLogger;
+use crate::core::file_logger::AsyncFileLogger;
 use crate::core::quota::QuotaManager;
 use crate::core::ftp_server::tls::TlsConfig;
 
 pub async fn start_ftps_implicit_server(
     config: Arc<std::sync::Mutex<Config>>,
     user_manager: Arc<std::sync::Mutex<UserManager>>,
-    logger: Arc<std::sync::Mutex<Logger>>,
-    file_logger: Arc<std::sync::Mutex<FileLogger>>,
+    logger: AsyncLogger,
+    file_logger: AsyncFileLogger,
     quota_manager: Arc<QuotaManager>,
     tls_config: TlsConfig,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<()> {
     let (bind_ip, ftps_port) = {
-        let cfg = config.lock().unwrap();
+        let cfg = config.lock().map_err(|e| anyhow::anyhow!("Failed to lock config: {}", e))?;
         (cfg.ftp.bind_ip.clone(), cfg.ftp.ftps.implicit_ssl_port)
     };
 
@@ -37,9 +37,7 @@ pub async fn start_ftps_implicit_server(
             .map_err(|e| anyhow::anyhow!("Failed to create tokio listener: {}", e))?
     };
 
-    if let Ok(mut log) = logger.lock() {
-        log.info("FTPS", &format!("FTPS server (implicit SSL) started on {}", bind_addr));
-    }
+    logger.info("FTPS", &format!("FTPS server (implicit SSL) started on {}", bind_addr));
 
     let tls_acceptor = match &tls_config.acceptor {
         Some(acceptor) => acceptor.clone(),
@@ -58,15 +56,13 @@ pub async fn start_ftps_implicit_server(
                     Ok((socket, peer_addr)) => {
                         let client_ip = peer_addr.ip().to_string();
 
-                        if let Ok(mut log) = logger.lock() {
-                            log.client_action(
-                                "FTPS",
-                                &format!("FTPS client connected from {}", client_ip),
-                                &client_ip,
-                                None,
-                                "CONNECT",
-                            );
-                        }
+                        logger.client_action(
+                            "FTPS",
+                            &format!("FTPS client connected from {}", client_ip),
+                            &client_ip,
+                            None,
+                            "CONNECT",
+                        );
 
                         let tls_stream = match tls_acceptor.accept(socket).await {
                             Ok(stream) => stream,
@@ -78,8 +74,8 @@ pub async fn start_ftps_implicit_server(
 
                         let config = Arc::clone(&config);
                         let user_manager = Arc::clone(&user_manager);
-                        let logger = Arc::clone(&logger);
-                        let file_logger = Arc::clone(&file_logger);
+                        let logger = logger.clone();
+                        let file_logger = file_logger.clone();
                         let quota_manager = Arc::clone(&quota_manager);
 
                         tokio::spawn(async move {
@@ -104,9 +100,7 @@ pub async fn start_ftps_implicit_server(
         }
     }
 
-    if let Ok(mut log) = logger.lock() {
-        log.info("FTPS", "FTPS server stopped");
-    }
+    logger.info("FTPS", "FTPS server stopped");
 
     Ok(())
 }

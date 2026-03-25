@@ -4,8 +4,8 @@ use std::sync::mpsc;
 
 use crate::core::config::Config;
 use crate::core::users::UserManager;
-use crate::core::logger::Logger;
-use crate::core::file_logger::FileLogger;
+use crate::core::logger::AsyncLogger;
+use crate::core::file_logger::AsyncFileLogger;
 use crate::core::ftp_server::FtpServer;
 use crate::core::sftp_server::SftpServer;
 
@@ -42,8 +42,8 @@ impl ServerManager {
         &self,
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
-        logger: Arc<Mutex<Logger>>,
-        file_logger: Arc<Mutex<FileLogger>>,
+        logger: AsyncLogger,
+        file_logger: AsyncFileLogger,
     ) -> anyhow::Result<()> {
         {
             let state = self.ftp_state.lock()
@@ -61,7 +61,7 @@ impl ServerManager {
         let server = FtpServer::new(
             config,
             user_manager,
-            Arc::clone(&logger),
+            logger.clone(),
             file_logger,
         );
 
@@ -74,9 +74,7 @@ impl ServerManager {
             state.runtime = Some(runtime);
         }
 
-        if let Ok(mut log) = logger.lock() {
-            log.info("FTP", "FTP server started successfully");
-        }
+        logger.info("FTP", "FTP server started successfully");
 
         Ok(())
     }
@@ -85,8 +83,8 @@ impl ServerManager {
         &self,
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
-        logger: Arc<Mutex<Logger>>,
-        file_logger: Arc<Mutex<FileLogger>>,
+        logger: AsyncLogger,
+        file_logger: AsyncFileLogger,
     ) -> mpsc::Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         let ftp_state = Arc::clone(&self.ftp_state);
@@ -121,7 +119,7 @@ impl ServerManager {
             let server = FtpServer::new(
                 config,
                 user_manager,
-                Arc::clone(&logger),
+                logger.clone(),
                 file_logger,
             );
 
@@ -144,9 +142,7 @@ impl ServerManager {
                 state.runtime = Some(runtime);
             }
 
-            if let Ok(mut log) = logger.lock() {
-                log.info("FTP", "FTP server started successfully");
-            }
+            logger.info("FTP", "FTP server started successfully");
 
             let _ = tx.send(Ok(()));
         });
@@ -154,7 +150,7 @@ impl ServerManager {
         rx
     }
 
-    pub fn stop_ftp(&self, logger: &Arc<Mutex<Logger>>) {
+    pub fn stop_ftp(&self, logger: &AsyncLogger) {
         let (maybe_server, maybe_runtime) = {
             let mut state = match self.ftp_state.lock() {
                 Ok(guard) => guard,
@@ -171,12 +167,10 @@ impl ServerManager {
             runtime.shutdown_background();
         }
 
-        if let Ok(mut log) = logger.lock() {
-            log.info("FTP", "FTP server stopped");
-        }
+        logger.info("FTP", "FTP server stopped");
     }
 
-    pub fn stop_ftp_async(&self, logger: Arc<Mutex<Logger>>) -> mpsc::Receiver<Result<(), String>> {
+    pub fn stop_ftp_async(&self, logger: AsyncLogger) -> mpsc::Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         let ftp_state = Arc::clone(&self.ftp_state);
         
@@ -197,9 +191,7 @@ impl ServerManager {
                 runtime.shutdown_background();
             }
 
-            if let Ok(mut log) = logger.lock() {
-                log.info("FTP", "FTP server stopped");
-            }
+            logger.info("FTP", "FTP server stopped");
 
             let _ = tx.send(Ok(()));
         });
@@ -219,8 +211,8 @@ impl ServerManager {
         &self,
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
-        logger: Arc<Mutex<Logger>>,
-        file_logger: Arc<Mutex<FileLogger>>,
+        logger: AsyncLogger,
+        file_logger: AsyncFileLogger,
     ) -> anyhow::Result<()> {
         {
             let state = self.sftp_state.lock()
@@ -238,7 +230,7 @@ impl ServerManager {
         let server = SftpServer::new(
             config,
             user_manager,
-            Arc::clone(&logger),
+            logger.clone(),
             file_logger,
         );
 
@@ -251,9 +243,7 @@ impl ServerManager {
             state.runtime = Some(runtime);
         }
 
-        if let Ok(mut log) = logger.lock() {
-            log.info("SFTP", "SFTP server started successfully");
-        }
+        logger.info("SFTP", "SFTP server started successfully");
 
         Ok(())
     }
@@ -262,8 +252,8 @@ impl ServerManager {
         &self,
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
-        logger: Arc<Mutex<Logger>>,
-        file_logger: Arc<Mutex<FileLogger>>,
+        logger: AsyncLogger,
+        file_logger: AsyncFileLogger,
     ) -> mpsc::Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         let sftp_state = Arc::clone(&self.sftp_state);
@@ -298,7 +288,7 @@ impl ServerManager {
             let server = SftpServer::new(
                 config,
                 user_manager,
-                Arc::clone(&logger),
+                logger.clone(),
                 file_logger,
             );
 
@@ -321,9 +311,7 @@ impl ServerManager {
                 state.runtime = Some(runtime);
             }
 
-            if let Ok(mut log) = logger.lock() {
-                log.info("SFTP", "SFTP server started successfully");
-            }
+            logger.info("SFTP", "SFTP server started successfully");
 
             let _ = tx.send(Ok(()));
         });
@@ -331,7 +319,7 @@ impl ServerManager {
         rx
     }
 
-    pub fn stop_sftp(&self, logger: &Arc<Mutex<Logger>>) {
+    pub fn stop_sftp(&self, logger: &AsyncLogger) {
         let (maybe_server, maybe_runtime) = {
             let mut state = match self.sftp_state.lock() {
                 Ok(guard) => guard,
@@ -348,12 +336,10 @@ impl ServerManager {
             runtime.shutdown_background();
         }
 
-        if let Ok(mut log) = logger.lock() {
-            log.info("SFTP", "SFTP server stopped");
-        }
+        logger.info("SFTP", "SFTP server stopped");
     }
 
-    pub fn stop_sftp_async(&self, logger: Arc<Mutex<Logger>>) -> mpsc::Receiver<Result<(), String>> {
+    pub fn stop_sftp_async(&self, logger: AsyncLogger) -> mpsc::Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         let sftp_state = Arc::clone(&self.sftp_state);
         
@@ -374,9 +360,7 @@ impl ServerManager {
                 runtime.shutdown_background();
             }
 
-            if let Ok(mut log) = logger.lock() {
-                log.info("SFTP", "SFTP server stopped");
-            }
+            logger.info("SFTP", "SFTP server stopped");
 
             let _ = tx.send(Ok(()));
         });

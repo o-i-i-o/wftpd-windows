@@ -1,10 +1,9 @@
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::fs::{self, File, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex, oneshot};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileLogEntry {
@@ -30,47 +29,107 @@ pub struct FileLogInfo<'a> {
     pub message: &'a str,
 }
 
-pub struct FileLogger {
-    log_dir: PathBuf,
-    buffer: Arc<Mutex<VecDeque<FileLogEntry>>>,
-    max_buffer_size: usize,
-    current_file: Option<File>,
-    current_size: u64,
-    max_file_size: u64,
+enum FileLogCommand {
+    Write(FileLogEntry),
+    GetRecent(usize, oneshot::Sender<Vec<FileLogEntry>>),
+    Shutdown,
 }
 
-impl FileLogger {
-    pub fn new(log_dir: &str, max_file_size: u64) -> Self {
+#[derive(Clone)]
+pub struct AsyncFileLogger {
+    sender: mpsc::UnboundedSender<FileLogCommand>,
+    buffer: Arc<Mutex<VecDeque<FileLogEntry>>>,
+}
+
+impl AsyncFileLogger {
+    pub async fn new(log_dir: &str, max_file_size: u64) -> Self {
         let path = PathBuf::from(log_dir);
         
-        if let Err(e) = fs::create_dir_all(&path) {
+        if let Err(e) = tokio::fs::create_dir_all(&path).await {
             eprintln!("Warning: Failed to create file log directory {}: {}", path.display(), e);
         }
         
-        let (log_path, size) = Self::get_available_log_path(&path);
-        let file = match OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-        {
-            Ok(f) => Some(f),
-            Err(e) => {
-                eprintln!("Warning: Failed to open file log: {}", e);
-                None
+        let (log_path, size) = Self::get_available_log_path(&path).await;
+        let buffer = Arc::new(Mutex::new(VecDeque::with_capacity(2000)));
+        
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        
+        let buffer_clone = Arc::clone(&buffer);
+        let log_dir_clone = path.clone();
+        
+        tokio::spawn(async move {
+            let mut current_file: Option<tokio::fs::File> = None;
+            let mut current_size = size;
+            let mut current_path = log_path;
+            
+            while let Some(cmd) = receiver.recv().await {
+                match cmd {
+                    FileLogCommand::Write(entry) => {
+                        {
+                            let mut buf = buffer_clone.lock().await;
+                            if buf.len() >= 2000 {
+                                buf.pop_front();
+                            }
+                            buf.push_back(entry.clone());
+                        }
+                        
+                        if current_file.is_none() || current_size >= max_file_size {
+                            let new_path = Self::get_new_log_path(&log_dir_clone).await;
+                            match tokio::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(&new_path)
+                                .await
+                            {
+                                Ok(f) => {
+                                    current_file = Some(f);
+                                    current_size = 0;
+                                    current_path = new_path;
+                                }
+                                Err(e) => {
+                                    eprintln!("Warning: Failed to open file log: {}", e);
+                                    continue;
+                                }
+                            }
+                        }
+                        
+                        let json = serde_json::to_string(&entry)
+                            .unwrap_or_else(|_| format!("{{\"message\": \"{}\"}}", entry.message));
+                        let line = format!("{}\n", json);
+                        let bytes = line.as_bytes();
+                        
+                        if let Some(ref mut file) = current_file {
+                            use tokio::io::AsyncWriteExt;
+                            if let Err(e) = file.write_all(bytes).await {
+                                eprintln!("Failed to write file log: {}", e);
+                            } else {
+                                current_size += bytes.len() as u64;
+                            }
+                        }
+                    }
+                    FileLogCommand::GetRecent(count, response) => {
+                        let buf = buffer_clone.lock().await;
+                        let logs: Vec<FileLogEntry> = buf.iter().rev().take(count).cloned().collect();
+                        let _ = response.send(logs);
+                    }
+                    FileLogCommand::Shutdown => {
+                        if let Some(mut file) = current_file {
+                            use tokio::io::AsyncWriteExt;
+                            let _ = file.flush().await;
+                        }
+                        break;
+                    }
+                }
             }
-        };
-
-        FileLogger {
-            log_dir: path,
-            buffer: Arc::new(Mutex::new(VecDeque::with_capacity(2000))),
-            max_buffer_size: 2000,
-            current_file: file,
-            current_size: size,
-            max_file_size,
+        });
+        
+        AsyncFileLogger {
+            sender,
+            buffer,
         }
     }
 
-    fn get_available_log_path(log_dir: &Path) -> (PathBuf, u64) {
+    async fn get_available_log_path(log_dir: &Path) -> (PathBuf, u64) {
         let date_str = Local::now().format("%Y-%m-%d");
         let mut seq = 1;
         
@@ -82,7 +141,7 @@ impl FileLogger {
                 return (log_path, 0);
             }
             
-            if let Ok(metadata) = fs::metadata(&log_path) {
+            if let Ok(metadata) = tokio::fs::metadata(&log_path).await {
                 let size = metadata.len();
                 if size < 2 * 1024 * 1024 {
                     return (log_path, size);
@@ -93,13 +152,13 @@ impl FileLogger {
         }
     }
 
-    fn get_new_log_path(&self) -> PathBuf {
+    async fn get_new_log_path(log_dir: &Path) -> PathBuf {
         let date_str = Local::now().format("%Y-%m-%d");
         let mut seq = 1;
         
         loop {
             let filename = format!("file-ops-{}-{:04}.log", date_str, seq);
-            let log_path = self.log_dir.join(&filename);
+            let log_path = log_dir.join(&filename);
             
             if !log_path.exists() {
                 return log_path;
@@ -109,7 +168,7 @@ impl FileLogger {
         }
     }
 
-    pub fn log(&mut self, info: FileLogInfo<'_>) {
+    pub fn log(&self, info: FileLogInfo<'_>) {
         let entry = FileLogEntry {
             timestamp: Local::now(),
             username: info.username.to_string(),
@@ -121,51 +180,19 @@ impl FileLogger {
             success: info.success,
             message: info.message.to_string(),
         };
+        let _ = self.sender.send(FileLogCommand::Write(entry));
+    }
 
-        {
-            let mut buffer = self.buffer.lock().unwrap();
-            if buffer.len() >= self.max_buffer_size {
-                buffer.pop_front();
-            }
-            buffer.push_back(entry.clone());
-        }
-
-        if let Err(e) = self.write_to_file(&entry) {
-            eprintln!("Failed to write file log: {}", e);
+    pub async fn get_recent_logs(&self, count: usize) -> Vec<FileLogEntry> {
+        let (tx, rx) = oneshot::channel();
+        if self.sender.send(FileLogCommand::GetRecent(count, tx)).is_ok() {
+            rx.await.unwrap_or_default()
+        } else {
+            Vec::new()
         }
     }
 
-    fn write_to_file(&mut self, entry: &FileLogEntry) -> std::io::Result<()> {
-        if self.current_file.is_none() || self.current_size >= self.max_file_size {
-            let new_path = self.get_new_log_path();
-            self.current_file = Some(
-                OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&new_path)?,
-            );
-            self.current_size = 0;
-        }
-
-        let json = serde_json::to_string(entry)
-            .unwrap_or_else(|_| format!("{{\"message\": \"{}\"}}", entry.message));
-
-        if let Some(ref mut file) = self.current_file {
-            let line = format!("{}\n", json);
-            let bytes = line.as_bytes();
-            file.write_all(bytes)?;
-            self.current_size += bytes.len() as u64;
-        }
-
-        Ok(())
-    }
-
-    pub fn get_recent_logs(&self, count: usize) -> Vec<FileLogEntry> {
-        let buffer = self.buffer.lock().unwrap();
-        buffer.iter().rev().take(count).cloned().collect()
-    }
-
-    pub fn log_upload(&mut self, username: &str, client_ip: &str, file_path: &str, file_size: u64, protocol: &str) {
+    pub fn log_upload(&self, username: &str, client_ip: &str, file_path: &str, file_size: u64, protocol: &str) {
         self.log(FileLogInfo {
             username,
             client_ip,
@@ -178,7 +205,7 @@ impl FileLogger {
         });
     }
 
-    pub fn log_update(&mut self, username: &str, client_ip: &str, file_path: &str, file_size: u64, protocol: &str) {
+    pub fn log_update(&self, username: &str, client_ip: &str, file_path: &str, file_size: u64, protocol: &str) {
         self.log(FileLogInfo {
             username,
             client_ip,
@@ -191,7 +218,7 @@ impl FileLogger {
         });
     }
 
-    pub fn log_download(&mut self, username: &str, client_ip: &str, file_path: &str, file_size: u64, protocol: &str) {
+    pub fn log_download(&self, username: &str, client_ip: &str, file_path: &str, file_size: u64, protocol: &str) {
         self.log(FileLogInfo {
             username,
             client_ip,
@@ -204,7 +231,7 @@ impl FileLogger {
         });
     }
 
-    pub fn log_delete(&mut self, username: &str, client_ip: &str, file_path: &str, protocol: &str) {
+    pub fn log_delete(&self, username: &str, client_ip: &str, file_path: &str, protocol: &str) {
         self.log(FileLogInfo {
             username,
             client_ip,
@@ -217,7 +244,7 @@ impl FileLogger {
         });
     }
 
-    pub fn log_rename(&mut self, username: &str, client_ip: &str, old_path: &str, new_path: &str, protocol: &str) {
+    pub fn log_rename(&self, username: &str, client_ip: &str, old_path: &str, new_path: &str, protocol: &str) {
         self.log(FileLogInfo {
             username,
             client_ip,
@@ -230,7 +257,7 @@ impl FileLogger {
         });
     }
 
-    pub fn log_mkdir(&mut self, username: &str, client_ip: &str, dir_path: &str, protocol: &str) {
+    pub fn log_mkdir(&self, username: &str, client_ip: &str, dir_path: &str, protocol: &str) {
         self.log(FileLogInfo {
             username,
             client_ip,
@@ -243,7 +270,7 @@ impl FileLogger {
         });
     }
 
-    pub fn log_rmdir(&mut self, username: &str, client_ip: &str, dir_path: &str, protocol: &str) {
+    pub fn log_rmdir(&self, username: &str, client_ip: &str, dir_path: &str, protocol: &str) {
         self.log(FileLogInfo {
             username,
             client_ip,
@@ -256,7 +283,7 @@ impl FileLogger {
         });
     }
 
-    pub fn log_failed(&mut self, username: &str, client_ip: &str, operation: &str, file_path: &str, protocol: &str, error: &str) {
+    pub fn log_failed(&self, username: &str, client_ip: &str, operation: &str, file_path: &str, protocol: &str, error: &str) {
         self.log(FileLogInfo {
             username,
             client_ip,
@@ -267,5 +294,9 @@ impl FileLogger {
             success: false,
             message: error,
         });
+    }
+
+    pub fn shutdown(&self) {
+        let _ = self.sender.send(FileLogCommand::Shutdown);
     }
 }

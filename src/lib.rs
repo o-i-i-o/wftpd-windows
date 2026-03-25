@@ -5,20 +5,20 @@
 pub mod core;
 pub mod gui_egui;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::path::PathBuf;
 
 use core::config::Config;
 use core::users::UserManager;
-use core::logger::Logger;
-use core::file_logger::FileLogger;
+use core::logger::AsyncLogger;
+use core::file_logger::AsyncFileLogger;
 use core::server_manager::ServerManager;
 
 pub struct AppState {
-    pub config: Arc<Mutex<Config>>,
-    pub user_manager: Arc<Mutex<UserManager>>,
-    pub logger: Arc<Mutex<Logger>>,
-    pub file_logger: Arc<Mutex<FileLogger>>,
+    pub config: Arc<std::sync::Mutex<Config>>,
+    pub user_manager: Arc<std::sync::Mutex<UserManager>>,
+    pub logger: AsyncLogger,
+    pub file_logger: AsyncFileLogger,
     server_manager: ServerManager,
     pub config_path: PathBuf,
     pub users_path: PathBuf,
@@ -32,22 +32,24 @@ impl AppState {
         let config = Config::load(&config_path)?;
         let user_manager = UserManager::load(&users_path)?;
         
-        let logger = Logger::new(
-            &config.logging.log_dir,
-            config.logging.max_log_size,
-            config.logging.max_log_files,
-        );
+        let log_dir = config.logging.log_dir.clone();
+        let max_log_size = config.logging.max_log_size;
+        let max_log_files = config.logging.max_log_files;
         
-        let file_logger = FileLogger::new(
-            &config.logging.log_dir,
-            config.logging.max_log_size,
-        );
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| anyhow::anyhow!("Failed to create tokio runtime: {}", e))?;
+        
+        let (logger, file_logger) = rt.block_on(async {
+            let logger = AsyncLogger::new(&log_dir, max_log_size, max_log_files).await;
+            let file_logger = AsyncFileLogger::new(&log_dir, max_log_size).await;
+            (logger, file_logger)
+        });
         
         Ok(AppState {
-            config: Arc::new(Mutex::new(config)),
-            user_manager: Arc::new(Mutex::new(user_manager)),
-            logger: Arc::new(Mutex::new(logger)),
-            file_logger: Arc::new(Mutex::new(file_logger)),
+            config: Arc::new(std::sync::Mutex::new(config)),
+            user_manager: Arc::new(std::sync::Mutex::new(user_manager)),
+            logger,
+            file_logger,
             server_manager: ServerManager::new(),
             config_path,
             users_path,
@@ -58,8 +60,8 @@ impl AppState {
         self.server_manager.start_ftp(
             Arc::clone(&self.config),
             Arc::clone(&self.user_manager),
-            Arc::clone(&self.logger),
-            Arc::clone(&self.file_logger),
+            self.logger.clone(),
+            self.file_logger.clone(),
         )
     }
     
@@ -75,8 +77,8 @@ impl AppState {
         self.server_manager.start_sftp(
             Arc::clone(&self.config),
             Arc::clone(&self.user_manager),
-            Arc::clone(&self.logger),
-            Arc::clone(&self.file_logger),
+            self.logger.clone(),
+            self.file_logger.clone(),
         )
     }
     
@@ -121,6 +123,11 @@ impl AppState {
         let mut current_users = self.user_manager.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         *current_users = users;
         Ok(())
+    }
+    
+    pub fn shutdown(&self) {
+        self.logger.shutdown();
+        self.file_logger.shutdown();
     }
 }
 
