@@ -2,7 +2,7 @@ use egui::{Color32, RichText, Ui, Frame};
 use crate::core::users::{User, UserManager, Permissions};
 use crate::core::config::Config;
 use crate::gui_egui::styles;
-use egui_file_dialog::FileDialog;
+use egui_file_dialog::{FileDialog, DialogState};
 use egui_extras::TableBuilder;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -94,6 +94,7 @@ impl UserTab {
 
     fn show_modal(&mut self, ctx: &egui::Context) {
         if self.modal == ModalMode::None { return; }
+        if matches!(self.file_dialog.state(), DialogState::Open) { return; }
         let screen = ctx.available_rect();
         if screen.width() <= 0.0 || screen.height() <= 0.0 { return; }
         egui::Area::new(egui::Id::new("modal_backdrop"))
@@ -350,15 +351,16 @@ impl UserTab {
         }
         
         if close_modal && !do_submit { self.modal = ModalMode::None; self.form_error = None; }
-
-        self.file_dialog.update(ctx);
-        if let Some(path) = self.file_dialog.take_picked() {
-            self.form_home_dir = path.to_string_lossy().to_string();
-        }
     }
 
     pub fn ui(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
+
+        self.file_dialog.update(&ctx);
+        if let Some(path) = self.file_dialog.take_picked() {
+            self.form_home_dir = path.to_string_lossy().to_string();
+        }
+
         self.show_modal(&ctx);
 
         styles::page_header(ui, "👥", "用户管理");
