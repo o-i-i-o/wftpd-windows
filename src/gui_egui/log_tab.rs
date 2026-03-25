@@ -86,10 +86,10 @@ impl LogTab {
                         if all_logs.len() >= count {
                             break;
                         }
-                        if let Ok(line) = line {
-                            if let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line) {
-                                all_logs.push(log_entry);
-                            }
+                        if let Ok(line) = line
+                            && let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line)
+                        {
+                            all_logs.push(log_entry);
                         }
                     }
                 }
@@ -280,7 +280,7 @@ impl LogTab {
                                     .color(level_color));
                             });
                             row.col(|ui| {
-                                ui.label(RichText::new(&entry.source)
+                                ui.label(RichText::new(&entry.target)
                                     .size(styles::FONT_SIZE_SM)
                                     .color(styles::TEXT_SECONDARY_COLOR));
                             });

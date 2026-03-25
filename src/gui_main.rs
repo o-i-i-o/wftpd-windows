@@ -6,7 +6,67 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use wftpg::core::server_manager::ServerManager;
+
 use wftpg::gui_egui::{server_tab, user_tab, security_tab, service_tab, log_tab, file_log_tab, styles};
+
+#[cfg(windows)]
+mod admin {
+    use windows::Win32::UI::Shell::IsUserAnAdmin;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::core::PCWSTR;
+
+    pub fn is_running_as_admin() -> bool {
+        unsafe {
+            let result = IsUserAnAdmin();
+            result.as_bool()
+        }
+    }
+
+    pub fn request_admin_restart() -> Result<(), String> {
+        let exe_path = std::env::current_exe()
+            .map_err(|e| format!("无法获取当前程序路径: {}", e))?;
+
+        let exe_path_str = exe_path.to_string_lossy().to_string();
+        let mut wide_path: Vec<u16> = exe_path_str.encode_utf16().collect();
+        wide_path.push(0);
+
+        let verb: Vec<u16> = "runas\0".encode_utf16().collect();
+
+        unsafe {
+            let result = ShellExecuteW(
+                None,
+                PCWSTR(verb.as_ptr()),
+                PCWSTR(wide_path.as_ptr()),
+                PCWSTR::null(),
+                None,
+                windows::Win32::UI::WindowsAndMessaging::SW_SHOW,
+            );
+
+            let result_val = result.0 as i32;
+            if result_val <= 32 {
+                return Err(format!("请求管理员权限失败，错误代码: {}", result_val));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn ensure_admin_or_restart() -> bool {
+        if is_running_as_admin() {
+            return true;
+        }
+
+        match request_admin_restart() {
+            Ok(()) => {
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("请求管理员权限失败: {}", e);
+                false
+            }
+        }
+    }
+}
 
 const INIT_TIMEOUT_SECS: u64 = 10;
 const SERVICE_INSTALL_TIMEOUT_SECS: u64 = 30;
@@ -50,63 +110,6 @@ impl CachedStyles {
                 .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
                 .inner_margin(egui::Margin::symmetric(20, 12))
                 .corner_radius(egui::CornerRadius::same(8)),
-        }
-    }
-}
-
-#[cfg(windows)]
-mod admin {
-    use std::process::Command;
-
-    pub fn is_admin() -> bool {
-        let output = Command::new("net")
-            .args(["session"])
-            .output();
-        
-        match output {
-            Ok(o) => o.status.success(),
-            Err(_) => false,
-        }
-    }
-
-    pub fn request_admin() -> ! {
-        use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
-        use windows::Win32::UI::Shell::ShellExecuteW;
-        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWDEFAULT;
-
-        let exe_path = match std::env::current_exe() {
-            Ok(path) => path,
-            Err(_) => {
-                eprintln!("无法获取当前程序路径");
-                std::process::exit(1);
-            }
-        };
-        
-        fn to_wide(s: &str) -> Vec<u16> {
-            OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
-        }
-
-        let result = unsafe {
-            let operation = to_wide("runas");
-            let file = to_wide(exe_path.to_string_lossy().as_ref());
-            let params = to_wide("--elevated");
-
-            ShellExecuteW(
-                None,
-                windows::core::PCWSTR(operation.as_ptr()),
-                windows::core::PCWSTR(file.as_ptr()),
-                windows::core::PCWSTR(params.as_ptr()),
-                None,
-                SW_SHOWDEFAULT,
-            )
-        };
-
-        if result.0 as usize > 32 {
-            std::process::exit(0);
-        } else {
-            eprintln!("请求管理员权限失败，请右键程序选择\"以管理员身份运行\"");
-            std::process::exit(1);
         }
     }
 }
@@ -208,24 +211,27 @@ impl WftpgApp {
                 INIT_TIMEOUT_SECS
             ));
             self.init_state = InitState::Error;
-            log::error!("应用初始化超时");
+            tracing::error!("应用初始化超时");
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
             return;
         }
-        
+
         if let Some(rx) = &self.init_receiver
             && let Ok(result) = rx.try_recv() {
                 self.init_receiver = None;
-                
+
                 match result {
                     Ok(init_result) => {
                         self.show_service_install_dialog = init_result.show_service_dialog;
                         self.init_state = InitState::Ready;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        tracing::info!("应用初始化完成");
                     }
                     Err(e) => {
                         self.init_error = Some(e);
                         self.init_state = InitState::Error;
-                        log::error!("应用初始化失败");
+                        tracing::error!("应用初始化失败");
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                     }
                 }
             }
@@ -327,7 +333,7 @@ impl WftpgApp {
                             ui.label(RichText::new("这可能需要几秒钟，请稍候...").size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
                         }
                         ServiceInstallStatus::Success(msg) => {
-                            ui.label(RichText::new(format!("✓ {}", msg)).color(styles::SUCCESS_COLOR).size(styles::FONT_SIZE_MD));
+                            ui.label(RichText::new(msg).color(styles::SUCCESS_COLOR).size(styles::FONT_SIZE_MD));
                             ui.add_space(styles::SPACING_LG);
                             
                             if ui.add(styles::secondary_button("关闭")).clicked() {
@@ -336,7 +342,7 @@ impl WftpgApp {
                             }
                         }
                         ServiceInstallStatus::Failed(msg) => {
-                            ui.label(RichText::new(format!("✗ {}", msg)).color(styles::DANGER_COLOR).size(styles::FONT_SIZE_MD));
+                            ui.label(RichText::new(msg).color(styles::DANGER_COLOR).size(styles::FONT_SIZE_MD));
                             ui.add_space(styles::SPACING_SM);
                             
                             egui::Frame::new()
@@ -505,15 +511,15 @@ impl App for WftpgApp {
 fn setup_fonts(ctx: &egui::Context) {
     use egui::{FontData, FontDefinitions, FontFamily};
     let mut fonts = FontDefinitions::default();
-    
+
     let candidates = [
+        ("C:\\Windows\\Fonts\\seguisym.ttf", "Segoe UI Symbol"),
         ("C:\\Windows\\Fonts\\msyh.ttc", "Microsoft YaHei"),
         ("C:\\Windows\\Fonts\\msyhbd.ttc", "Microsoft YaHei Bold"),
         ("C:\\Windows\\Fonts\\simsun.ttc", "SimSun"),
         ("C:\\Windows\\Fonts\\simhei.ttf", "SimHei"),
     ];
-    
-    let mut loaded = false;
+
     for (path, name) in &candidates {
         match std::fs::read(path) {
             Ok(data) => {
@@ -524,20 +530,14 @@ fn setup_fonts(ctx: &egui::Context) {
                 if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
                     family.push((*name).into());
                 }
-                loaded = true;
-                log::info!("成功加载中文字体: {}", name);
-                break;
+                eprintln!("成功加载字体: {}", name);
             }
             Err(e) => {
-                log::warn!("加载字体 {} 失败: {}", path, e);
+                eprintln!("加载字体 {} 失败: {}", path, e);
             }
         }
     }
-    
-    if !loaded {
-        log::warn!("未能加载任何中文字体，将使用系统默认字体");
-    }
-    
+
     ctx.set_fonts(fonts);
 }
 
@@ -545,17 +545,17 @@ fn load_icon() -> IconData {
     let exe_dir = match std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())) {
         Some(dir) => dir,
         None => {
-            log::warn!("无法获取程序目录，使用默认图标");
+            eprintln!("无法获取程序目录，使用默认图标");
             return create_default_icon();
         }
     };
-    
+
     let icon_path = exe_dir.join("ui/wftpg.ico");
     if !icon_path.exists() {
-        log::warn!("图标文件不存在: {:?}，使用默认图标", icon_path);
+        eprintln!("图标文件不存在: {:?}，使用默认图标", icon_path);
         return create_default_icon();
     }
-    
+
     match std::fs::read(&icon_path) {
         Ok(data) => {
             match ico::IconDir::read(std::io::Cursor::new(&data)) {
@@ -565,21 +565,21 @@ fn load_icon() -> IconData {
                             let rgba = image.rgba_data().to_vec();
                             let width = entry.width();
                             let height = entry.height();
-                            log::info!("成功加载图标: {}x{}", width, height);
+                            eprintln!("成功加载图标: {}x{}", width, height);
                             return IconData { rgba, width, height };
                         }
                     }
                 }
                 Err(e) => {
-                    log::warn!("解析图标文件失败: {}", e);
+                    eprintln!("解析图标文件失败: {}", e);
                 }
             }
         }
         Err(e) => {
-            log::warn!("读取图标文件失败: {}", e);
+            eprintln!("读取图标文件失败: {}", e);
         }
     }
-    
+
     create_default_icon()
 }
 
@@ -618,13 +618,14 @@ fn create_default_icon() -> IconData {
 fn main() -> eframe::Result<()> {
     #[cfg(windows)]
     {
-        if !admin::is_admin() {
-            admin::request_admin();
+        if !admin::ensure_admin_or_restart() {
+            eprintln!("程序需要管理员权限才能运行");
+            std::process::exit(1);
         }
     }
 
     let icon = load_icon();
-    
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 750.0])
@@ -634,7 +635,7 @@ fn main() -> eframe::Result<()> {
             .with_icon(icon),
         ..Default::default()
     };
-    
+
     eframe::run_native(
         "WFTPG - SFTP/FTP 管理工具",
         options,

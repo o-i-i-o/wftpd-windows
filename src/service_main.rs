@@ -1,5 +1,5 @@
 //! WFTPD - SFTP/FTP Server Daemon
-//! 
+//!
 //! This is the main daemon that runs in the background and manages
 //! FTP and SFTP services. It listens on a named pipe for IPC commands
 //! to reload configuration files.
@@ -26,19 +26,23 @@ use windows_service::{
     service_dispatcher,
 };
 
+const LOG_DIR: &str = "C:\\ProgramData\\wftpg\\logs";
+const MAX_LOG_SIZE: u64 = 2 * 1024 * 1024;
+const MAX_LOG_FILES: usize = 10;
+
 fn handle_reload(state: &AppState) -> ReloadResponse {
     let config_msg = match state.reload_config() {
         Ok(()) => "配置已重新加载".to_string(),
         Err(e) => format!("配置重新加载失败: {e}"),
     };
-    
+
     let users_msg = match state.reload_users() {
         Ok(()) => "用户配置已重新加载".to_string(),
         Err(e) => format!("用户配置重新加载失败: {e}"),
     };
-    
+
     let message = format!("{config_msg}; {users_msg}");
-    
+
     if config_msg.contains("失败") || users_msg.contains("失败") {
         ReloadResponse::error(&message)
     } else {
@@ -61,14 +65,16 @@ define_windows_service!(ffi_service_main, my_service_main);
 
 fn my_service_main(_arguments: Vec<OsString>) {
     if let Err(e) = run_service() {
-        log::error!("Service failed: {e}");
+        tracing::error!("Service failed: {e}");
     }
 }
 
 fn run_service() -> windows_service::Result<()> {
-    init_logger();
+    if let Err(e) = wftpg::core::logger::init_file_logging(LOG_DIR, MAX_LOG_SIZE, MAX_LOG_FILES) {
+        eprintln!("初始化日志失败: {}", e);
+    }
 
-    log::info!(
+    tracing::info!(
         "WFTPD Service - SFTP/FTP Server Daemon v{}",
         env!("CARGO_PKG_VERSION")
     );
@@ -79,7 +85,7 @@ fn run_service() -> windows_service::Result<()> {
     let event_handler = move |control_event| -> ServiceControlHandlerResult {
         match control_event {
             ServiceControl::Stop => {
-                log::info!("Service stopping...");
+                tracing::info!("Service stopping...");
                 running_clone.store(false, Ordering::SeqCst);
                 ServiceControlHandlerResult::NoError
             }
@@ -107,7 +113,7 @@ fn run_service() -> windows_service::Result<()> {
         let state = match create_app_state() {
             Ok(s) => s,
             Err(e) => {
-                log::error!("Failed to initialize: {e}");
+                tracing::error!("Failed to initialize: {e}");
                 return;
             }
         };
@@ -115,18 +121,18 @@ fn run_service() -> windows_service::Result<()> {
         let ipc_server = match create_ipc_server() {
             Ok(s) => s,
             Err(e) => {
-                log::error!("Failed to create IPC server: {e}");
+                tracing::error!("Failed to create IPC server: {e}");
                 return;
             }
         };
 
         start_enabled_services(&state);
-        log::info!("Service ready to accept connections on named pipe: {PIPE_NAME}");
+        tracing::info!("Service ready to accept connections on named pipe: {PIPE_NAME}");
 
         run_main_loop_with_shutdown(&state, &ipc_server, &running);
 
         state.stop_all();
-        log::info!("Service stopped");
+        tracing::info!("Service stopped");
     });
 
     let _ = service_thread.join();
@@ -153,13 +159,13 @@ fn run_main_loop_with_shutdown(state: &Arc<AppState>, ipc_server: &IpcServer, ru
                 thread::spawn(move || {
                     let response = handle_command(&state_clone, &cmd);
                     if let Err(e) = IpcServer::send_response(&stream, &response) {
-                        log::error!("Failed to send response: {e}");
+                        tracing::error!("Failed to send response: {e}");
                     }
                 });
             }
             Ok(None) => {}
             Err(e) => {
-                log::error!("Failed to accept IPC connection: {e}");
+                tracing::error!("Failed to accept IPC connection: {e}");
             }
         }
     }
@@ -178,11 +184,11 @@ fn install_service() -> anyhow::Result<()> {
         ));
     }
 
-    log::info!("Using wftpd.exe at {}", wftpd_exe.display());
-    
+    tracing::info!("Using wftpd.exe at {}", wftpd_exe.display());
+
     let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
     let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
-    
+
     let service_info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
         display_name: OsString::from(SERVICE_DISPLAY_NAME),
@@ -195,45 +201,49 @@ fn install_service() -> anyhow::Result<()> {
         account_name: None,
         account_password: None,
     };
-    
+
     let service = service_manager.create_service(&service_info, ServiceAccess::CHANGE_CONFIG)?;
     if let Err(e) = service.set_description(SERVICE_DESCRIPTION) {
-        log::warn!("设置服务描述失败（可忽略）: {e:?}");
+        tracing::warn!("设置服务描述失败（可忽略）: {e:?}");
     }
-    
-    log::info!("Service installed successfully");
+
+    tracing::info!("Service installed successfully");
     Ok(())
 }
 
 fn uninstall_service() -> anyhow::Result<()> {
     let manager_access = ServiceManagerAccess::CONNECT;
     let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
-    
+
     let service = service_manager.open_service(SERVICE_NAME, ServiceAccess::STOP | ServiceAccess::DELETE)?;
     service.stop()?;
     service.delete()?;
-    
-    log::info!("Service uninstalled successfully");
+
+    tracing::info!("Service uninstalled successfully");
     Ok(())
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    
+
     if args.len() > 1 {
         match args[1].as_str() {
             "--install" => {
-                init_logger();
+                if let Err(e) = wftpg::core::logger::init_file_logging(LOG_DIR, MAX_LOG_SIZE, MAX_LOG_FILES) {
+                    eprintln!("初始化日志失败: {}", e);
+                }
                 if let Err(e) = install_service() {
-                    log::error!("Failed to install service: {e}");
+                    tracing::error!("Failed to install service: {e}");
                     std::process::exit(1);
                 }
                 return;
             }
             "--uninstall" => {
-                init_logger();
+                if let Err(e) = wftpg::core::logger::init_file_logging(LOG_DIR, MAX_LOG_SIZE, MAX_LOG_FILES) {
+                    eprintln!("初始化日志失败: {}", e);
+                }
                 if let Err(e) = uninstall_service() {
-                    log::error!("Failed to uninstall service: {e}");
+                    tracing::error!("Failed to uninstall service: {e}");
                     std::process::exit(1);
                 }
                 return;
@@ -241,48 +251,41 @@ fn main() {
             _ => {}
         }
     }
-    
+
     if let Err(_e) = service_dispatcher::start(SERVICE_NAME, ffi_service_main) {
         run_console_application();
     }
 }
 
 fn run_console_application() {
-    init_logger();
-    
-    log::info!("WFTPD - SFTP/FTP Server Daemon v{}", env!("CARGO_PKG_VERSION"));
-    
+    if let Err(e) = wftpg::core::logger::init_file_logging(LOG_DIR, MAX_LOG_SIZE, MAX_LOG_FILES) {
+        eprintln!("初始化日志失败: {}", e);
+    }
+
+    tracing::info!("WFTPD - SFTP/FTP Server Daemon v{}", env!("CARGO_PKG_VERSION"));
+
     let state = match create_app_state() {
         Ok(s) => s,
         Err(e) => {
-            log::error!("Failed to initialize: {e}");
+            tracing::error!("Failed to initialize: {e}");
             std::process::exit(1);
         }
     };
-    
+
     let ipc_server = match create_ipc_server() {
         Ok(s) => s,
         Err(e) => {
-            log::error!("Failed to create IPC server: {e}");
+            tracing::error!("Failed to create IPC server: {e}");
             std::process::exit(1);
         }
     };
-    
+
     setup_signal_handler(&state);
     start_enabled_services(&state);
-    
-    log::info!("Ready to accept connections on named pipe: {PIPE_NAME}");
-    
-    run_main_loop(&state, &ipc_server);
-}
 
-fn init_logger() {
-    let log_dir = std::path::PathBuf::from("C:\\ProgramData\\wftpg\\logs");
-    std::fs::create_dir_all(&log_dir).unwrap_or(());
-    
-    let _ = env_logger::Builder::new()
-        .filter_level(log::LevelFilter::Info)
-        .try_init();
+    tracing::info!("Ready to accept connections on named pipe: {PIPE_NAME}");
+
+    run_main_loop(&state, &ipc_server);
 }
 
 fn create_app_state() -> anyhow::Result<Arc<AppState>> {
@@ -296,7 +299,7 @@ fn create_ipc_server() -> anyhow::Result<IpcServer> {
 fn setup_signal_handler(state: &Arc<AppState>) {
     let state_clone = Arc::clone(state);
     ctrlc::set_handler(move || {
-        log::info!("Shutting down...");
+        tracing::info!("Shutting down...");
         state_clone.stop_all();
         std::process::exit(0);
     }).expect("Error setting Ctrl-C handler");
@@ -304,10 +307,10 @@ fn setup_signal_handler(state: &Arc<AppState>) {
 
 fn start_enabled_services(state: &Arc<AppState>) {
     let (ftp_enabled, sftp_enabled) = get_enabled_services(state);
-    
+
     if (ftp_enabled || sftp_enabled)
         && let Err(e) = state.start_all() {
-            log::error!("Failed to start services: {e}");
+            tracing::error!("Failed to start services: {e}");
         }
 }
 
@@ -327,12 +330,12 @@ fn run_main_loop(state: &Arc<AppState>, ipc_server: &IpcServer) {
                 thread::spawn(move || {
                     let response = handle_command(&state_clone, &cmd);
                     if let Err(e) = IpcServer::send_response(&stream, &response) {
-                        log::error!("Failed to send response: {e}");
+                        tracing::error!("Failed to send response: {e}");
                     }
                 });
             }
             Err(e) => {
-                log::error!("Failed to accept IPC connection: {e}");
+                tracing::error!("Failed to accept IPC connection: {e}");
             }
         }
     }

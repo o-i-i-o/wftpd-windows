@@ -56,11 +56,11 @@ impl UserTab {
         match self.user_manager.save(&Config::get_users_path()) {
             Ok(_) => {
                 log::info!("用户配置已保存");
-                self.status_message = Some(("✓ 用户配置已保存".into(), true));
+                self.status_message = Some(("用户配置已保存".into(), true));
             }
             Err(e) => {
                 log::error!("保存用户配置失败: {}", e);
-                self.status_message = Some((format!("✗ 保存失败: {}", e), false));
+                self.status_message = Some((format!("保存失败: {}", e), false));
             }
         }
     }
@@ -267,7 +267,7 @@ impl UserTab {
                             }
                             Err(e) => {
                                 log::warn!("用户 {} 权限更新失败: {}", username, e);
-                                self.status_message = Some((format!("⚠ 用户已添加，但权限设置失败: {}", e), false));
+                                self.status_message = Some((format!("用户已添加，但权限设置失败: {}", e), false));
                             }
                         }
                         self.save(); 
@@ -329,7 +329,7 @@ impl UserTab {
                 }
                 
                 if has_error {
-                    self.status_message = Some((format!("⚠ 部分更新失败: {}", error_messages.join("; ")), false));
+                    self.status_message = Some((format!("部分更新失败: {}", error_messages.join("; ")), false));
                 }
                 self.save(); 
                 self.modal = ModalMode::None;
@@ -344,7 +344,7 @@ impl UserTab {
                 }
                 Err(e) => {
                     log::error!("删除用户 {} 失败: {}", name, e);
-                    self.status_message = Some((format!("✗ 删除用户失败: {}", e), false));
+                    self.status_message = Some((format!("删除用户失败: {}", e), false));
                 }
             }
         }
@@ -379,11 +379,11 @@ impl UserTab {
                     Ok(um) => {
                         self.user_manager = um;
                         log::info!("用户列表已刷新");
-                        self.status_message = Some(("✓ 用户列表已刷新".into(), true));
+                        self.status_message = Some(("用户列表已刷新".into(), true));
                     }
                     Err(e) => {
                         log::error!("刷新用户列表失败: {}", e);
-                        self.status_message = Some((format!("✗ 刷新失败: {}", e), false));
+                        self.status_message = Some((format!("刷新失败: {}", e), false));
                     }
                 }
             }
@@ -518,7 +518,7 @@ impl UserTab {
                 }
                 Err(e) => {
                     log::error!("更改用户 {} 状态失败: {}", name, e);
-                    self.status_message = Some((format!("✗ 更改用户状态失败: {}", e), false));
+                    self.status_message = Some((format!("更改用户状态失败: {}", e), false));
                 }
             }
             self.save();

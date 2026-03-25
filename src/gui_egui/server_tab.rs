@@ -200,9 +200,9 @@ impl ServerTab {
                 
                 if let Some((msg, success)) = &status_message {
                     let msg_text = if *success {
-                        RichText::new(format!("✓ {}", msg)).color(styles::SUCCESS_COLOR).size(styles::FONT_SIZE_SM)
+                        RichText::new(msg).color(styles::SUCCESS_COLOR).size(styles::FONT_SIZE_SM)
                     } else {
-                        RichText::new(format!("✗ {}", msg)).color(styles::DANGER_COLOR).size(styles::FONT_SIZE_SM)
+                        RichText::new(msg).color(styles::DANGER_COLOR).size(styles::FONT_SIZE_SM)
                     };
                     ui.label(msg_text);
                 }

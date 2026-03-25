@@ -88,10 +88,10 @@ impl FileLogTab {
                         if all_logs.len() >= count {
                             break;
                         }
-                        if let Ok(line) = line {
-                            if let Ok(log_entry) = serde_json::from_str::<FileLogEntry>(&line) {
-                                all_logs.push(log_entry);
-                            }
+                        if let Ok(line) = line
+                            && let Ok(log_entry) = serde_json::from_str::<FileLogEntry>(&line)
+                        {
+                            all_logs.push(log_entry);
                         }
                     }
                 }

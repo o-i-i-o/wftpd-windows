@@ -37,12 +37,12 @@ impl ServiceTab {
     }
 
     fn set_ok(&mut self, msg: &str) {
-        self.status_message = Some((format!("✓ {}", msg), true));
+        self.status_message = Some((msg.to_string(), true));
         self.refresh_status();
     }
 
     fn set_err(&mut self, msg: String) {
-        self.status_message = Some((format!("✗ {}", msg), false));
+        self.status_message = Some((msg, false));
     }
 
     fn section_header(&self, ui: &mut Ui, icon: &str, title: &str) {
