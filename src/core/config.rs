@@ -1,4 +1,4 @@
-use anyhow::{Result, Context};
+﻿use anyhow::{Result, Context};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
@@ -223,7 +223,7 @@ impl Config {
         if !path.exists() {
             let config = Self::default();
             if let Err(e) = config.save(path) {
-                log::warn!("Failed to save default config: {}", e);
+                tracing::warn!("Failed to save default config: {}", e);
             }
             return Ok(config);
         }

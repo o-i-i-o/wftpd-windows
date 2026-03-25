@@ -1,4 +1,4 @@
-use anyhow::Result;
+﻿use anyhow::Result;
 use std::collections::HashMap;
 use tokio::net::TcpListener;
 
@@ -44,10 +44,10 @@ impl PassiveManager {
 
     pub fn remove_listener(&mut self, port: u16) -> bool {
         if self.listeners.remove(&port).is_some() {
-            log::debug!("Passive listener on port {} removed", port);
+            tracing::debug!("Passive listener on port {} removed", port);
             true
         } else {
-            log::warn!("Attempted to remove non-existent passive listener on port {}", port);
+            tracing::warn!("Attempted to remove non-existent passive listener on port {}", port);
             false
         }
     }

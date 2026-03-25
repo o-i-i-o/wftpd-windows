@@ -66,7 +66,7 @@ impl LogTab {
             let mut log_files: Vec<_> = entries
                 .filter_map(|e| e.ok())
                 .filter(|e| {
-                    e.file_name().to_string_lossy().starts_with("wftpg-") 
+                    e.file_name().to_string_lossy().starts_with("wftpg")
                     && e.file_name().to_string_lossy().ends_with(".log")
                 })
                 .collect();
@@ -286,16 +286,16 @@ impl LogTab {
                             });
                             row.col(|ui| {
                                 ui.label(RichText::new(
-                                    entry.client_ip.as_deref().unwrap_or("-"),
+                                    entry.fields.client_ip.as_deref().unwrap_or("-"),
                                 )
                                 .size(styles::FONT_SIZE_SM)
                                 .color(styles::TEXT_LABEL_COLOR));
                             });
                             row.col(|ui| {
-                                let msg = if let Some(user) = &entry.username {
-                                    format!("[{}] {}", user, entry.message)
+                                let msg = if let Some(user) = &entry.fields.username {
+                                    format!("[{}] {}", user, entry.fields.message)
                                 } else {
-                                    entry.message.clone()
+                                    entry.fields.message.clone()
                                 };
                                 ui.label(RichText::new(&msg).size(styles::FONT_SIZE_SM).color(styles::TEXT_PRIMARY_COLOR));
                             });

@@ -5,7 +5,6 @@
 pub mod config;
 pub mod users;
 pub mod logger;
-pub mod file_logger;
 pub mod ftp_server;
 pub mod sftp_server;
 pub mod server_manager;

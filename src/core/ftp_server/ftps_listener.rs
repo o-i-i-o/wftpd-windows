@@ -2,20 +2,18 @@ use anyhow::Result;
 use std::sync::Arc;
 
 use crate::core::config::Config;
-use crate::core::logger::AsyncLogger;
 use crate::core::users::UserManager;
-use crate::core::file_logger::AsyncFileLogger;
 use crate::core::quota::QuotaManager;
+use crate::core::logger::TracingLogger;
 use crate::core::ftp_server::tls::TlsConfig;
 
 pub async fn start_ftps_implicit_server(
     config: Arc<std::sync::Mutex<Config>>,
     user_manager: Arc<std::sync::Mutex<UserManager>>,
-    logger: AsyncLogger,
-    file_logger: AsyncFileLogger,
     quota_manager: Arc<QuotaManager>,
     tls_config: TlsConfig,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+    logger: TracingLogger,
 ) -> Result<()> {
     let (bind_ip, ftps_port) = {
         let cfg = config.lock().map_err(|e| anyhow::anyhow!("Failed to lock config: {}", e))?;
@@ -37,7 +35,7 @@ pub async fn start_ftps_implicit_server(
             .map_err(|e| anyhow::anyhow!("Failed to create tokio listener: {}", e))?
     };
 
-    logger.info("FTPS", &format!("FTPS server (implicit SSL) started on {}", bind_addr));
+    tracing::info!("FTPS server (implicit SSL) started on {}", bind_addr);
 
     let tls_acceptor = match &tls_config.acceptor {
         Some(acceptor) => acceptor.clone(),
@@ -56,51 +54,47 @@ pub async fn start_ftps_implicit_server(
                     Ok((socket, peer_addr)) => {
                         let client_ip = peer_addr.ip().to_string();
 
-                        logger.client_action(
-                            "FTPS",
-                            &format!("FTPS client connected from {}", client_ip),
-                            &client_ip,
-                            None,
-                            "CONNECT",
+                        tracing::info!(
+                            client_ip = %client_ip,
+                            action = "CONNECT",
+                            "FTPS client connected from {}", client_ip
                         );
 
                         let tls_stream = match tls_acceptor.accept(socket).await {
                             Ok(stream) => stream,
                             Err(e) => {
-                                log::error!("FTPS TLS handshake failed: {}", e);
+                                tracing::error!("FTPS TLS handshake failed: {}", e);
                                 continue;
                             }
                         };
 
                         let config = Arc::clone(&config);
                         let user_manager = Arc::clone(&user_manager);
-                        let logger = logger.clone();
-                        let file_logger = file_logger.clone();
                         let quota_manager = Arc::clone(&quota_manager);
+                        let logger = logger.clone();
 
                         tokio::spawn(async move {
                             if let Err(e) = crate::core::ftp_server::session::handle_session_tls(
                                 tls_stream,
                                 config,
                                 user_manager,
-                                logger,
-                                file_logger,
                                 quota_manager,
                                 client_ip,
+                                logger,
                             ).await {
-                                log::debug!("FTPS session error: {}", e);
+                                tracing::debug!("FTPS session error: {}", e);
                             }
                         });
                     }
                     Err(e) => {
-                        log::warn!("Failed to accept FTPS connection: {}", e);
+                        tracing::warn!("Failed to accept FTPS connection: {}", e);
                     }
                 }
             }
         }
     }
 
-    logger.info("FTPS", "FTPS server stopped");
+    tracing::info!("FTPS server stopped");
 
     Ok(())
 }

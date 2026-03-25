@@ -1,4 +1,4 @@
-use anyhow::Result;
+﻿use anyhow::Result;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,36 +24,36 @@ pub async fn get_data_connection(
         None => anyhow::bail!("No data port specified"),
     };
 
-    log::debug!("get_data_connection: passive_mode={}, port={}, remote_ip={}", passive_mode, port, remote_ip);
+    tracing::debug!("get_data_connection: passive_mode={}, port={}, remote_ip={}", passive_mode, port, remote_ip);
 
     if passive_mode {
         let listener = passive_manager.get_listener(port);
 
         if let Some(listener) = listener {
-            log::debug!("Attempting to accept passive connection on port {}", port);
+            tracing::debug!("Attempting to accept passive connection on port {}", port);
             match tokio::time::timeout(
                 Duration::from_secs(30),
                 listener.accept()
             ).await {
                 Ok(Ok((stream, addr))) => {
-                    log::debug!("Passive connection accepted from {}", addr);
+                    tracing::debug!("Passive connection accepted from {}", addr);
                     Ok(stream)
                 }
                 Ok(Err(e)) => {
-                    log::error!("Failed to accept passive connection: {}", e);
+                    tracing::error!("Failed to accept passive connection: {}", e);
                     anyhow::bail!("Failed to accept passive connection: {}", e);
                 }
                 Err(_) => {
-                    log::error!("Passive connection timeout on port {}", port);
+                    tracing::error!("Passive connection timeout on port {}", port);
                     anyhow::bail!("Passive connection timeout");
                 }
             }
         } else {
-            log::error!("No passive listener found for port {}", port);
+            tracing::error!("No passive listener found for port {}", port);
             anyhow::bail!("No passive listener");
         }
     } else if let Some(addr) = data_addr {
-        log::debug!("Active mode: connecting to {}", addr);
+        tracing::debug!("Active mode: connecting to {}", addr);
         let socket_addr = addr.to_socket_addrs()
             .map_err(|e| anyhow::anyhow!("Invalid address {}: {}", addr, e))?
             .next()
@@ -67,7 +67,7 @@ pub async fn get_data_connection(
         Ok(stream)
     } else {
         let addr = format!("{}:{}", remote_ip, port);
-        log::debug!("Active mode (fallback): connecting to {}", addr);
+        tracing::debug!("Active mode (fallback): connecting to {}", addr);
         let socket_addr = addr.to_socket_addrs()
             .map_err(|e| anyhow::anyhow!("Invalid address {}: {}", addr, e))?
             .next()
@@ -89,7 +89,7 @@ pub async fn receive_file(
     abort: Arc<AtomicBool>,
     is_ascii: bool,
 ) -> Result<u64> {
-    log::debug!("receive_file: path={}, offset={}, is_ascii={}", file_path.display(), offset, is_ascii);
+    tracing::debug!("receive_file: path={}, offset={}, is_ascii={}", file_path.display(), offset, is_ascii);
     
     let file_result = if offset > 0 {
         tokio::fs::OpenOptions::new()
@@ -104,7 +104,7 @@ pub async fn receive_file(
     let mut file = match file_result {
         Ok(f) => f,
         Err(e) => {
-            log::error!("Failed to create/open file '{}': {}", file_path.display(), e);
+            tracing::error!("Failed to create/open file '{}': {}", file_path.display(), e);
             return Err(anyhow::anyhow!("Failed to create file: {}", e));
         }
     };
@@ -112,7 +112,7 @@ pub async fn receive_file(
     if offset > 0
         && let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await
     {
-        log::error!("Failed to seek in file '{}': {}", file_path.display(), e);
+        tracing::error!("Failed to seek in file '{}': {}", file_path.display(), e);
         return Err(anyhow::anyhow!("Seek failed: {}", e));
     }
 
@@ -122,12 +122,12 @@ pub async fn receive_file(
     
     loop {
         if abort.load(Ordering::Relaxed) {
-            log::debug!("Transfer aborted by client");
+            tracing::debug!("Transfer aborted by client");
             break;
         }
         match data_stream.read(&mut buf).await {
             Ok(0) => {
-                log::debug!("Data connection closed (EOF), total written: {}", total_written);
+                tracing::debug!("Data connection closed (EOF), total written: {}", total_written);
                 break;
             }
             Ok(n) => {
@@ -137,14 +137,14 @@ pub async fn receive_file(
                     buf[..n].to_vec()
                 };
                 if let Err(e) = file.write_all(&data).await {
-                    log::error!("STOR write error for file '{}': {}", file_path.display(), e);
+                    tracing::error!("STOR write error for file '{}': {}", file_path.display(), e);
                     transfer_error = Some(anyhow::anyhow!("Write error: {}", e));
                     break;
                 }
                 total_written += data.len() as u64;
             }
             Err(e) => {
-                log::error!("STOR read error from data stream: {}", e);
+                tracing::error!("STOR read error from data stream: {}", e);
                 transfer_error = Some(anyhow::anyhow!("Read error: {}", e));
                 break;
             }
@@ -152,15 +152,15 @@ pub async fn receive_file(
     }
 
     if let Err(e) = file.sync_all().await {
-        log::error!("Failed to sync file {:?}: {}", file_path, e);
+        tracing::error!("Failed to sync file {:?}: {}", file_path, e);
     }
 
     if let Some(e) = transfer_error {
-        log::error!("STOR failed: {} bytes written before error to {}", total_written, file_path.display());
+        tracing::error!("STOR failed: {} bytes written before error to {}", total_written, file_path.display());
         return Err(e);
     }
 
-    log::info!("STOR completed: {} bytes written to {}", total_written, file_path.display());
+    tracing::info!("STOR completed: {} bytes written to {}", total_written, file_path.display());
     Ok(total_written)
 }
 
@@ -192,14 +192,14 @@ pub async fn receive_file_append(
                     buf[..n].to_vec()
                 };
                 if let Err(e) = file.write_all(&data).await {
-                    log::error!("APPE write error for file '{}': {}", file_path.display(), e);
+                    tracing::error!("APPE write error for file '{}': {}", file_path.display(), e);
                     transfer_error = Some(anyhow::anyhow!("Write error: {}", e));
                     break;
                 }
                 total_written += data.len() as u64;
             }
             Err(e) => {
-                log::error!("APPE read error from data stream: {}", e);
+                tracing::error!("APPE read error from data stream: {}", e);
                 transfer_error = Some(anyhow::anyhow!("Read error: {}", e));
                 break;
             }
@@ -207,7 +207,7 @@ pub async fn receive_file_append(
     }
 
     if let Err(e) = file.sync_all().await {
-        log::error!("Failed to sync file {:?}: {}", file_path, e);
+        tracing::error!("Failed to sync file {:?}: {}", file_path, e);
     }
 
     if let Some(e) = transfer_error {
@@ -225,7 +225,7 @@ pub async fn receive_file_with_limits(
     is_ascii: bool,
     rate_limiter: Option<&RateLimiter>,
 ) -> Result<u64> {
-    log::debug!("receive_file_with_limits: path={}, offset={}, is_ascii={}", file_path.display(), offset, is_ascii);
+    tracing::debug!("receive_file_with_limits: path={}, offset={}, is_ascii={}", file_path.display(), offset, is_ascii);
     
     let file_result = if offset > 0 {
         tokio::fs::OpenOptions::new()
@@ -240,7 +240,7 @@ pub async fn receive_file_with_limits(
     let mut file = match file_result {
         Ok(f) => f,
         Err(e) => {
-            log::error!("Failed to create/open file '{}': {}", file_path.display(), e);
+            tracing::error!("Failed to create/open file '{}': {}", file_path.display(), e);
             return Err(anyhow::anyhow!("Failed to create file: {}", e));
         }
     };
@@ -248,7 +248,7 @@ pub async fn receive_file_with_limits(
     if offset > 0
         && let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await
     {
-        log::error!("Failed to seek in file '{}': {}", file_path.display(), e);
+        tracing::error!("Failed to seek in file '{}': {}", file_path.display(), e);
         return Err(anyhow::anyhow!("Seek failed: {}", e));
     }
 
@@ -258,12 +258,12 @@ pub async fn receive_file_with_limits(
     
     loop {
         if abort.load(Ordering::Relaxed) {
-            log::debug!("Transfer aborted by client");
+            tracing::debug!("Transfer aborted by client");
             break;
         }
         match data_stream.read(&mut buf).await {
             Ok(0) => {
-                log::debug!("Data connection closed (EOF), total written: {}", total_written);
+                tracing::debug!("Data connection closed (EOF), total written: {}", total_written);
                 break;
             }
             Ok(n) => {
@@ -277,14 +277,14 @@ pub async fn receive_file_with_limits(
                     buf[..n].to_vec()
                 };
                 if let Err(e) = file.write_all(&data).await {
-                    log::error!("STOR write error for file '{}': {}", file_path.display(), e);
+                    tracing::error!("STOR write error for file '{}': {}", file_path.display(), e);
                     transfer_error = Some(anyhow::anyhow!("Write error: {}", e));
                     break;
                 }
                 total_written += data.len() as u64;
             }
             Err(e) => {
-                log::error!("STOR read error from data stream: {}", e);
+                tracing::error!("STOR read error from data stream: {}", e);
                 transfer_error = Some(anyhow::anyhow!("Read error: {}", e));
                 break;
             }
@@ -292,15 +292,15 @@ pub async fn receive_file_with_limits(
     }
 
     if let Err(e) = file.sync_all().await {
-        log::error!("Failed to sync file {:?}: {}", file_path, e);
+        tracing::error!("Failed to sync file {:?}: {}", file_path, e);
     }
 
     if let Some(e) = transfer_error {
-        log::error!("STOR failed: {} bytes written before error to {}", total_written, file_path.display());
+        tracing::error!("STOR failed: {} bytes written before error to {}", total_written, file_path.display());
         return Err(e);
     }
 
-    log::info!("STOR completed: {} bytes written to {}", total_written, file_path.display());
+    tracing::info!("STOR completed: {} bytes written to {}", total_written, file_path.display());
     Ok(total_written)
 }
 
@@ -338,13 +338,13 @@ pub async fn send_file_with_limits(
                     buf[..n].to_vec()
                 };
                 if let Err(e) = data_stream.write_all(&data).await {
-                    log::error!("RETR write error for file '{}': {}", file_path.display(), e);
+                    tracing::error!("RETR write error for file '{}': {}", file_path.display(), e);
                     transfer_error = Some(anyhow::anyhow!("Write error: {}", e));
                     break;
                 }
             }
             Err(e) => {
-                log::error!("RETR read error from file '{}': {}", file_path.display(), e);
+                tracing::error!("RETR read error from file '{}': {}", file_path.display(), e);
                 transfer_error = Some(anyhow::anyhow!("Read error: {}", e));
                 break;
             }

@@ -4,6 +4,7 @@ use eframe::{App, Frame};
 use egui::{CentralPanel, RichText, Color32, IconData};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
+use tracing_subscriber::layer::SubscriberExt;
 
 use wftpg::core::server_manager::ServerManager;
 
@@ -61,7 +62,7 @@ mod admin {
                 std::process::exit(0);
             }
             Err(e) => {
-                eprintln!("请求管理员权限失败: {}", e);
+                tracing::error!("请求管理员权限失败: {}", e);
                 false
             }
         }
@@ -533,10 +534,10 @@ fn setup_fonts(ctx: &egui::Context) {
                 if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
                     family.push((*name).into());
                 }
-                eprintln!("成功加载字体: {}", name);
+                tracing::info!("成功加载字体: {}", name);
             }
             Err(e) => {
-                eprintln!("加载字体 {} 失败: {}", path, e);
+                tracing::warn!("加载字体 {} 失败: {}", path, e);
             }
         }
     }
@@ -548,14 +549,14 @@ fn load_icon() -> IconData {
     let exe_dir = match std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())) {
         Some(dir) => dir,
         None => {
-            eprintln!("无法获取程序目录，使用默认图标");
+            tracing::warn!("无法获取程序目录，使用默认图标");
             return create_default_icon();
         }
     };
 
     let icon_path = exe_dir.join("ui/wftpg.ico");
     if !icon_path.exists() {
-        eprintln!("图标文件不存在: {:?}，使用默认图标", icon_path);
+        tracing::warn!("图标文件不存在: {:?}，使用默认图标", icon_path);
         return create_default_icon();
     }
 
@@ -568,18 +569,18 @@ fn load_icon() -> IconData {
                             let rgba = image.rgba_data().to_vec();
                             let width = entry.width();
                             let height = entry.height();
-                            eprintln!("成功加载图标: {}x{}", width, height);
+                            tracing::info!("成功加载图标: {}x{}", width, height);
                             return IconData { rgba, width, height };
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("解析图标文件失败: {}", e);
+                    tracing::error!("解析图标文件失败: {}", e);
                 }
             }
         }
         Err(e) => {
-            eprintln!("读取图标文件失败: {}", e);
+            tracing::error!("读取图标文件失败: {}", e);
         }
     }
 
@@ -619,10 +620,12 @@ fn create_default_icon() -> IconData {
 }
 
 fn main() -> eframe::Result<()> {
+    init_tracing_for_gui();
+
     #[cfg(windows)]
     {
         if !admin::ensure_admin_or_restart() {
-            eprintln!("程序需要管理员权限才能运行");
+            tracing::error!("程序需要管理员权限才能运行");
             std::process::exit(1);
         }
     }
@@ -647,4 +650,16 @@ fn main() -> eframe::Result<()> {
             Ok(Box::new(WftpgApp::new(cc)))
         }),
     )
+}
+
+fn init_tracing_for_gui() {
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr)
+            .with_target(false)
+            .with_thread_ids(false)
+            .with_thread_names(false)
+            .compact());
+    
+    let _ = tracing::subscriber::set_global_default(subscriber);
 }

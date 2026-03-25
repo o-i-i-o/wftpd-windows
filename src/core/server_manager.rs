@@ -4,8 +4,7 @@ use std::sync::mpsc;
 
 use crate::core::config::Config;
 use crate::core::users::UserManager;
-use crate::core::logger::AsyncLogger;
-use crate::core::file_logger::AsyncFileLogger;
+use crate::core::logger::TracingLogger;
 use crate::core::ftp_server::FtpServer;
 use crate::core::sftp_server::SftpServer;
 
@@ -42,8 +41,7 @@ impl ServerManager {
         &self,
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
-        logger: AsyncLogger,
-        file_logger: AsyncFileLogger,
+        logger: TracingLogger,
     ) -> anyhow::Result<()> {
         {
             let state = self.ftp_state.lock()
@@ -61,8 +59,7 @@ impl ServerManager {
         let server = FtpServer::new(
             config,
             user_manager,
-            logger.clone(),
-            file_logger,
+            logger,
         );
 
         runtime.block_on(server.start())?;
@@ -74,7 +71,7 @@ impl ServerManager {
             state.runtime = Some(runtime);
         }
 
-        logger.info("FTP", "FTP server started successfully");
+        tracing::info!("FTP server started successfully");
 
         Ok(())
     }
@@ -83,8 +80,7 @@ impl ServerManager {
         &self,
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
-        logger: AsyncLogger,
-        file_logger: AsyncFileLogger,
+        logger: TracingLogger,
     ) -> mpsc::Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         let ftp_state = Arc::clone(&self.ftp_state);
@@ -119,8 +115,7 @@ impl ServerManager {
             let server = FtpServer::new(
                 config,
                 user_manager,
-                logger.clone(),
-                file_logger,
+                logger,
             );
 
             if let Err(e) = runtime.block_on(server.start()) {
@@ -142,7 +137,7 @@ impl ServerManager {
                 state.runtime = Some(runtime);
             }
 
-            logger.info("FTP", "FTP server started successfully");
+            tracing::info!("FTP server started successfully");
 
             let _ = tx.send(Ok(()));
         });
@@ -150,12 +145,12 @@ impl ServerManager {
         rx
     }
 
-    pub fn stop_ftp(&self, logger: &AsyncLogger) {
+    pub fn stop_ftp(&self) {
         let (maybe_server, maybe_runtime) = {
             let mut state = match self.ftp_state.lock() {
                 Ok(guard) => guard,
                 Err(e) => {
-                    log::error!("获取FTP状态锁失败: {}", e);
+                    tracing::error!("获取FTP状态锁失败: {}", e);
                     return;
                 }
             };
@@ -167,10 +162,10 @@ impl ServerManager {
             runtime.shutdown_background();
         }
 
-        logger.info("FTP", "FTP server stopped");
+        tracing::info!("FTP server stopped");
     }
 
-    pub fn stop_ftp_async(&self, logger: AsyncLogger) -> mpsc::Receiver<Result<(), String>> {
+    pub fn stop_ftp_async(&self) -> mpsc::Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         let ftp_state = Arc::clone(&self.ftp_state);
         
@@ -191,7 +186,7 @@ impl ServerManager {
                 runtime.shutdown_background();
             }
 
-            logger.info("FTP", "FTP server stopped");
+            tracing::info!("FTP server stopped");
 
             let _ = tx.send(Ok(()));
         });
@@ -211,8 +206,7 @@ impl ServerManager {
         &self,
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
-        logger: AsyncLogger,
-        file_logger: AsyncFileLogger,
+        logger: TracingLogger,
     ) -> anyhow::Result<()> {
         {
             let state = self.sftp_state.lock()
@@ -230,8 +224,7 @@ impl ServerManager {
         let server = SftpServer::new(
             config,
             user_manager,
-            logger.clone(),
-            file_logger,
+            logger,
         );
 
         runtime.block_on(server.start())?;
@@ -243,7 +236,7 @@ impl ServerManager {
             state.runtime = Some(runtime);
         }
 
-        logger.info("SFTP", "SFTP server started successfully");
+        tracing::info!("SFTP server started successfully");
 
         Ok(())
     }
@@ -252,8 +245,7 @@ impl ServerManager {
         &self,
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
-        logger: AsyncLogger,
-        file_logger: AsyncFileLogger,
+        logger: TracingLogger,
     ) -> mpsc::Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         let sftp_state = Arc::clone(&self.sftp_state);
@@ -288,8 +280,7 @@ impl ServerManager {
             let server = SftpServer::new(
                 config,
                 user_manager,
-                logger.clone(),
-                file_logger,
+                logger,
             );
 
             if let Err(e) = runtime.block_on(server.start()) {
@@ -311,7 +302,7 @@ impl ServerManager {
                 state.runtime = Some(runtime);
             }
 
-            logger.info("SFTP", "SFTP server started successfully");
+            tracing::info!("SFTP server started successfully");
 
             let _ = tx.send(Ok(()));
         });
@@ -319,12 +310,12 @@ impl ServerManager {
         rx
     }
 
-    pub fn stop_sftp(&self, logger: &AsyncLogger) {
+    pub fn stop_sftp(&self) {
         let (maybe_server, maybe_runtime) = {
             let mut state = match self.sftp_state.lock() {
                 Ok(guard) => guard,
                 Err(e) => {
-                    log::error!("获取SFTP状态锁失败: {}", e);
+                    tracing::error!("获取SFTP状态锁失败: {}", e);
                     return;
                 }
             };
@@ -336,10 +327,10 @@ impl ServerManager {
             runtime.shutdown_background();
         }
 
-        logger.info("SFTP", "SFTP server stopped");
+        tracing::info!("SFTP server stopped");
     }
 
-    pub fn stop_sftp_async(&self, logger: AsyncLogger) -> mpsc::Receiver<Result<(), String>> {
+    pub fn stop_sftp_async(&self) -> mpsc::Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         let sftp_state = Arc::clone(&self.sftp_state);
         
@@ -360,7 +351,7 @@ impl ServerManager {
                 runtime.shutdown_background();
             }
 
-            logger.info("SFTP", "SFTP server stopped");
+            tracing::info!("SFTP server stopped");
 
             let _ = tx.send(Ok(()));
         });
@@ -448,7 +439,7 @@ impl ServerManager {
             .map_err(|e| anyhow::anyhow!("创建服务失败: {:?}", e))?;
 
         if let Err(e) = service.set_description("SFTP and FTP server daemon with GUI management") {
-            log::warn!("设置服务描述失败（可忽略）: {:?}", e);
+            tracing::warn!("设置服务描述失败（可忽略）: {:?}", e);
         }
 
         Ok(())
@@ -473,14 +464,14 @@ impl ServerManager {
         match service.query_status() {
             Ok(status) => {
                 if status.current_state != ServiceState::Stopped {
-                    log::info!("服务正在运行，尝试停止...");
+                    tracing::info!("服务正在运行，尝试停止...");
                     if let Err(e) = Self::stop_service_internal(&service) {
-                        log::warn!("停止服务失败（可能服务已停止）: {:?}", e);
+                        tracing::warn!("停止服务失败（可能服务已停止）: {:?}", e);
                     }
                 }
             }
             Err(e) => {
-                log::warn!("查询服务状态失败: {:?}", e);
+                tracing::warn!("查询服务状态失败: {:?}", e);
             }
         }
         

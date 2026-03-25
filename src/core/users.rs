@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+﻿use anyhow::{Context, Result};
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
@@ -200,7 +200,7 @@ impl UserManager {
                 if parent.exists() || parent.to_string_lossy().is_empty() {
                     match std::fs::create_dir_all(path) {
                         Ok(_) => {
-                            log::info!("已创建用户主目录: {}", home_dir);
+                            tracing::info!("已创建用户主目录: {}", home_dir);
                             Ok(())
                         }
                         Err(e) => anyhow::bail!("无法创建用户主目录 '{}': {}", home_dir, e),

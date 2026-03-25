@@ -1,4 +1,4 @@
-use anyhow::Result;
+﻿use anyhow::Result;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -24,7 +24,7 @@ impl TlsConfig {
             (Some(cert), Some(key)) => {
                 match load_tls_acceptor(cert, key) {
                     Ok(acceptor) => {
-                        log::info!("TLS enabled with certificate: {}", cert);
+                        tracing::info!("TLS enabled with certificate: {}", cert);
                         TlsConfig {
                             enabled: true,
                             require_ssl,
@@ -32,7 +32,7 @@ impl TlsConfig {
                         }
                     }
                     Err(e) => {
-                        log::error!("Failed to load TLS certificate: {}", e);
+                        tracing::error!("Failed to load TLS certificate: {}", e);
                         TlsConfig {
                             enabled: false,
                             require_ssl: false,
@@ -43,7 +43,7 @@ impl TlsConfig {
             }
             _ => {
                 if require_ssl {
-                    log::warn!("SSL required but no certificate configured");
+                    tracing::warn!("SSL required but no certificate configured");
                 }
                 TlsConfig {
                     enabled: false,

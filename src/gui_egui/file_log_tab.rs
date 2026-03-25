@@ -1,6 +1,6 @@
 use egui::RichText;
 use crate::core::config::Config;
-use crate::core::file_logger::FileLogEntry;
+use crate::core::logger::FileOpLogEntry;
 use crate::gui_egui::styles;
 use egui_extras::TableBuilder;
 use std::time::{Duration, Instant};
@@ -12,7 +12,7 @@ const PAGE_SIZE: usize = 100;
 const LOG_THRESHOLD: usize = 500;
 
 pub struct FileLogTab {
-    logs: Vec<FileLogEntry>,
+    logs: Vec<FileOpLogEntry>,
     auto_refresh: bool,
     fetch_count: usize,
     fetch_count_buf: String,
@@ -68,7 +68,7 @@ impl FileLogTab {
             let mut log_files: Vec<_> = entries
                 .filter_map(|e| e.ok())
                 .filter(|e| {
-                    e.file_name().to_string_lossy().starts_with("file-ops-") 
+                    e.file_name().to_string_lossy().starts_with("file-ops") 
                     && e.file_name().to_string_lossy().ends_with(".log")
                 })
                 .collect();
@@ -89,7 +89,7 @@ impl FileLogTab {
                             break;
                         }
                         if let Ok(line) = line
-                            && let Ok(log_entry) = serde_json::from_str::<FileLogEntry>(&line)
+                            && let Ok(log_entry) = serde_json::from_str::<FileOpLogEntry>(&line)
                         {
                             all_logs.push(log_entry);
                         }
@@ -124,7 +124,7 @@ impl FileLogTab {
         }
     }
 
-    fn get_page_logs(&self) -> &[FileLogEntry] {
+    fn get_page_logs(&self) -> &[FileOpLogEntry] {
         let start = (self.current_page - 1) * PAGE_SIZE;
         let end = std::cmp::min(start + PAGE_SIZE, self.logs.len());
         if start < self.logs.len() {
@@ -278,28 +278,28 @@ impl FileLogTab {
                                         .color(styles::TEXT_SECONDARY_COLOR));
                                 });
                                 row.col(|ui| {
-                                    ui.label(RichText::new(&entry.username)
+                                    ui.label(RichText::new(&entry.fields.username)
                                         .size(styles::FONT_SIZE_SM)
                                         .color(styles::TEXT_PRIMARY_COLOR));
                                 });
                                 row.col(|ui| {
-                                    ui.label(RichText::new(&entry.client_ip)
+                                    ui.label(RichText::new(&entry.fields.client_ip)
                                         .size(styles::FONT_SIZE_SM)
                                         .color(styles::TEXT_LABEL_COLOR));
                                 });
                                 row.col(|ui| {
-                                    let protocol_color = match entry.protocol.as_str() {
+                                    let protocol_color = match entry.fields.protocol.as_str() {
                                         "FTP" => styles::PRIMARY_COLOR,
                                         "SFTP" => styles::INFO_COLOR,
                                         _ => styles::TEXT_MUTED_COLOR,
                                     };
-                                    ui.label(RichText::new(&entry.protocol)
+                                    ui.label(RichText::new(&entry.fields.protocol)
                                         .size(styles::FONT_SIZE_SM)
                                         .strong()
                                         .color(protocol_color));
                                 });
                                 row.col(|ui| {
-                                    let op_color = match entry.operation.as_str() {
+                                    let op_color = match entry.fields.operation.as_str() {
                                         "DELETE" | "RMDIR" => styles::DANGER_COLOR,
                                         "UPLOAD" | "MKDIR" => styles::SUCCESS_COLOR,
                                         "DOWNLOAD" => styles::INFO_COLOR,
@@ -307,15 +307,15 @@ impl FileLogTab {
                                         "UPDATE" => styles::TEXT_MUTED_COLOR,
                                         _ => styles::TEXT_LABEL_COLOR,
                                     };
-                                    let status_icon = if entry.success { "✓" } else { "✗" };
-                                    ui.label(RichText::new(format!("{} {}", status_icon, entry.operation))
+                                    let status_icon = if entry.fields.success { "✓" } else { "✗" };
+                                    ui.label(RichText::new(format!("{} {}", status_icon, entry.fields.operation))
                                         .size(styles::FONT_SIZE_SM)
                                         .strong()
                                         .color(op_color));
                                 });
                                 row.col(|ui| {
-                                    let size_str = if entry.file_size > 0 {
-                                        format_size(entry.file_size)
+                                    let size_str = if entry.fields.file_size > 0 {
+                                        format_size(entry.fields.file_size)
                                     } else {
                                         "-".to_string()
                                     };
@@ -324,7 +324,7 @@ impl FileLogTab {
                                         .color(styles::TEXT_LABEL_COLOR));
                                 });
                                 row.col(|ui| {
-                                    ui.label(RichText::new(&entry.file_path)
+                                    ui.label(RichText::new(&entry.fields.file_path)
                                         .size(styles::FONT_SIZE_SM)
                                         .color(styles::TEXT_PRIMARY_COLOR));
                                 });

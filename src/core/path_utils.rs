@@ -1,4 +1,4 @@
-use std::path::{Component, Path, PathBuf};
+﻿use std::path::{Component, Path, PathBuf};
 
 const MAX_PATH_DEPTH: usize = 64;
 
@@ -70,7 +70,7 @@ pub fn to_ftp_path(path: &Path, home_dir: &Path) -> Result<String, PathResolveEr
     let relative = match normalized_path.strip_prefix(&normalized_home) {
         Ok(r) => r,
         Err(_) => {
-            log::warn!(
+            tracing::warn!(
                 "to_ftp_path: path {:?} is not under home_dir {:?} (normalized: path={:?}, home={:?})",
                 path,
                 home_dir,
@@ -153,7 +153,7 @@ fn resolve_path_internal(
     if clean_path.starts_with("\\\\?\\") {
         let path_buf = PathBuf::from(clean_path);
         if !path_buf.starts_with(home_canon) {
-            log::warn!(
+            tracing::warn!(
                 "resolve_path_internal: Windows extended path outside home - input: {:?}, home: {:?}",
                 clean_path,
                 home_canon
@@ -174,7 +174,7 @@ fn resolve_path_internal(
         let relative_path = Path::new(relative);
         for component in relative_path.components() {
             if let Component::Prefix(_) | Component::RootDir = component {
-                log::warn!(
+                tracing::warn!(
                     "resolve_path_internal: Invalid prefix/root in absolute path - input: {:?}",
                     clean_path
                 );
@@ -183,7 +183,7 @@ fn resolve_path_internal(
             if let Component::Normal(name) = component
                 && !is_valid_path_component(name)
             {
-                log::warn!(
+                tracing::warn!(
                     "resolve_path_internal: Invalid component in path - component: {:?}, input: {:?}",
                     name,
                     clean_path
@@ -195,7 +195,7 @@ fn resolve_path_internal(
         let resolved_path = home_canon.join(relative);
         
         if !resolved_path.starts_with(home_canon) {
-            log::warn!(
+            tracing::warn!(
                 "resolve_path_internal: Absolute path outside home directory - resolved: {:?}, home: {:?}, input: {:?}",
                 resolved_path,
                 home_canon,
@@ -209,7 +209,7 @@ fn resolve_path_internal(
         let clean_path_path = Path::new(clean_path);
         for component in clean_path_path.components() {
             if let Component::Prefix(_) | Component::RootDir = component {
-                log::warn!(
+                tracing::warn!(
                     "resolve_path_internal: Invalid prefix/root in relative path - input: {:?}",
                     clean_path
                 );
@@ -218,7 +218,7 @@ fn resolve_path_internal(
             if let Component::Normal(name) = component
                 && !is_valid_path_component(name)
             {
-                log::warn!(
+                tracing::warn!(
                     "resolve_path_internal: Invalid component in relative path - component: {:?}, input: {:?}",
                     name,
                     clean_path
@@ -232,7 +232,7 @@ fn resolve_path_internal(
         } else {
             let cwd_path = PathBuf::from(cwd);
             if !path_starts_with_ignore_case(&cwd_path, home_canon) {
-                log::warn!(
+                tracing::warn!(
                     "resolve_path_internal: CWD outside home - cwd: {:?}, home: {:?}",
                     cwd,
                     home_canon.display()
@@ -267,7 +267,7 @@ fn build_safe_path(
             Component::CurDir => {}
             Component::ParentDir => {
                 if safe_path == *home_canon {
-                    log::warn!(
+                    tracing::warn!(
                         "build_safe_path: Path escape via parent dir at root - input: {:?}, resolved: {:?}",
                         input_desc,
                         resolved
@@ -276,7 +276,7 @@ fn build_safe_path(
                 }
                 
                 if !safe_path.pop() {
-                    log::warn!(
+                    tracing::warn!(
                         "build_safe_path: Failed to pop path - input: {:?}, resolved: {:?}",
                         input_desc,
                         resolved
@@ -285,7 +285,7 @@ fn build_safe_path(
                 }
                 
                 if !path_starts_with_ignore_case(&safe_path, home_canon) {
-                    log::warn!(
+                    tracing::warn!(
                         "build_safe_path: Path escape after pop - input: {:?}, safe_path: {:?}, home: {:?}",
                         input_desc,
                         safe_path,
@@ -302,7 +302,7 @@ fn build_safe_path(
                 }
                 
                 if !is_valid_path_component(name) {
-                    log::warn!(
+                    tracing::warn!(
                         "build_safe_path: Invalid component name - component: {:?}, input: {:?}",
                         name,
                         input_desc
@@ -314,7 +314,7 @@ fn build_safe_path(
                 relative_depth += 1;
                 
                 if relative_depth > MAX_PATH_DEPTH {
-                    log::warn!(
+                    tracing::warn!(
                         "build_safe_path: Path depth exceeded - depth: {}, max: {}, input: {:?}",
                         relative_depth,
                         MAX_PATH_DEPTH,
@@ -327,7 +327,7 @@ fn build_safe_path(
     }
     
     if !path_starts_with_ignore_case(&safe_path, home_canon) {
-        log::warn!(
+        tracing::warn!(
             "build_safe_path: Final path outside home - safe_path: {:?}, home: {:?}, input: {:?}",
             safe_path,
             home_canon,
@@ -348,7 +348,7 @@ fn canonicalize_and_validate(
     match path.canonicalize() {
         Ok(canon) => {
             if !path_starts_with_ignore_case(&canon, home_canon) {
-                log::warn!(
+                tracing::warn!(
                     "canonicalize_and_validate: Path escape detected - canonicalized: {:?}, home: {:?}, input: {:?}",
                     canon,
                     home_canon,
@@ -361,7 +361,7 @@ fn canonicalize_and_validate(
                 && let Ok(metadata) = path.symlink_metadata()
                 && metadata.file_type().is_symlink()
             {
-                log::warn!(
+                tracing::warn!(
                     "canonicalize_and_validate: Symlink not allowed - path: {:?}, input: {:?}",
                     path,
                     input_desc
@@ -372,7 +372,7 @@ fn canonicalize_and_validate(
             Ok(canon)
         }
         Err(e) => {
-            log::debug!(
+            tracing::debug!(
                 "canonicalize_and_validate: Canonicalize failed - path: {:?}, error: {}, input: {:?}",
                 path,
                 e,
@@ -392,7 +392,7 @@ pub fn safe_resolve_path(
     
     let home = PathBuf::from(home_dir);
     let home_canon = home.canonicalize().map_err(|e| {
-        log::error!(
+        tracing::error!(
             "safe_resolve_path: Failed to canonicalize home directory - home: {:?}, error: {}",
             home_dir,
             e
@@ -421,7 +421,7 @@ pub fn resolve_directory_path(
     
     let home = PathBuf::from(home_dir);
     let home_canon = home.canonicalize().map_err(|e| {
-        log::error!(
+        tracing::error!(
             "resolve_directory_path: Failed to canonicalize home directory - home: {:?}, error: {}",
             home_dir,
             e
@@ -434,7 +434,7 @@ pub fn resolve_directory_path(
     match canonicalize_and_validate(&resolved, &home_canon, &input_desc, false) {
         Ok(canon) => {
             if !canon.is_dir() {
-                log::warn!(
+                tracing::warn!(
                     "resolve_directory_path: Path is not a directory - path: {:?}, input: {:?}",
                     canon,
                     input_desc
@@ -449,7 +449,7 @@ pub fn resolve_directory_path(
             if let Ok(metadata) = safe_path.symlink_metadata()
                 && metadata.file_type().is_symlink()
             {
-                log::warn!(
+                tracing::warn!(
                     "resolve_directory_path: Symlink detected in non-existent path - path: {:?}, input: {:?}",
                     safe_path,
                     input_desc
@@ -480,7 +480,7 @@ pub fn safe_resolve_path_no_symlink(
     
     let home = PathBuf::from(home_dir);
     let home_canon = home.canonicalize().map_err(|e| {
-        log::error!(
+        tracing::error!(
             "safe_resolve_path_no_symlink: Failed to canonicalize home directory - home: {:?}, error: {}",
             home_dir,
             e
@@ -498,7 +498,7 @@ pub fn safe_resolve_path_no_symlink(
             if let Ok(metadata) = safe_path.symlink_metadata()
                 && metadata.file_type().is_symlink()
             {
-                log::warn!(
+                tracing::warn!(
                     "safe_resolve_path_no_symlink: Symlink detected in non-existent path - path: {:?}, input: {:?}",
                     safe_path,
                     input_desc
@@ -517,7 +517,7 @@ pub fn validate_existing_path(
     home_canon: &Path,
 ) -> Result<PathBuf, PathResolveError> {
     let canon = path.canonicalize().map_err(|e| {
-        log::warn!(
+        tracing::warn!(
             "validate_existing_path: Canonicalize failed - path: {:?}, error: {}",
             path,
             e
@@ -526,7 +526,7 @@ pub fn validate_existing_path(
     })?;
     
     if !canon.starts_with(home_canon) {
-        log::warn!(
+        tracing::warn!(
             "validate_existing_path: Path escape detected - canonicalized: {:?}, home: {:?}",
             canon,
             home_canon

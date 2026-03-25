@@ -1,4 +1,4 @@
-use anyhow::Result;
+﻿use anyhow::Result;
 use std::io::{Read, Write};
 use std::os::windows::io::{AsRawHandle, RawHandle};
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -45,7 +45,7 @@ impl IpcServerInner {
                 anyhow::bail!("Failed to create named pipe: {}", std::io::Error::last_os_error());
             }
             
-            log::info!("Named pipe server created: {}", get_pipe_path());
+            tracing::info!("Named pipe server created: {}", get_pipe_path());
             
             Ok(IpcServerInner { 
                 handle: AtomicPtr::new(handle.0) 

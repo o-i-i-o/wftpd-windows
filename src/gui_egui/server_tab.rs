@@ -1,4 +1,4 @@
-use egui::{RichText, Ui};
+﻿use egui::{RichText, Ui};
 use crate::core::config::Config;
 use crate::core::ipc::IpcClient;
 use crate::gui_egui::styles;
@@ -59,12 +59,12 @@ impl ServerTab {
     pub fn load_config(&mut self) {
         match Config::load(&Config::get_config_path()) {
             Ok(config) => {
-                log::info!("服务器配置加载成功");
+                tracing::info!("服务器配置加载成功");
                 self.config = Some(config);
                 self.config_load_state = ConfigLoadState::Loaded;
             }
             Err(e) => {
-                log::warn!("加载服务器配置失败，使用默认配置: {}", e);
+                tracing::warn!("加载服务器配置失败，使用默认配置: {}", e);
                 self.config = Some(Config::default());
                 self.config_load_state = ConfigLoadState::Loaded;
                 self.status_message = Some((format!("配置加载失败，使用默认配置: {}", e), false));
@@ -93,7 +93,7 @@ impl ServerTab {
         std::thread::spawn(move || {
             let result = match config.save(&Config::get_config_path()) {
                 Ok(_) => {
-                    log::info!("服务器配置保存成功");
+                    tracing::info!("服务器配置保存成功");
                     
                     if IpcClient::is_server_running() {
                         match IpcClient::notify_reload() {
@@ -113,7 +113,7 @@ impl ServerTab {
                     }
                 }
                 Err(e) => {
-                    log::error!("保存服务器配置失败: {}", e);
+                    tracing::error!("保存服务器配置失败: {}", e);
                     Err(format!("保存失败: {}", e))
                 }
             };

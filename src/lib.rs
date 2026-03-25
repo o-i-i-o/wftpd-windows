@@ -10,15 +10,13 @@ use std::path::PathBuf;
 
 use core::config::Config;
 use core::users::UserManager;
-use core::logger::AsyncLogger;
-use core::file_logger::AsyncFileLogger;
+use core::logger::TracingLogger;
 use core::server_manager::ServerManager;
 
 pub struct AppState {
     pub config: Arc<std::sync::Mutex<Config>>,
     pub user_manager: Arc<std::sync::Mutex<UserManager>>,
-    pub logger: AsyncLogger,
-    pub file_logger: AsyncFileLogger,
+    pub logger: TracingLogger,
     server_manager: ServerManager,
     pub config_path: PathBuf,
     pub users_path: PathBuf,
@@ -33,23 +31,17 @@ impl AppState {
         let user_manager = UserManager::load(&users_path)?;
         
         let log_dir = config.logging.log_dir.clone();
+        let log_level = config.logging.log_level.clone();
         let max_log_size = config.logging.max_log_size;
         let max_log_files = config.logging.max_log_files;
         
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| anyhow::anyhow!("Failed to create tokio runtime: {}", e))?;
-        
-        let (logger, file_logger) = rt.block_on(async {
-            let logger = AsyncLogger::new(&log_dir, max_log_size, max_log_files).await;
-            let file_logger = AsyncFileLogger::new(&log_dir, max_log_size).await;
-            (logger, file_logger)
-        });
+        let logger = TracingLogger::init(&log_dir, max_log_size, max_log_files, &log_level)
+            .map_err(|e| anyhow::anyhow!("Failed to initialize logger: {}", e))?;
         
         Ok(AppState {
             config: Arc::new(std::sync::Mutex::new(config)),
             user_manager: Arc::new(std::sync::Mutex::new(user_manager)),
             logger,
-            file_logger,
             server_manager: ServerManager::new(),
             config_path,
             users_path,
@@ -61,12 +53,11 @@ impl AppState {
             Arc::clone(&self.config),
             Arc::clone(&self.user_manager),
             self.logger.clone(),
-            self.file_logger.clone(),
         )
     }
     
     pub fn stop_ftp(&self) {
-        self.server_manager.stop_ftp(&self.logger);
+        self.server_manager.stop_ftp();
     }
     
     pub fn is_ftp_running(&self) -> bool {
@@ -78,12 +69,11 @@ impl AppState {
             Arc::clone(&self.config),
             Arc::clone(&self.user_manager),
             self.logger.clone(),
-            self.file_logger.clone(),
         )
     }
     
     pub fn stop_sftp(&self) {
-        self.server_manager.stop_sftp(&self.logger);
+        self.server_manager.stop_sftp();
     }
     
     pub fn is_sftp_running(&self) -> bool {
@@ -126,8 +116,6 @@ impl AppState {
     }
     
     pub fn shutdown(&self) {
-        self.logger.shutdown();
-        self.file_logger.shutdown();
     }
 }
 

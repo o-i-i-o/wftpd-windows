@@ -10,9 +10,8 @@ use anyhow::Result;
 use std::sync::Arc;
 
 use crate::core::config::{Config, get_program_data_path};
-use crate::core::logger::AsyncLogger;
+use crate::core::logger::TracingLogger;
 use crate::core::users::UserManager;
-use crate::core::file_logger::AsyncFileLogger;
 use crate::core::quota::QuotaManager;
 
 use crate::core::ftp_server::tls::TlsConfig;
@@ -20,8 +19,7 @@ use crate::core::ftp_server::tls::TlsConfig;
 pub struct FtpServer {
     config: Arc<std::sync::Mutex<Config>>,
     user_manager: Arc<std::sync::Mutex<UserManager>>,
-    logger: AsyncLogger,
-    file_logger: AsyncFileLogger,
+    _logger: TracingLogger,
     quota_manager: Arc<QuotaManager>,
     running: Arc<std::sync::Mutex<bool>>,
     shutdown_tx: Arc<tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
@@ -33,8 +31,7 @@ impl FtpServer {
     pub fn new(
         config: Arc<std::sync::Mutex<Config>>,
         user_manager: Arc<std::sync::Mutex<UserManager>>,
-        logger: AsyncLogger,
-        file_logger: AsyncFileLogger,
+        _logger: TracingLogger,
     ) -> Self {
         let tls_config = {
             match config.lock() {
@@ -48,7 +45,7 @@ impl FtpServer {
                     }
                 }
                 Err(e) => {
-                    log::error!("获取配置锁失败: {}", e);
+                    tracing::error!("获取配置锁失败: {}", e);
                     None
                 }
             }
@@ -59,8 +56,7 @@ impl FtpServer {
         FtpServer {
             config,
             user_manager,
-            logger,
-            file_logger,
+            _logger,
             quota_manager: Arc::new(quota_manager),
             running: Arc::new(std::sync::Mutex::new(false)),
             shutdown_tx: Arc::new(tokio::sync::Mutex::new(None)),
@@ -88,7 +84,7 @@ impl FtpServer {
 
         if !warnings.is_empty() {
             for warning in &warnings {
-                log::error!("配置验证失败: {}", warning);
+                tracing::error!("配置验证失败: {}", warning);
             }
             return Err(anyhow::anyhow!("配置路径验证失败: {}", warnings.join("; ")));
         }
@@ -124,12 +120,11 @@ impl FtpServer {
 
         let config = Arc::clone(&self.config);
         let user_manager = Arc::clone(&self.user_manager);
-        let logger = self.logger.clone();
-        let file_logger = self.file_logger.clone();
         let quota_manager = Arc::clone(&self.quota_manager);
+        let logger_clone = self._logger.clone();
         let running_clone = Arc::clone(&self.running);
 
-        self.logger.info("FTP", &format!("FTP server started on {}", bind_addr));
+        tracing::info!("FTP server started on {}", bind_addr);
 
         if ftps_enabled && ftps_implicit {
             let tls_cfg_opt = self.tls_config.lock().unwrap().clone();
@@ -141,25 +136,23 @@ impl FtpServer {
                 }
                 
                 let ftps_bind_addr = format!("{}:{}", bind_ip, ftps_port);
-                self.logger.info("FTPS", &format!("FTPS implicit SSL server starting on {}", ftps_bind_addr));
+                tracing::info!("FTPS implicit SSL server starting on {}", ftps_bind_addr);
                 
                 let config_clone = Arc::clone(&config);
                 let user_manager_clone = Arc::clone(&user_manager);
-                let logger_clone = logger.clone();
-                let file_logger_clone = file_logger.clone();
                 let quota_manager_clone = Arc::clone(&quota_manager);
+                let logger_ftps = logger_clone.clone();
                 
                 tokio::spawn(async move {
                     if let Err(e) = ftps_listener::start_ftps_implicit_server(
                         config_clone,
                         user_manager_clone,
-                        logger_clone,
-                        file_logger_clone,
                         quota_manager_clone,
                         tls_cfg,
                         ftps_shutdown_rx,
+                        logger_ftps,
                     ).await {
-                        log::error!("FTPS implicit SSL server error: {}", e);
+                        tracing::error!("FTPS implicit SSL server error: {}", e);
                     }
                 });
             }
@@ -176,17 +169,14 @@ impl FtpServer {
                             Ok((socket, peer_addr)) => {
                                 let config = Arc::clone(&config);
                                 let user_manager = Arc::clone(&user_manager);
-                                let logger = logger.clone();
-                                let file_logger = file_logger.clone();
                                 let quota_manager = Arc::clone(&quota_manager);
+                                let logger = logger_clone.clone();
                                 let client_ip = peer_addr.ip().to_string();
 
-                                logger.client_action(
-                                    "FTP",
-                                    &format!("Client connected from {}", client_ip),
-                                    &client_ip,
-                                    None,
-                                    "CONNECT",
+                                tracing::info!(
+                                    client_ip = %client_ip,
+                                    action = "CONNECT",
+                                    "Client connected from {}", client_ip
                                 );
 
                                 tokio::spawn(async move {
@@ -194,17 +184,16 @@ impl FtpServer {
                                         socket,
                                         config,
                                         user_manager,
-                                        logger,
-                                        file_logger,
                                         quota_manager,
                                         client_ip,
+                                        logger,
                                     ).await {
-                                        log::debug!("FTP session error: {}", e);
+                                        tracing::debug!("FTP session error: {}", e);
                                     }
                                 });
                             }
                             Err(e) => {
-                                log::warn!("Failed to accept FTP connection: {}", e);
+                                tracing::warn!("Failed to accept FTP connection: {}", e);
                             }
                         }
                     }
@@ -230,13 +219,13 @@ impl FtpServer {
             let mut running = match self.running.lock() {
                 Ok(guard) => guard,
                 Err(e) => {
-                    log::error!("获取运行状态锁失败: {}", e);
+                    tracing::error!("获取运行状态锁失败: {}", e);
                     return;
                 }
             };
             *running = false;
         }
-        self.logger.info("FTP", "FTP server stopped");
+        tracing::info!("FTP server stopped");
     }
 
     pub fn is_running(&self) -> bool {

@@ -1,4 +1,4 @@
-use egui::{Color32, RichText, Ui, Frame};
+﻿use egui::{Color32, RichText, Ui, Frame};
 use crate::core::users::{User, UserManager, Permissions};
 use crate::core::config::Config;
 use crate::gui_egui::styles;
@@ -33,7 +33,7 @@ impl Default for UserTab {
         let user_manager = match UserManager::load(&Config::get_users_path()) {
             Ok(um) => um,
             Err(e) => {
-                log::warn!("加载用户配置失败，使用默认配置: {}", e);
+                tracing::warn!("加载用户配置失败，使用默认配置: {}", e);
                 UserManager::default()
             }
         };
@@ -55,11 +55,11 @@ impl UserTab {
     fn save(&mut self) {
         match self.user_manager.save(&Config::get_users_path()) {
             Ok(_) => {
-                log::info!("用户配置已保存");
+                tracing::info!("用户配置已保存");
                 self.status_message = Some(("用户配置已保存".into(), true));
             }
             Err(e) => {
-                log::error!("保存用户配置失败: {}", e);
+                tracing::error!("保存用户配置失败: {}", e);
                 self.status_message = Some((format!("保存失败: {}", e), false));
             }
         }
@@ -267,10 +267,10 @@ impl UserTab {
                         let username = self.form_username.trim();
                         match self.user_manager.update_permissions(username, self.form_permissions) {
                             Ok(_) => {
-                                log::info!("用户 {} 权限更新成功", username);
+                                tracing::info!("用户 {} 权限更新成功", username);
                             }
                             Err(e) => {
-                                log::warn!("用户 {} 权限更新失败: {}", username, e);
+                                tracing::warn!("用户 {} 权限更新失败: {}", username, e);
                                 self.status_message = Some((format!("用户已添加，但权限设置失败: {}", e), false));
                             }
                         }
@@ -278,7 +278,7 @@ impl UserTab {
                         self.modal = ModalMode::None;
                     }
                     Err(e) => {
-                        log::error!("添加用户 {} 失败: {}", self.form_username.trim(), e);
+                        tracing::error!("添加用户 {} 失败: {}", self.form_username.trim(), e);
                         self.form_error = Some(format!("添加失败: {}", e));
                     }
                 }
@@ -288,10 +288,10 @@ impl UserTab {
                 
                 match self.user_manager.update_home_dir(uname, self.form_home_dir.trim()) {
                     Ok(_) => {
-                        log::info!("用户 {} 主目录更新成功", uname);
+                        tracing::info!("用户 {} 主目录更新成功", uname);
                     }
                     Err(e) => {
-                        log::warn!("用户 {} 主目录更新失败: {}", uname, e);
+                        tracing::warn!("用户 {} 主目录更新失败: {}", uname, e);
                         error_messages.push(format!("主目录更新失败: {}", e));
                         has_error = true;
                     }
@@ -300,10 +300,10 @@ impl UserTab {
                 if !self.form_password.is_empty() {
                     match self.user_manager.update_password(uname, &self.form_password) {
                         Ok(_) => {
-                            log::info!("用户 {} 密码更新成功", uname);
+                            tracing::info!("用户 {} 密码更新成功", uname);
                         }
                         Err(e) => {
-                            log::warn!("用户 {} 密码更新失败: {}", uname, e);
+                            tracing::warn!("用户 {} 密码更新失败: {}", uname, e);
                             error_messages.push(format!("密码更新失败: {}", e));
                             has_error = true;
                         }
@@ -312,10 +312,10 @@ impl UserTab {
                 
                 match self.user_manager.update_permissions(uname, self.form_permissions) {
                     Ok(_) => {
-                        log::info!("用户 {} 权限更新成功", uname);
+                        tracing::info!("用户 {} 权限更新成功", uname);
                     }
                     Err(e) => {
-                        log::warn!("用户 {} 权限更新失败: {}", uname, e);
+                        tracing::warn!("用户 {} 权限更新失败: {}", uname, e);
                         error_messages.push(format!("权限更新失败: {}", e));
                         has_error = true;
                     }
@@ -323,10 +323,10 @@ impl UserTab {
                 
                 match self.user_manager.set_user_admin(uname, self.form_is_admin) {
                     Ok(_) => {
-                        log::info!("用户 {} 管理员状态更新成功", uname);
+                        tracing::info!("用户 {} 管理员状态更新成功", uname);
                     }
                     Err(e) => {
-                        log::warn!("用户 {} 管理员状态更新失败: {}", uname, e);
+                        tracing::warn!("用户 {} 管理员状态更新失败: {}", uname, e);
                         error_messages.push(format!("管理员状态更新失败: {}", e));
                         has_error = true;
                     }
@@ -343,11 +343,11 @@ impl UserTab {
         if let Some(name) = delete_target {
             match self.user_manager.remove_user(&name) {
                 Ok(_) => {
-                    log::info!("用户 {} 已删除", name);
+                    tracing::info!("用户 {} 已删除", name);
                     self.save();
                 }
                 Err(e) => {
-                    log::error!("删除用户 {} 失败: {}", name, e);
+                    tracing::error!("删除用户 {} 失败: {}", name, e);
                     self.status_message = Some((format!("删除用户失败: {}", e), false));
                 }
             }
@@ -383,11 +383,11 @@ impl UserTab {
                 match UserManager::load(&Config::get_users_path()) {
                     Ok(um) => {
                         self.user_manager = um;
-                        log::info!("用户列表已刷新");
+                        tracing::info!("用户列表已刷新");
                         self.status_message = Some(("用户列表已刷新".into(), true));
                     }
                     Err(e) => {
-                        log::error!("刷新用户列表失败: {}", e);
+                        tracing::error!("刷新用户列表失败: {}", e);
                         self.status_message = Some((format!("刷新失败: {}", e), false));
                     }
                 }
@@ -519,10 +519,10 @@ impl UserTab {
         if let Some((name, enabled)) = to_toggle {
             match self.user_manager.set_user_enabled(&name, enabled) {
                 Ok(_) => {
-                    log::info!("用户 {} 状态已更改为 {}", name, if enabled { "启用" } else { "禁用" });
+                    tracing::info!("用户 {} 状态已更改为 {}", name, if enabled { "启用" } else { "禁用" });
                 }
                 Err(e) => {
-                    log::error!("更改用户 {} 状态失败: {}", name, e);
+                    tracing::error!("更改用户 {} 状态失败: {}", name, e);
                     self.status_message = Some((format!("更改用户状态失败: {}", e), false));
                 }
             }
