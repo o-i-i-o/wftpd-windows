@@ -325,21 +325,25 @@ impl WftpgApp {
 
                     match &self.service_install_status {
                         ServiceInstallStatus::Installing => {
-                            ui.horizontal(|ui| {
+                            ui.horizontal_centered(|ui| {
                                 ui.spinner();
+                                ui.add_space(styles::SPACING_MD);
                                 ui.label(RichText::new("正在安装服务...").size(styles::FONT_SIZE_MD));
                             });
                             ui.add_space(styles::SPACING_SM);
                             ui.label(RichText::new("这可能需要几秒钟，请稍候...").size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
                         }
                         ServiceInstallStatus::Success(msg) => {
-                            ui.label(RichText::new(msg).color(styles::SUCCESS_COLOR).size(styles::FONT_SIZE_MD));
+                            ui.vertical_centered(|ui| {
+                                ui.label(RichText::new(msg).color(styles::SUCCESS_COLOR).size(styles::FONT_SIZE_MD));
+                            });
                             ui.add_space(styles::SPACING_LG);
-                            
-                            if ui.add(styles::secondary_button("关闭")).clicked() {
-                                self.show_service_install_dialog = false;
-                                self.service_install_status = ServiceInstallStatus::None;
-                            }
+                            ui.horizontal_centered(|ui| {
+                                if ui.add(styles::secondary_button("关闭")).clicked() {
+                                    self.show_service_install_dialog = false;
+                                    self.service_install_status = ServiceInstallStatus::None;
+                                }
+                            });
                         }
                         ServiceInstallStatus::Failed(msg) => {
                             ui.label(RichText::new(msg).color(styles::DANGER_COLOR).size(styles::FONT_SIZE_MD));
@@ -357,25 +361,24 @@ impl WftpgApp {
                                 });
                             
                             ui.add_space(styles::SPACING_LG);
-                            
-                            ui.horizontal(|ui| {
+
+                            ui.horizontal_centered(|ui| {
                                 if ui.add(styles::secondary_button("关闭")).clicked() {
                                     self.show_service_install_dialog = false;
                                     self.service_install_status = ServiceInstallStatus::None;
                                 }
+                                ui.add_space(styles::SPACING_MD);
                                 if ui.add(styles::primary_button("重试")).clicked() {
                                     self.install_service(ctx);
                                 }
                             });
                         }
                         ServiceInstallStatus::None => {
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = styles::SPACING_MD;
-
+                            ui.horizontal_centered(|ui| {
                                 if ui.add(styles::secondary_button("稍后手动安装")).clicked() {
                                     self.show_service_install_dialog = false;
                                 }
-
+                                ui.add_space(styles::SPACING_MD);
                                 if ui.add(styles::primary_button("安装并启动服务")).clicked() {
                                     self.install_service(ctx);
                                 }
