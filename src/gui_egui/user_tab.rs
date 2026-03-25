@@ -196,6 +196,9 @@ impl UserTab {
                                         .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
                                 });
                                 if ui.button("浏览...").clicked() {
+                                    self.file_dialog = FileDialog::new()
+                                        .title("选择用户主目录")
+                                        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
                                     self.file_dialog.pick_directory();
                                 }
                             });
