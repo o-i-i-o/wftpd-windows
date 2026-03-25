@@ -892,7 +892,7 @@ async fn handle_command(
                     state.rest_offset = offset;
                     let _ = control_stream.write_all(format!("350 Restarting at {}\r\n", offset).as_bytes()).await;
                     if let Ok(mut log) = logger.lock() {
-                        log.client_action(
+                        log.client_action_debug(
                             "FTP",
                             &format!("REST command: offset {}", offset),
                             client_ip,

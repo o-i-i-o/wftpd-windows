@@ -267,4 +267,22 @@ impl Logger {
             Some(action),
         );
     }
+    
+    pub fn client_action_debug(
+        &mut self,
+        source: &str,
+        message: &str,
+        client_ip: &str,
+        username: Option<&str>,
+        action: &str,
+    ) {
+        self.log(
+            LogLevel::Debug,
+            source,
+            message,
+            Some(client_ip),
+            username,
+            Some(action),
+        );
+    }
 }

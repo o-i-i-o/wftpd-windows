@@ -54,18 +54,6 @@ impl AppState {
         })
     }
     
-    pub fn save_config(&self) -> anyhow::Result<()> {
-        let config = self.config.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        config.save(&self.config_path)?;
-        Ok(())
-    }
-    
-    pub fn save_users(&self) -> anyhow::Result<()> {
-        let users = self.user_manager.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        users.save(&self.users_path)?;
-        Ok(())
-    }
-    
     pub fn start_ftp(&self) -> anyhow::Result<()> {
         self.server_manager.start_ftp(
             Arc::clone(&self.config),
@@ -133,42 +121,6 @@ impl AppState {
         let mut current_users = self.user_manager.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         *current_users = users;
         Ok(())
-    }
-
-    pub fn get_logs(&self, count: usize) -> Vec<crate::core::ipc::LogEntryDto> {
-        if let Ok(logger) = self.logger.try_lock() {
-            let entries = logger.get_recent_logs(count);
-            entries.into_iter().map(|e| crate::core::ipc::LogEntryDto {
-                timestamp: e.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
-                level: e.level.to_string(),
-                source: e.source,
-                message: e.message,
-                client_ip: e.client_ip,
-                username: e.username,
-                action: e.action,
-            }).collect()
-        } else {
-            Vec::new()
-        }
-    }
-
-    pub fn get_file_logs(&self, count: usize) -> Vec<crate::core::ipc::FileLogEntryDto> {
-        if let Ok(file_logger) = self.file_logger.try_lock() {
-            let entries = file_logger.get_recent_logs(count);
-            entries.into_iter().map(|e| crate::core::ipc::FileLogEntryDto {
-                timestamp: e.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
-                username: e.username,
-                client_ip: e.client_ip,
-                operation: e.operation,
-                file_path: e.file_path,
-                file_size: e.file_size,
-                protocol: e.protocol,
-                success: e.success,
-                message: e.message,
-            }).collect()
-        } else {
-            Vec::new()
-        }
     }
 }
 

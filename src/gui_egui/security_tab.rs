@@ -95,7 +95,7 @@ fn is_valid_ipv6(ip: &str) -> bool {
 }
 
 enum SaveResult {
-    Success,
+    Success(String),
     Error(String),
 }
 
@@ -222,20 +222,28 @@ impl SecurityTab {
         let ctx_clone = ctx.clone();
         
         std::thread::spawn(move || {
-            let _result = match config.save(&Config::get_config_path()) {
+            let result = match config.save(&Config::get_config_path()) {
                 Ok(_) => {
                     if IpcClient::is_server_running() {
-                        let _ = IpcClient::send_command(crate::core::ipc::Command {
-                            action: "reload".to_string(),
-                            service: None,
-                            data: None,
-                        });
+                        match IpcClient::notify_reload() {
+                            Ok(response) => {
+                                if response.success {
+                                    SaveResult::Success("安全配置已保存，后端服务已重新加载配置".to_string())
+                                } else {
+                                    SaveResult::Success(format!("配置已保存，但后端重新加载失败: {}", response.message))
+                                }
+                            }
+                            Err(e) => {
+                                SaveResult::Success(format!("配置已保存，但通知后端失败: {}。请手动重启服务。", e))
+                            }
+                        }
+                    } else {
+                        SaveResult::Success("安全配置已保存（后端服务未运行）".to_string())
                     }
-                    SaveResult::Success
                 }
                 Err(e) => SaveResult::Error(format!("保存失败：{}", e)),
             };
-            let _ = tx.send(_result);
+            let _ = tx.send(result);
             ctx_clone.request_repaint();
         });
     }
@@ -246,9 +254,9 @@ impl SecurityTab {
         {
             self.is_saving = false;
             match result {
-                SaveResult::Success => {
+                SaveResult::Success(msg) => {
                     self.last_save_time = Some(Instant::now());
-                    self.status_message = Some(("安全配置已保存并已通知服务器重新加载".to_string(), true));
+                    self.status_message = Some((msg, true));
                 }
                 SaveResult::Error(e) => {
                     self.status_message = Some((e, false));

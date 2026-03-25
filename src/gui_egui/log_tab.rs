@@ -1,64 +1,35 @@
 use egui::RichText;
-use crate::core::ipc::{IpcClient, LogEntryDto};
+use crate::core::config::Config;
+use crate::core::logger::LogEntry;
 use crate::gui_egui::styles;
 use egui_extras::TableBuilder;
-use std::sync::mpsc;
 use std::time::{Duration, Instant};
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 
 const PAGE_SIZE: usize = 100;
 const LOG_THRESHOLD: usize = 500;
 
-enum RefreshCommand {
-    Fetch(usize),
-}
-
-enum RefreshResult {
-    Logs(Vec<LogEntryDto>),
-    Error(String),
-}
-
 pub struct LogTab {
-    logs: Vec<LogEntryDto>,
+    logs: Vec<LogEntry>,
     auto_refresh: bool,
     fetch_count: usize,
     fetch_count_buf: String,
     last_error: Option<String>,
     loading: bool,
     last_refresh_time: Option<Instant>,
-    refresh_sender: mpsc::Sender<RefreshCommand>,
-    refresh_receiver: mpsc::Receiver<RefreshResult>,
     current_page: usize,
     total_pages: usize,
+    log_dir: PathBuf,
 }
 
 impl Default for LogTab {
     fn default() -> Self {
-        let (tx, rx_cmd) = mpsc::channel();
-        let (tx_result, rx_result) = mpsc::channel();
-        
-        std::thread::spawn(move || {
-            while let Ok(cmd) = rx_cmd.recv() {
-                match cmd {
-                    RefreshCommand::Fetch(count) => {
-                        let result = if !IpcClient::is_server_running() {
-                            RefreshResult::Error("后台服务未运行，无法获取日志".to_string())
-                        } else {
-                            match IpcClient::get_logs(count) {
-                                Ok(resp) => {
-                                    if let Some(logs) = resp.logs {
-                                        RefreshResult::Logs(logs)
-                                    } else {
-                                        RefreshResult::Logs(Vec::new())
-                                    }
-                                }
-                                Err(e) => RefreshResult::Error(format!("获取日志失败：{}", e)),
-                            }
-                        };
-                        let _ = tx_result.send(result);
-                    }
-                }
-            }
-        });
+        let log_dir = Config::get_config_path()
+            .parent()
+            .map(|p| p.join("logs"))
+            .unwrap_or_else(|| PathBuf::from("C:\\ProgramData\\wftpg\\logs"));
         
         Self {
             logs: Vec::new(),
@@ -68,10 +39,9 @@ impl Default for LogTab {
             last_error: None,
             loading: false,
             last_refresh_time: None,
-            refresh_sender: tx,
-            refresh_receiver: rx_result,
             current_page: 1,
             total_pages: 1,
+            log_dir,
         }
     }
 }
@@ -79,35 +49,66 @@ impl Default for LogTab {
 impl LogTab {
     pub fn new() -> Self {
         let mut tab = Self::default();
-        tab.request_refresh();
+        tab.load_logs();
         tab
+    }
+
+    fn load_logs(&mut self) {
+        self.loading = true;
+        self.last_error = None;
+        
+        let log_dir = self.log_dir.clone();
+        let count = self.fetch_count;
+        
+        let mut all_logs = Vec::new();
+        
+        if let Ok(entries) = fs::read_dir(&log_dir) {
+            let mut log_files: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.file_name().to_string_lossy().starts_with("wftpg-") 
+                    && e.file_name().to_string_lossy().ends_with(".log")
+                })
+                .collect();
+            
+            log_files.sort_by(|a, b| {
+                b.file_name().cmp(&a.file_name())
+            });
+            
+            for entry in log_files {
+                if all_logs.len() >= count {
+                    break;
+                }
+                
+                if let Ok(file) = File::open(entry.path()) {
+                    let reader = BufReader::new(file);
+                    for line in reader.lines() {
+                        if all_logs.len() >= count {
+                            break;
+                        }
+                        if let Ok(line) = line {
+                            if let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line) {
+                                all_logs.push(log_entry);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        all_logs.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        
+        self.logs = all_logs;
+        self.loading = false;
+        self.last_refresh_time = Some(Instant::now());
+        self.update_pagination();
     }
 
     fn request_refresh(&mut self) {
         if self.loading {
             return;
         }
-        self.loading = true;
-        self.last_error = None;
-        let _ = self.refresh_sender.send(RefreshCommand::Fetch(self.fetch_count));
-    }
-
-    fn check_refresh_result(&mut self, ctx: &egui::Context) {
-        if let Ok(result) = self.refresh_receiver.try_recv() {
-            self.loading = false;
-            match result {
-                RefreshResult::Logs(logs) => {
-                    self.logs = logs;
-                    self.last_error = None;
-                    self.last_refresh_time = Some(Instant::now());
-                    self.update_pagination();
-                }
-                RefreshResult::Error(e) => {
-                    self.last_error = Some(e);
-                }
-            }
-            ctx.request_repaint();
-        }
+        self.load_logs();
     }
 
     fn update_pagination(&mut self) {
@@ -121,7 +122,7 @@ impl LogTab {
         }
     }
 
-    fn get_page_logs(&self) -> &[LogEntryDto] {
+    fn get_page_logs(&self) -> &[LogEntry] {
         let start = (self.current_page - 1) * PAGE_SIZE;
         let end = std::cmp::min(start + PAGE_SIZE, self.logs.len());
         if start < self.logs.len() {
@@ -148,8 +149,6 @@ impl LogTab {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        self.check_refresh_result(ui.ctx());
-
         styles::page_header(ui, "📋", "系统日志");
 
         ui.horizontal(|ui| {
@@ -194,7 +193,7 @@ impl LogTab {
         });
 
         if self.auto_refresh {
-            ui.ctx().request_repaint_after(Duration::from_secs(2));
+            ui.ctx().request_repaint_after(Duration::from_secs(5));
             if !self.loading {
                 self.request_refresh();
             }
@@ -219,7 +218,7 @@ impl LogTab {
             }
             
             if self.logs.is_empty() {
-                styles::empty_state(ui, "📭", "暂无日志记录", "点击刷新按钮获取最新日志");
+                styles::empty_state(ui, "📭", "暂无日志记录", "服务运行后日志会在这里显示");
                 return;
             }
 
@@ -264,18 +263,18 @@ impl LogTab {
                     for entry in display_logs {
                         body.row(styles::FONT_SIZE_MD, |mut row| {
                             row.col(|ui| {
-                                ui.label(RichText::new(&entry.timestamp)
+                                ui.label(RichText::new(entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string())
                                     .size(styles::FONT_SIZE_SM)
                                     .color(styles::TEXT_SECONDARY_COLOR));
                             });
                             row.col(|ui| {
-                                let level_color = match entry.level.as_str() {
-                                    "ERROR" => styles::DANGER_COLOR,
-                                    "WARN" => styles::WARNING_COLOR,
-                                    "DEBUG" => styles::TEXT_MUTED_COLOR,
+                                let level_color = match entry.level {
+                                    crate::core::logger::LogLevel::Error => styles::DANGER_COLOR,
+                                    crate::core::logger::LogLevel::Warning => styles::WARNING_COLOR,
+                                    crate::core::logger::LogLevel::Debug => styles::TEXT_MUTED_COLOR,
                                     _ => styles::SUCCESS_COLOR,
                                 };
-                                ui.label(RichText::new(&entry.level)
+                                ui.label(RichText::new(entry.level.to_string())
                                     .size(styles::FONT_SIZE_SM)
                                     .strong()
                                     .color(level_color));

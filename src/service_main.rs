@@ -1,13 +1,14 @@
 //! WFTPD - SFTP/FTP Server Daemon
 //! 
 //! This is the main daemon that runs in the background and manages
-//! FTP and SFTP services. It listens on a named pipe for IPC commands.
+//! FTP and SFTP services. It listens on a named pipe for IPC commands
+//! to reload configuration files.
 
 #![windows_subsystem = "windows"]
 extern crate windows_service;
 
 use wftpg::AppState;
-use wftpg::core::ipc::{IpcServer, Command, Response, CommandData};
+use wftpg::core::ipc::{IpcServer, ReloadCommand, ReloadResponse};
 use wftpg::core::windows_ipc::PIPE_NAME;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,110 +26,7 @@ use windows_service::{
     service_dispatcher,
 };
 
-// === Command Handlers ===
-
-fn handle_status(state: &AppState) -> Response {
-    Response::ok(state.is_ftp_running(), state.is_sftp_running())
-}
-
-fn handle_start_ftp(state: &AppState) -> Response {
-    if state.is_ftp_running() {
-        return Response::ok(true, state.is_sftp_running());
-    }
-    
-    match state.start_ftp() {
-        Ok(()) => {
-            log_service_start(state, "FTP");
-            Response::ok(true, state.is_sftp_running())
-        }
-        Err(e) => Response::error(&format!("FTP启动失败: {e}")),
-    }
-}
-
-fn handle_start_sftp(state: &AppState) -> Response {
-    if state.is_sftp_running() {
-        return Response::ok(state.is_ftp_running(), true);
-    }
-    
-    match state.start_sftp() {
-        Ok(()) => {
-            log_service_start(state, "SFTP");
-            Response::ok(state.is_ftp_running(), true)
-        }
-        Err(e) => Response::error(&format!("SFTP启动失败: {e}")),
-    }
-}
-
-fn handle_start_all(state: &AppState) -> Response {
-    let mut ftp_ok = state.is_ftp_running();
-    let mut sftp_ok = state.is_sftp_running();
-    
-    if !ftp_ok {
-        ftp_ok = state.start_ftp().is_ok();
-    }
-    if !sftp_ok {
-        sftp_ok = state.start_sftp().is_ok();
-    }
-    
-    if ftp_ok && sftp_ok {
-        log_info(state, "SERVER", "所有服务已启动");
-        Response::ok(true, true)
-    } else {
-        Response::error("部分服务启动失败")
-    }
-}
-
-fn handle_stop_ftp(state: &AppState) -> Response {
-    state.stop_ftp();
-    log_info(state, "FTP", "FTP服务已停止");
-    Response::ok(false, state.is_sftp_running())
-}
-
-fn handle_stop_sftp(state: &AppState) -> Response {
-    state.stop_sftp();
-    log_info(state, "SFTP", "SFTP服务已停止");
-    Response::ok(state.is_ftp_running(), false)
-}
-
-fn handle_stop_all(state: &AppState) -> Response {
-    state.stop_all();
-    log_info(state, "SERVER", "所有服务已停止");
-    Response::ok(false, false)
-}
-
-// === Helper Functions ===
-
-fn log_service_start(state: &AppState, service: &str) {
-    if let Ok(mut log) = state.logger.try_lock()
-        && let Ok(cfg) = state.config.try_lock() {
-            let (bind_ip, port) = if service == "FTP" {
-                (cfg.server.bind_ip.clone(), cfg.server.ftp_port)
-            } else {
-                (cfg.server.bind_ip.clone(), cfg.server.sftp_port)
-            };
-            log.info(service, &format!("{service}服务已启动，监听 {bind_ip}:{port}"));
-        }
-}
-
-fn log_info(state: &AppState, source: &str, message: &str) {
-    if let Ok(mut log) = state.logger.try_lock() {
-        log.info(source, message);
-    }
-}
-
-fn handle_command(state: &AppState, cmd: &Command) -> Response {
-    match cmd.action.as_str() {
-        "status" => handle_status(state),
-        "start" => handle_start_action(state, cmd),
-        "stop" => handle_stop_action(state, cmd),
-        "reload" => handle_reload(state),
-        "get_logs" => handle_get_logs(state, cmd),
-        "get_file_logs" => handle_get_file_logs(state, cmd),
-        _ => Response::error("未知命令"),
-    }
-}
-
-fn handle_reload(state: &AppState) -> Response {
+fn handle_reload(state: &AppState) -> ReloadResponse {
     let config_msg = match state.reload_config() {
         Ok(()) => "配置已重新加载".to_string(),
         Err(e) => format!("配置重新加载失败: {e}"),
@@ -142,69 +40,18 @@ fn handle_reload(state: &AppState) -> Response {
     let message = format!("{config_msg}; {users_msg}");
     
     if config_msg.contains("失败") || users_msg.contains("失败") {
-        Response {
-            success: false,
-            message,
-            ftp_running: state.is_ftp_running(),
-            sftp_running: state.is_sftp_running(),
-            logs: None,
-            file_logs: None,
-        }
+        ReloadResponse::error(&message)
     } else {
-        Response {
-            success: true,
-            message,
-            ftp_running: state.is_ftp_running(),
-            sftp_running: state.is_sftp_running(),
-            logs: None,
-            file_logs: None,
-        }
+        ReloadResponse::ok()
     }
 }
 
-fn handle_get_logs(state: &AppState, cmd: &Command) -> Response {
-    let count = cmd.data.as_ref()
-        .and_then(|d| match d {
-            CommandData::GetLogs { count, .. } => Some(*count),
-            CommandData::GetFileLogs { .. } => None,
-        })
-        .unwrap_or(100);
-    
-    let logs = state.get_logs(count);
-    Response::with_logs(state.is_ftp_running(), state.is_sftp_running(), logs)
-}
-
-fn handle_get_file_logs(state: &AppState, cmd: &Command) -> Response {
-    let count = cmd.data.as_ref()
-        .and_then(|d| match d {
-            CommandData::GetFileLogs { count } => Some(*count),
-            CommandData::GetLogs { .. } => None,
-        })
-        .unwrap_or(100);
-    
-    let file_logs = state.get_file_logs(count);
-    Response::with_file_logs(state.is_ftp_running(), state.is_sftp_running(), file_logs)
-}
-
-fn handle_start_action(state: &AppState, cmd: &Command) -> Response {
-    match cmd.service.as_deref().unwrap_or("all") {
-        "ftp" => handle_start_ftp(state),
-        "sftp" => handle_start_sftp(state),
-        "all" => handle_start_all(state),
-        _ => Response::error("未知服务"),
+fn handle_command(state: &AppState, cmd: &ReloadCommand) -> ReloadResponse {
+    match cmd.action.as_str() {
+        "reload" => handle_reload(state),
+        _ => ReloadResponse::error("未知命令"),
     }
 }
-
-fn handle_stop_action(state: &AppState, cmd: &Command) -> Response {
-    match cmd.service.as_deref().unwrap_or("all") {
-        "ftp" => handle_stop_ftp(state),
-        "sftp" => handle_stop_sftp(state),
-        "all" => handle_stop_all(state),
-        _ => Response::error("未知服务"),
-    }
-}
-
-// === Service Implementation ===
 
 const SERVICE_NAME: &str = "wftpd";
 const SERVICE_DISPLAY_NAME: &str = "WFTPD SFTP/FTP Server";
@@ -226,7 +73,6 @@ fn run_service() -> windows_service::Result<()> {
         env!("CARGO_PKG_VERSION")
     );
 
-    // 首先注册服务控制处理器并报告 Running 状态，避免 1053 超时错误
     let running = Arc::new(AtomicBool::new(true));
     let running_clone = Arc::clone(&running);
 
@@ -246,7 +92,6 @@ fn run_service() -> windows_service::Result<()> {
 
     let status_handle = service_control_handler::register(SERVICE_NAME, event_handler)?;
 
-    // 立即报告 Running 状态（必须在 30 秒内完成）
     let running_status = ServiceStatus {
         service_type: ServiceType::OWN_PROCESS,
         current_state: ServiceState::Running,
@@ -258,7 +103,6 @@ fn run_service() -> windows_service::Result<()> {
     };
     status_handle.set_service_status(running_status)?;
 
-    // 在后台线程中初始化服务和运行主循环
     let service_thread = thread::spawn(move || {
         let state = match create_app_state() {
             Ok(s) => s,
@@ -285,10 +129,8 @@ fn run_service() -> windows_service::Result<()> {
         log::info!("Service stopped");
     });
 
-    // 等待服务线程完成
     let _ = service_thread.join();
 
-    // 报告 Stopped 状态
     let stopped_status = ServiceStatus {
         service_type: ServiceType::OWN_PROCESS,
         current_state: ServiceState::Stopped,
@@ -315,9 +157,7 @@ fn run_main_loop_with_shutdown(state: &Arc<AppState>, ipc_server: &IpcServer, ru
                     }
                 });
             }
-            Ok(None) => {
-                // Timeout, continue loop to check running flag
-            }
+            Ok(None) => {}
             Err(e) => {
                 log::error!("Failed to accept IPC connection: {e}");
             }
@@ -377,8 +217,6 @@ fn uninstall_service() -> anyhow::Result<()> {
     Ok(())
 }
 
-// === Main Entry Point ===
-
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     
@@ -404,9 +242,7 @@ fn main() {
         }
     }
     
-    // Run as Windows service (started by service dispatcher) or console application
     if let Err(_e) = service_dispatcher::start(SERVICE_NAME, ffi_service_main) {
-        // If service_dispatcher::start fails, run as console application
         run_console_application();
     }
 }

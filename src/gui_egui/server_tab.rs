@@ -25,14 +25,12 @@ pub enum ConfigLoadState {
 #[derive(Debug)]
 pub struct ServerTab {
     pub config: Option<Config>,
-    pub ftp_running: bool,
-    pub sftp_running: bool,
     pub status_message: Option<(String, bool)>,
     file_dialog: FileDialog,
     file_dialog_target: FileDialogTarget,
     config_load_state: ConfigLoadState,
     config_load_error: Option<String>,
-    save_receiver: Option<mpsc::Receiver<Result<(), String>>>,
+    save_receiver: Option<mpsc::Receiver<Result<String, String>>>,
     is_saving: bool,
 }
 
@@ -40,8 +38,6 @@ impl Default for ServerTab {
     fn default() -> Self {
         Self {
             config: None,
-            ftp_running: false,
-            sftp_running: false,
             status_message: None,
             file_dialog: FileDialog::new(),
             file_dialog_target: FileDialogTarget::None,
@@ -54,8 +50,10 @@ impl Default for ServerTab {
 }
 
 impl ServerTab {
-    pub fn new() -> Self { 
-        Self::default() 
+    pub fn new() -> Self {
+        let mut tab = Self::default();
+        tab.load_config();
+        tab
     }
 
     pub fn load_config(&mut self) {
@@ -72,11 +70,6 @@ impl ServerTab {
                 self.status_message = Some((format!("配置加载失败，使用默认配置: {}", e), false));
             }
         }
-    }
-
-    pub fn update_status(&mut self, ftp_running: bool, sftp_running: bool) {
-        self.ftp_running = ftp_running;
-        self.sftp_running = sftp_running;
     }
 
     pub fn save_config_async(&mut self, ctx: &egui::Context) {
@@ -101,28 +94,29 @@ impl ServerTab {
             let result = match config.save(&Config::get_config_path()) {
                 Ok(_) => {
                     log::info!("服务器配置保存成功");
-                    Ok(())
+                    
+                    if IpcClient::is_server_running() {
+                        match IpcClient::notify_reload() {
+                            Ok(response) => {
+                                if response.success {
+                                    Ok("配置已保存，后端服务已重新加载配置".to_string())
+                                } else {
+                                    Ok(format!("配置已保存，但后端重新加载失败: {}", response.message))
+                                }
+                            }
+                            Err(e) => {
+                                Ok(format!("配置已保存，但通知后端失败: {}。请手动重启服务。", e))
+                            }
+                        }
+                    } else {
+                        Ok("配置已保存（后端服务未运行）".to_string())
+                    }
                 }
                 Err(e) => {
                     log::error!("保存服务器配置失败: {}", e);
                     Err(format!("保存失败: {}", e))
                 }
             };
-            
-            if IpcClient::is_server_running() {
-                match IpcClient::send_command(crate::core::ipc::Command {
-                    action: "reload".to_string(),
-                    service: None,
-                    data: None,
-                }) {
-                    Ok(_) => {
-                        log::info!("已通知服务器重新加载配置");
-                    }
-                    Err(e) => {
-                        log::warn!("通知服务器重新加载配置失败: {}。建议手动重启服务。", e);
-                    }
-                }
-            }
             
             let _ = tx.send(result);
             ctx_clone.request_repaint();
@@ -137,8 +131,8 @@ impl ServerTab {
             self.is_saving = false;
             
             match result {
-                Ok(_) => {
-                    self.status_message = Some(("配置已保存并已通知服务器重新加载".to_string(), true));
+                Ok(msg) => {
+                    self.status_message = Some((msg, true));
                 }
                 Err(e) => {
                     self.status_message = Some((e, false));

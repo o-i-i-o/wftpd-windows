@@ -5,7 +5,6 @@ use egui::{CentralPanel, RichText, Color32, IconData};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use wftpg::core::ipc::IpcClient;
 use wftpg::core::server_manager::ServerManager;
 use wftpg::gui_egui::{server_tab, user_tab, security_tab, service_tab, log_tab, file_log_tab, styles};
 
@@ -29,15 +28,6 @@ enum ServiceInstallStatus {
 
 struct InitResult {
     show_service_dialog: bool,
-    ftp_running: bool,
-    sftp_running: bool,
-    server_running: bool,
-}
-
-struct StatusCheckResult {
-    ftp_running: bool,
-    sftp_running: bool,
-    server_running: bool,
 }
 
 struct CachedStyles {
@@ -129,19 +119,14 @@ struct WftpgApp {
     service_tab:    service_tab::ServiceTab,
     log_tab:        log_tab::LogTab,
     file_log_tab:   file_log_tab::FileLogTab,
-    ftp_running:    bool,
-    sftp_running:   bool,
-    server_running: bool,
     show_service_install_dialog: bool,
     service_install_status: ServiceInstallStatus,
     service_install_receiver: Option<mpsc::Receiver<Result<(), String>>>,
     service_install_start_time: Option<Instant>,
-    last_refresh:   Instant,
     init_state:     InitState,
     init_error:     Option<String>,
     init_receiver:  Option<mpsc::Receiver<Result<InitResult, String>>>,
     init_start_time: Instant,
-    status_check_receiver: Option<mpsc::Receiver<StatusCheckResult>>,
     cached_styles:  CachedStyles,
 }
 
@@ -184,19 +169,14 @@ impl WftpgApp {
             service_tab:    service_tab::ServiceTab::new(),
             log_tab:        log_tab::LogTab::new(),
             file_log_tab:   file_log_tab::FileLogTab::new(),
-            ftp_running:    false,
-            sftp_running:   false,
-            server_running: false,
             show_service_install_dialog: false,
             service_install_status: ServiceInstallStatus::None,
             service_install_receiver: None,
             service_install_start_time: None,
-            last_refresh:   Instant::now(),
             init_state:     InitState::Loading,
             init_error:     None,
             init_receiver:  Some(init_rx),
             init_start_time: Instant::now(),
-            status_check_receiver: None,
             cached_styles:  CachedStyles::new(),
         }
     }
@@ -215,23 +195,8 @@ impl WftpgApp {
                 }
             }
 
-        let (ftp_running, sftp_running, server_running) = if IpcClient::is_server_running() {
-            match IpcClient::get_status() {
-                Ok(resp) => (resp.ftp_running, resp.sftp_running, true),
-                Err(e) => {
-                    log::warn!("获取服务器状态失败: {}", e);
-                    (false, false, false)
-                }
-            }
-        } else {
-            (false, false, false)
-        };
-
         Ok(InitResult {
             show_service_dialog,
-            ftp_running,
-            sftp_running,
-            server_running,
         })
     }
     
@@ -254,11 +219,6 @@ impl WftpgApp {
                 match result {
                     Ok(init_result) => {
                         self.show_service_install_dialog = init_result.show_service_dialog;
-                        self.ftp_running = init_result.ftp_running;
-                        self.sftp_running = init_result.sftp_running;
-                        self.server_running = init_result.server_running;
-                        self.server_tab.update_status(init_result.ftp_running, init_result.sftp_running);
-                        self.server_tab.load_config();
                         self.init_state = InitState::Ready;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                     }
@@ -303,64 +263,6 @@ impl WftpgApp {
 }
 
 impl WftpgApp {
-    fn check_server_status_async(&mut self, ctx: &egui::Context) {
-        if self.status_check_receiver.is_some() {
-            return;
-        }
-        
-        let (tx, rx) = mpsc::channel();
-        self.status_check_receiver = Some(rx);
-        
-        let ctx_clone = ctx.clone();
-        std::thread::spawn(move || {
-            let result = if IpcClient::is_server_running() {
-                match IpcClient::get_status() {
-                    Ok(resp) => StatusCheckResult {
-                        ftp_running: resp.ftp_running,
-                        sftp_running: resp.sftp_running,
-                        server_running: true,
-                    },
-                    Err(e) => {
-                        log::warn!("异步获取服务器状态失败: {}", e);
-                        StatusCheckResult {
-                            ftp_running: false,
-                            sftp_running: false,
-                            server_running: false,
-                        }
-                    }
-                }
-            } else {
-                StatusCheckResult {
-                    ftp_running: false,
-                    sftp_running: false,
-                    server_running: false,
-                }
-            };
-            
-            let _ = tx.send(result);
-            ctx_clone.request_repaint();
-        });
-    }
-
-    fn check_status_result(&mut self) {
-        if let Some(rx) = &self.status_check_receiver
-            && let Ok(result) = rx.try_recv() {
-                self.status_check_receiver = None;
-                self.ftp_running = result.ftp_running;
-                self.sftp_running = result.sftp_running;
-                self.server_running = result.server_running;
-                self.server_tab.update_status(result.ftp_running, result.sftp_running);
-                self.last_refresh = Instant::now();
-            }
-    }
-
-    fn auto_refresh(&mut self, ctx: &egui::Context) {
-        if self.last_refresh.elapsed() >= Duration::from_secs(3) {
-            self.check_server_status_async(ctx);
-        }
-        self.check_status_result();
-    }
-
     fn install_service(&mut self, ctx: &egui::Context) {
         self.service_install_status = ServiceInstallStatus::Installing;
         self.service_install_start_time = Some(Instant::now());
@@ -521,7 +423,6 @@ impl App for WftpgApp {
         }
         
         self.check_service_install_result();
-        self.auto_refresh(ctx);
         self.show_service_dialog(ctx);
 
         CentralPanel::default()
