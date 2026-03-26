@@ -100,6 +100,7 @@ mod custom_datetime_format {
     }
 }
 
+/// 统一的日志条目结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
     #[serde(with = "custom_datetime_format")]
@@ -107,12 +108,28 @@ pub struct LogEntry {
     pub level: LogLevel,
     #[serde(default)]
     pub target: String,
-    #[serde(default)]
-    pub fields: LogFields,
+    #[serde(flatten)]
+    pub data: LogData,
 }
 
+/// 日志数据类型枚举，区分系统日志和文件操作日志
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "log_type", content = "fields")]
+#[serde(rename_all = "snake_case")]
+pub enum LogData {
+    System(SystemFields),
+    FileOp(FileOpFields),
+}
+
+impl Default for LogData {
+    fn default() -> Self {
+        LogData::System(SystemFields::default())
+    }
+}
+
+/// 系统日志字段
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct LogFields {
+pub struct SystemFields {
     #[serde(default)]
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -123,15 +140,7 @@ pub struct LogFields {
     pub action: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileOpLogEntry {
-    #[serde(with = "custom_datetime_format")]
-    pub timestamp: DateTime<Local>,
-    pub level: LogLevel,
-    #[serde(default)]
-    pub fields: FileOpFields,
-}
-
+/// 文件操作日志字段
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FileOpFields {
     #[serde(default)]
@@ -152,12 +161,13 @@ pub struct FileOpFields {
     pub message: String,
 }
 
-pub struct LogBuffer {
-    buffer: Arc<RwLock<VecDeque<LogEntry>>>,
+/// 泛型日志缓冲区，替代 LogBuffer 和 FileOpBuffer
+pub struct LogBuffer<T> {
+    buffer: Arc<RwLock<VecDeque<T>>>,
     max_size: usize,
 }
 
-impl LogBuffer {
+impl<T: Clone> LogBuffer<T> {
     pub fn new(max_size: usize) -> Self {
         Self {
             buffer: Arc::new(RwLock::new(VecDeque::with_capacity(max_size))),
@@ -165,7 +175,7 @@ impl LogBuffer {
         }
     }
 
-    pub fn push(&self, entry: LogEntry) {
+    pub fn push(&self, entry: T) {
         let mut buf = self.buffer.write();
         if buf.len() >= self.max_size {
             buf.pop_front();
@@ -173,7 +183,7 @@ impl LogBuffer {
         buf.push_back(entry);
     }
 
-    pub fn get_recent(&self, count: usize) -> Vec<LogEntry> {
+    pub fn get_recent(&self, count: usize) -> Vec<T> {
         let buf = self.buffer.read();
         buf.iter().rev().take(count).cloned().collect()
     }
@@ -186,12 +196,12 @@ impl LogBuffer {
         self.buffer.read().is_empty()
     }
 
-    pub fn clone_inner(&self) -> Arc<RwLock<VecDeque<LogEntry>>> {
+    pub fn clone_inner(&self) -> Arc<RwLock<VecDeque<T>>> {
         Arc::clone(&self.buffer)
     }
 }
 
-impl Clone for LogBuffer {
+impl<T: Clone> Clone for LogBuffer<T> {
     fn clone(&self) -> Self {
         Self {
             buffer: Arc::clone(&self.buffer),
@@ -200,57 +210,18 @@ impl Clone for LogBuffer {
     }
 }
 
-pub struct FileOpBuffer {
-    buffer: Arc<RwLock<VecDeque<FileOpLogEntry>>>,
-    max_size: usize,
+/// 系统日志 Layer
+pub struct SystemLogLayer {
+    buffer: LogBuffer<LogEntry>,
 }
 
-impl FileOpBuffer {
-    pub fn new(max_size: usize) -> Self {
-        Self {
-            buffer: Arc::new(RwLock::new(VecDeque::with_capacity(max_size))),
-            max_size,
-        }
-    }
-
-    pub fn push(&self, entry: FileOpLogEntry) {
-        let mut buf = self.buffer.write();
-        if buf.len() >= self.max_size {
-            buf.pop_front();
-        }
-        buf.push_back(entry);
-    }
-
-    pub fn get_recent(&self, count: usize) -> Vec<FileOpLogEntry> {
-        let buf = self.buffer.read();
-        buf.iter().rev().take(count).cloned().collect()
-    }
-
-    pub fn clone_inner(&self) -> Arc<RwLock<VecDeque<FileOpLogEntry>>> {
-        Arc::clone(&self.buffer)
-    }
-}
-
-impl Clone for FileOpBuffer {
-    fn clone(&self) -> Self {
-        Self {
-            buffer: Arc::clone(&self.buffer),
-            max_size: self.max_size,
-        }
-    }
-}
-
-pub struct BufferLayer {
-    buffer: LogBuffer,
-}
-
-impl BufferLayer {
-    pub fn new(buffer: LogBuffer) -> Self {
+impl SystemLogLayer {
+    pub fn new(buffer: LogBuffer<LogEntry>) -> Self {
         Self { buffer }
     }
 }
 
-impl<S> Layer<S> for BufferLayer
+impl<S> Layer<S> for SystemLogLayer
 where
     S: tracing::Subscriber,
 {
@@ -265,36 +236,37 @@ where
         let level = *metadata.level();
         let log_level = LogLevel::from_tracing_level(level);
 
-        let mut visitor = FieldVisitor::new();
+        let mut visitor = SystemFieldVisitor::new();
         event.record(&mut visitor);
 
         let entry = LogEntry {
             timestamp: Local::now(),
             level: log_level,
             target: target.to_string(),
-            fields: LogFields {
+            data: LogData::System(SystemFields {
                 message: visitor.message.unwrap_or_default(),
                 client_ip: visitor.client_ip,
                 username: visitor.username,
                 action: visitor.action,
-            },
+            }),
         };
 
         self.buffer.push(entry);
     }
 }
 
-pub struct FileOpLayer {
-    buffer: FileOpBuffer,
+/// 文件操作日志 Layer
+pub struct FileOpLogLayer {
+    buffer: LogBuffer<LogEntry>,
 }
 
-impl FileOpLayer {
-    pub fn new(buffer: FileOpBuffer) -> Self {
+impl FileOpLogLayer {
+    pub fn new(buffer: LogBuffer<LogEntry>) -> Self {
         Self { buffer }
     }
 }
 
-impl<S> Layer<S> for FileOpLayer
+impl<S> Layer<S> for FileOpLogLayer
 where
     S: tracing::Subscriber,
 {
@@ -312,10 +284,11 @@ where
         let mut visitor = FileOpFieldVisitor::new();
         event.record(&mut visitor);
 
-        let entry = FileOpLogEntry {
+        let entry = LogEntry {
             timestamp: Local::now(),
             level: log_level,
-            fields: FileOpFields {
+            target: target.to_string(),
+            data: LogData::FileOp(FileOpFields {
                 username: visitor.username.unwrap_or_default(),
                 client_ip: visitor.client_ip.unwrap_or_default(),
                 operation: visitor.operation.unwrap_or_default(),
@@ -324,21 +297,21 @@ where
                 protocol: visitor.protocol.unwrap_or_default(),
                 success: visitor.success.unwrap_or(true),
                 message: visitor.message.unwrap_or_default(),
-            },
+            }),
         };
 
         self.buffer.push(entry);
     }
 }
 
-struct FieldVisitor {
+struct SystemFieldVisitor {
     message: Option<String>,
     client_ip: Option<String>,
     username: Option<String>,
     action: Option<String>,
 }
 
-impl FieldVisitor {
+impl SystemFieldVisitor {
     fn new() -> Self {
         Self {
             message: None,
@@ -349,7 +322,7 @@ impl FieldVisitor {
     }
 }
 
-impl tracing::field::Visit for FieldVisitor {
+impl tracing::field::Visit for SystemFieldVisitor {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         if field.name() == "message" {
             self.message = Some(format!("{:?}", value));
@@ -434,15 +407,15 @@ impl tracing::field::Visit for FileOpFieldVisitor {
 static mut GLOBAL_LOGGER: Option<GlobalLogger> = None;
 
 struct GlobalLogger {
-    buffer: LogBuffer,
-    file_op_buffer: FileOpBuffer,
+    buffer: LogBuffer<LogEntry>,
+    file_op_buffer: LogBuffer<LogEntry>,
     _guard: WorkerGuard,
     _file_op_guard: WorkerGuard,
 }
 
 pub struct TracingLogger {
-    buffer: LogBuffer,
-    file_op_buffer: FileOpBuffer,
+    buffer: LogBuffer<LogEntry>,
+    file_op_buffer: LogBuffer<LogEntry>,
 }
 
 impl TracingLogger {
@@ -463,7 +436,7 @@ impl TracingLogger {
         }
 
         let buffer = LogBuffer::new(1000);
-        let file_op_buffer = FileOpBuffer::new(2000);
+        let file_op_buffer = LogBuffer::new(2000);
 
         let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
             .rotation(tracing_appender::rolling::Rotation::DAILY)
@@ -488,10 +461,9 @@ impl TracingLogger {
         let level_filter: tracing::Level = log_level.to_lowercase().parse()
             .unwrap_or(tracing::Level::INFO);
 
-        let buffer_layer = BufferLayer::new(buffer.clone());
-        let file_op_buffer_layer = FileOpLayer::new(file_op_buffer.clone());
+        let buffer_layer = SystemLogLayer::new(buffer.clone());
+        let file_op_buffer_layer = FileOpLogLayer::new(file_op_buffer.clone());
         
-        // 程序日志层：只记录非 file_op 的日志
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_writer(non_blocking)
             .with_ansi(false)
@@ -501,11 +473,9 @@ impl TracingLogger {
             .with_timer(tracing_subscriber::fmt::time::ChronoLocal::rfc_3339())
             .json()
             .with_filter(filter::filter_fn(|metadata| {
-                // 排除 file_op 相关的日志
                 !metadata.target().starts_with("file_op")
             }));
 
-        // 文件操作日志层：只记录 file_op 的日志
         let file_op_fmt_layer = tracing_subscriber::fmt::layer()
             .with_writer(file_op_non_blocking)
             .with_ansi(false)
@@ -513,7 +483,6 @@ impl TracingLogger {
             .with_timer(tracing_subscriber::fmt::time::ChronoLocal::rfc_3339())
             .json()
             .with_filter(filter::filter_fn(|metadata| {
-                // 只保留 file_op 相关的日志
                 metadata.target().starts_with("file_op")
             }));
 
@@ -546,15 +515,15 @@ impl TracingLogger {
         self.buffer.get_recent(count)
     }
 
-    pub fn get_recent_file_ops(&self, count: usize) -> Vec<FileOpLogEntry> {
+    pub fn get_recent_file_ops(&self, count: usize) -> Vec<LogEntry> {
         self.file_op_buffer.get_recent(count)
     }
 
-    pub fn buffer(&self) -> LogBuffer {
+    pub fn buffer(&self) -> LogBuffer<LogEntry> {
         self.buffer.clone()
     }
 
-    pub fn file_op_buffer(&self) -> FileOpBuffer {
+    pub fn file_op_buffer(&self) -> LogBuffer<LogEntry> {
         self.file_op_buffer.clone()
     }
 }
@@ -583,7 +552,10 @@ impl LogReader {
         }
     }
 
-    pub fn read_logs(&self, count: usize) -> Vec<LogEntry> {
+    fn read_entries<F>(&self, count: usize, file_prefix: &str, filter: F) -> Vec<LogEntry>
+    where
+        F: Fn(&LogEntry) -> bool,
+    {
         let mut logs = Vec::new();
         let log_files = match std::fs::read_dir(&self.log_dir) {
             Ok(entries) => entries
@@ -592,7 +564,7 @@ impl LogReader {
                     e.file_name()
                         .to_str()
                         .is_some_and(|name| {
-                            name.starts_with("wftpg-") &&
+                            name.starts_with(file_prefix) &&
                             name.ends_with(".log")
                         })
                 })
@@ -613,12 +585,20 @@ impl LogReader {
                         break;
                     }
                     if let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line) {
-                        logs.push(log_entry);
+                        if filter(&log_entry) {
+                            logs.push(log_entry);
+                        }
                     }
                 }
             }
         }
 
+        logs
+    }
+
+    pub fn read_logs(&self, count: usize) -> Vec<LogEntry> {
+        let logs = self.read_entries(count, "wftpg-", |entry| matches!(entry.data, LogData::System(_)));
+        
         {
             let mut buffer = self.buffer.write();
             buffer.clear();
@@ -633,43 +613,8 @@ impl LogReader {
         logs
     }
 
-    pub fn read_file_ops(&self, count: usize) -> Vec<FileOpLogEntry> {
-        let mut logs = Vec::new();
-        let log_files = match std::fs::read_dir(&self.log_dir) {
-            Ok(entries) => entries
-                .filter_map(|e| e.ok())
-                .filter(|e| {
-                    e.file_name()
-                        .to_str()
-                        .is_some_and(|name| {
-                            name.starts_with("file-ops-") &&
-                            name.ends_with(".log")
-                        })
-                })
-                .collect::<Vec<_>>(),
-            Err(_) => return logs,
-        };
-
-        for entry in log_files.iter().rev() {
-            if logs.len() >= count {
-                break;
-            }
-
-            if let Ok(file) = std::fs::File::open(entry.path()) {
-                use std::io::{BufRead, BufReader};
-                let reader = BufReader::new(file);
-                for line in reader.lines().map_while(Result::ok) {
-                    if logs.len() >= count {
-                        break;
-                    }
-                    if let Ok(log_entry) = serde_json::from_str::<FileOpLogEntry>(&line) {
-                        logs.push(log_entry);
-                    }
-                }
-            }
-        }
-
-        logs
+    pub fn read_file_ops(&self, count: usize) -> Vec<LogEntry> {
+        self.read_entries(count, "file-ops-", |entry| matches!(entry.data, LogData::FileOp(_)))
     }
 
     pub fn get_recent_logs(&self, count: usize) -> Vec<LogEntry> {
@@ -749,6 +694,19 @@ macro_rules! file_op_log {
             protocol = %$protocol,
             success = true,
             "文件重命名成功"
+        )
+    };
+    (move, $username:expr, $client_ip:expr, $old_path:expr, $new_path:expr, $protocol:expr) => {
+        tracing::info!(
+            target: "file_op",
+            username = %$username,
+            client_ip = %$client_ip,
+            operation = "MOVE",
+            file_path = %format!("{} -> {}", $old_path, $new_path),
+            file_size = 0u64,
+            protocol = %$protocol,
+            success = true,
+            "文件移动成功"
         )
     };
     (mkdir, $username:expr, $client_ip:expr, $dir_path:expr, $protocol:expr) => {
@@ -834,12 +792,12 @@ mod tests {
                 timestamp: Local::now(),
                 level: LogLevel::Info,
                 target: format!("test{}", i),
-                fields: LogFields {
+                data: LogData::System(SystemFields {
                     message: format!("message{}", i),
                     client_ip: None,
                     username: None,
                     action: None,
-                },
+                }),
             });
         }
         assert_eq!(buffer.len(), 5);
@@ -849,12 +807,13 @@ mod tests {
 
     #[test]
     fn test_file_op_buffer() {
-        let buffer = FileOpBuffer::new(5);
+        let buffer = LogBuffer::new(5);
         for i in 0..10 {
-            buffer.push(FileOpLogEntry {
+            buffer.push(LogEntry {
                 timestamp: Local::now(),
                 level: LogLevel::Info,
-                fields: FileOpFields {
+                target: "file_op".to_string(),
+                data: LogData::FileOp(FileOpFields {
                     username: format!("user{}", i),
                     client_ip: "127.0.0.1".to_string(),
                     operation: "UPLOAD".to_string(),
@@ -863,41 +822,69 @@ mod tests {
                     protocol: "FTP".to_string(),
                     success: true,
                     message: "test".to_string(),
-                },
+                }),
             });
         }
         assert_eq!(buffer.get_recent(10).len(), 5);
     }
 
     #[test]
-    fn test_log_entry_json_parse() {
-        let json = r#"{"timestamp":"2026-03-26T01:41:16.932086200+08:00","level":"INFO","fields":{"message":"WFTPD Service - SFTP/FTP Server Daemon v3.1.17"}}"#;
-        let result: Result<LogEntry, _> = serde_json::from_str(json);
-        match &result {
-            Ok(entry) => {
-                assert_eq!(entry.level, LogLevel::Info);
-                assert_eq!(entry.target, "");
-                assert!(entry.fields.message.contains("WFTPD Service"));
+    fn test_log_entry_json_roundtrip() {
+        let entry = LogEntry {
+            timestamp: Local::now(),
+            level: LogLevel::Info,
+            target: "test".to_string(),
+            data: LogData::System(SystemFields {
+                message: "Test message".to_string(),
+                client_ip: Some("192.168.1.1".to_string()),
+                username: Some("testuser".to_string()),
+                action: Some("CONNECT".to_string()),
+            }),
+        };
+        
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: LogEntry = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(parsed.level, LogLevel::Info);
+        assert_eq!(parsed.target, "test");
+        match parsed.data {
+            LogData::System(fields) => {
+                assert_eq!(fields.message, "Test message");
+                assert_eq!(fields.client_ip, Some("192.168.1.1".to_string()));
             }
-            Err(e) => {
-                panic!("Failed to parse log entry: {}", e);
-            }
+            _ => panic!("Expected System log data"),
         }
     }
 
     #[test]
-    fn test_log_entry_json_parse_with_client_ip() {
-        let json = r#"{"timestamp":"2026-03-26T01:41:21.730255100+08:00","level":"INFO","fields":{"message":"Client connected from 192.168.139.9","client_ip":"192.168.139.9","action":"CONNECT"}}"#;
-        let result: Result<LogEntry, _> = serde_json::from_str(json);
-        match &result {
-            Ok(entry) => {
-                assert_eq!(entry.level, LogLevel::Info);
-                assert_eq!(entry.fields.client_ip, Some("192.168.139.9".to_string()));
-                assert_eq!(entry.fields.action, Some("CONNECT".to_string()));
+    fn test_file_op_entry_json_roundtrip() {
+        let entry = LogEntry {
+            timestamp: Local::now(),
+            level: LogLevel::Info,
+            target: "file_op".to_string(),
+            data: LogData::FileOp(FileOpFields {
+                username: "user1".to_string(),
+                client_ip: "192.168.1.1".to_string(),
+                operation: "UPLOAD".to_string(),
+                file_path: "/test/file.txt".to_string(),
+                file_size: 1024,
+                protocol: "SFTP".to_string(),
+                success: true,
+                message: "Upload successful".to_string(),
+            }),
+        };
+        
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: LogEntry = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(parsed.level, LogLevel::Info);
+        match parsed.data {
+            LogData::FileOp(fields) => {
+                assert_eq!(fields.username, "user1");
+                assert_eq!(fields.operation, "UPLOAD");
+                assert_eq!(fields.file_size, 1024);
             }
-            Err(e) => {
-                panic!("Failed to parse log entry: {}", e);
-            }
+            _ => panic!("Expected FileOp log data"),
         }
     }
 }

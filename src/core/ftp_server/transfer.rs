@@ -160,7 +160,7 @@ pub async fn receive_file(
         return Err(e);
     }
 
-    tracing::info!("STOR completed: {} bytes written to {}", total_written, file_path.display());
+    tracing::debug!("STOR completed: {} bytes written to {}", total_written, file_path.display());
     Ok(total_written)
 }
 
@@ -300,7 +300,7 @@ pub async fn receive_file_with_limits(
         return Err(e);
     }
 
-    tracing::info!("STOR completed: {} bytes written to {}", total_written, file_path.display());
+    tracing::debug!("STOR completed: {} bytes written to {}", total_written, file_path.display());
     Ok(total_written)
 }
 

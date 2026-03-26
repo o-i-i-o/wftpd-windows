@@ -1,6 +1,6 @@
 use egui::RichText;
 use crate::core::config::Config;
-use crate::core::logger::LogEntry;
+use crate::core::logger::{LogEntry, LogData, SystemFields};
 use crate::gui_egui::styles;
 use egui_extras::TableBuilder;
 use std::time::{Duration, Instant};
@@ -89,7 +89,9 @@ impl LogTab {
                         if let Ok(line) = line
                             && let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line)
                         {
-                            all_logs.push(log_entry);
+                            if matches!(log_entry.data, LogData::System(_)) {
+                                all_logs.push(log_entry);
+                            }
                         }
                     }
                 }
@@ -145,6 +147,13 @@ impl LogTab {
                 }
             }
             None => "未刷新".to_string(),
+        }
+    }
+
+    fn get_system_fields(entry: &LogEntry) -> Option<&SystemFields> {
+        match &entry.data {
+            LogData::System(fields) => Some(fields),
+            _ => None,
         }
     }
 
@@ -261,6 +270,7 @@ impl LogTab {
                 })
                 .body(|mut body| {
                     for entry in display_logs {
+                        let fields = Self::get_system_fields(entry);
                         body.row(styles::FONT_SIZE_MD, |mut row| {
                             row.col(|ui| {
                                 ui.label(RichText::new(entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string())
@@ -285,17 +295,22 @@ impl LogTab {
                                     .color(styles::TEXT_SECONDARY_COLOR));
                             });
                             row.col(|ui| {
-                                ui.label(RichText::new(
-                                    entry.fields.client_ip.as_deref().unwrap_or("-"),
-                                )
-                                .size(styles::FONT_SIZE_SM)
-                                .color(styles::TEXT_LABEL_COLOR));
+                                let client_ip = fields
+                                    .and_then(|f| f.client_ip.as_deref())
+                                    .unwrap_or("-");
+                                ui.label(RichText::new(client_ip)
+                                    .size(styles::FONT_SIZE_SM)
+                                    .color(styles::TEXT_LABEL_COLOR));
                             });
                             row.col(|ui| {
-                                let msg = if let Some(user) = &entry.fields.username {
-                                    format!("[{}] {}", user, entry.fields.message)
+                                let msg = if let Some(f) = fields {
+                                    if let Some(user) = &f.username {
+                                        format!("[{}] {}", user, f.message)
+                                    } else {
+                                        f.message.clone()
+                                    }
                                 } else {
-                                    entry.fields.message.clone()
+                                    "-".to_string()
                                 };
                                 ui.label(RichText::new(&msg).size(styles::FONT_SIZE_SM).color(styles::TEXT_PRIMARY_COLOR));
                             });

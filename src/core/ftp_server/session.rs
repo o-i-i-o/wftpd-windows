@@ -1458,14 +1458,6 @@ async fn handle_command(
                     "FTP"
                 );
 
-                tracing::info!(
-                    client_ip = %client_ip,
-                    username = ?state.current_user.as_deref(),
-                    action = "DOWNLOAD",
-                    "Downloaded: {} ({} bytes from offset {})",
-                    filename, remaining, state.rest_offset
-                );
-
                 state.rest_offset = 0;
             }
         }
@@ -1495,12 +1487,12 @@ async fn handle_command(
                 }
 
                 let is_abs = filename.starts_with('/');
-                tracing::info!("STOR: raw_filename='{}', is_absolute={}, cwd='{}', home='{}', passive_mode={}, data_port={:?}", 
+                tracing::debug!("STOR: raw_filename='{}', is_absolute={}, cwd='{}', home='{}', passive_mode={}, data_port={:?}", 
                     filename, is_abs, state.cwd, state.home_dir, state.passive_mode, state.data_port);
                 
                 let file_path = match state.resolve_path(filename) {
                     Ok(p) => {
-                        tracing::info!("STOR: resolved_path='{}'", p.display());
+                        tracing::debug!("STOR: resolved_path='{}'", p.display());
                         p
                     },
                     Err(e) => {
@@ -1509,12 +1501,12 @@ async fn handle_command(
                         return Ok(true);
                     }
                 };
-                
+
                 let normalized_home_dir = state.home_dir.replace('/', "\\");
                 let normalized_file_path_str = file_path.to_string_lossy().replace('/', "\\");
                 let starts_with_home = path_starts_with_ignore_case(&file_path, &state.home_dir) || normalized_file_path_str.to_lowercase().starts_with(&normalized_home_dir.to_lowercase());
                 
-                tracing::info!("STOR: resolved='{}', normalized_home='{}', starts_with={}", 
+                tracing::debug!("STOR: resolved='{}', normalized_home='{}', starts_with={}", 
                     file_path.display(), normalized_home_dir, starts_with_home);
                 if !starts_with_home {
                     tracing::warn!("STOR denied: path outside home - {} (home: {})", file_path.display(), state.home_dir);
@@ -1608,13 +1600,6 @@ async fn handle_command(
                             "FTP"
                         );
                     }
-
-                    tracing::info!(
-                        client_ip = %client_ip,
-                        username = ?state.current_user.as_deref(),
-                        action = "UPLOAD",
-                        "Uploaded: {} ({} bytes) at offset {}", filename, uploaded_size, state.rest_offset
-                    );
                 } else {
                     let _ = control_stream.write_all(b"451 Transfer failed\r\n").await;
                     crate::file_op_log!(
@@ -1698,13 +1683,6 @@ async fn handle_command(
                     true,
                     "文件追加成功"
                 );
-
-                tracing::info!(
-                    client_ip = %client_ip,
-                    username = ?state.current_user.as_deref(),
-                    action = "APPEND",
-                    "Appended: {}", filename
-                );
             }
         }
 
@@ -1753,12 +1731,6 @@ async fn handle_command(
                         client_ip,
                         &file_path.to_string_lossy(),
                         "FTP"
-                    );
-                    tracing::info!(
-                        client_ip = %client_ip,
-                        username = ?state.current_user.as_deref(),
-                        action = "DELETE",
-                        "Deleted: {}", filename
                     );
                 } else {
                     let _ = control_stream.write_all(b"450 File unavailable: delete operation failed\r\n").await;
@@ -1814,12 +1786,6 @@ async fn handle_command(
                         &dir_path.to_string_lossy(),
                         "FTP"
                     );
-                    tracing::info!(
-                        client_ip = %client_ip,
-                        username = ?state.current_user.as_deref(),
-                        action = "MKDIR",
-                        "Created directory: {}", dirname
-                    );
                 } else {
                     let _ = control_stream.write_all(b"550 Create directory operation failed\r\n").await;
                 }
@@ -1866,12 +1832,6 @@ async fn handle_command(
                         &dir_path.to_string_lossy(),
                         "FTP"
                     );
-                    tracing::info!(
-                        client_ip = %client_ip,
-                        username = ?state.current_user.as_deref(),
-                        action = "RMDIR",
-                        "Removed directory: {}", dirname
-                    );
                 } else {
                     let _ = control_stream.write_all(b"550 Remove directory operation failed\r\n").await;
                 }
@@ -1905,12 +1865,12 @@ async fn handle_command(
                         return Ok(true);
                     }
                 };
-                tracing::info!("RNFR: raw='{}', resolved='{}', exists={}, starts_with={}", 
+                tracing::debug!("RNFR: raw='{}', resolved='{}', exists={}, starts_with={}", 
                     from_name, from_path.display(), from_path.exists(), path_starts_with_ignore_case(&from_path, &state.home_dir));
                 if from_path.exists() && path_starts_with_ignore_case(&from_path, &state.home_dir) {
                     state.rename_from = Some(from_path.to_string_lossy().to_string());
                     let _ = control_stream.write_all(b"350 File exists, ready for destination name\r\n").await;
-                    tracing::info!(
+                    tracing::debug!(
                         client_ip = %client_ip,
                         username = ?state.current_user.as_deref(),
                         action = "RNFR",
@@ -1937,7 +1897,7 @@ async fn handle_command(
                             return Ok(true);
                         }
                     };
-                    tracing::info!("RNTO: raw='{}', resolved='{}', from='{}'", to_name, to_path.display(), from_path);
+                    tracing::debug!("RNTO: raw='{}', resolved='{}', from='{}'", to_name, to_path.display(), from_path);
                     if !path_starts_with_ignore_case(&to_path, &state.home_dir) {
                         tracing::warn!("RNTO failed: destination outside home - {}", to_path.display());
                         let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
@@ -1948,20 +1908,28 @@ async fn handle_command(
                     match tokio::fs::rename(&from_path_buf, &to_path).await {
                         Ok(()) => {
                             let _ = control_stream.write_all(b"250 Rename successful\r\n").await;
-                            crate::file_op_log!(
-                                rename,
-                                state.current_user.as_deref().unwrap_or("anonymous"),
-                                client_ip,
-                                from_path,
-                                &to_path.to_string_lossy(),
-                                "FTP"
-                            );
-                            tracing::info!(
-                                client_ip = %client_ip,
-                                username = ?state.current_user.as_deref(),
-                                action = "RENAME",
-                                "Renamed: {} -> {}", from_path, to_path.display()
-                            );
+                            // 判断是重命名还是移动：检查父目录是否相同
+                            let from_parent = from_path_buf.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+                            let to_parent = to_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+                            if from_parent == to_parent {
+                                crate::file_op_log!(
+                                    rename,
+                                    state.current_user.as_deref().unwrap_or("anonymous"),
+                                    client_ip,
+                                    from_path,
+                                    &to_path.to_string_lossy(),
+                                    "FTP"
+                                );
+                            } else {
+                                crate::file_op_log!(
+                                    move,
+                                    state.current_user.as_deref().unwrap_or("anonymous"),
+                                    client_ip,
+                                    from_path,
+                                    &to_path.to_string_lossy(),
+                                    "FTP"
+                                );
+                            }
                         }
                         Err(e) => {
                             tracing::error!("Rename failed: {} -> {}: {} (os error {})", from_path, to_path.display(), e, e.raw_os_error().unwrap_or(0));
@@ -2099,13 +2067,6 @@ async fn handle_command(
                 &file_path.to_string_lossy(),
                 uploaded_size,
                 "FTP"
-            );
-
-            tracing::info!(
-                client_ip = %client_ip,
-                username = ?state.current_user.as_deref(),
-                action = "UPLOAD",
-                "Uploaded unique file: {}", unique_name
             );
         }
 

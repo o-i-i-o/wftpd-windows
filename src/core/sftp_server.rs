@@ -758,14 +758,8 @@ impl SftpState {
                     );
                 }
 
-                tracing::info!(
-                    client_ip = %self.client_ip,
-                    username = ?self.username.as_deref(),
-                    action = if existed { "UPDATE" } else { "UPLOAD" },
-                    "{}: {} ({} bytes)", if existed { "Updated" } else { "Uploaded" }, path.display(), file_size
-                );
             }
-            
+
             if read_bytes > 0 {
                 crate::file_op_log!(
                     download,
@@ -774,13 +768,6 @@ impl SftpState {
                     &path.to_string_lossy(),
                     read_bytes,
                     "SFTP"
-                );
-
-                tracing::info!(
-                    client_ip = %self.client_ip,
-                    username = ?self.username.as_deref(),
-                    action = "DOWNLOAD",
-                    "Downloaded: {} ({} bytes)", path.display(), read_bytes
                 );
             }
         } else {
@@ -886,8 +873,6 @@ impl SftpState {
                     Ok(n) => {
                         buffer.truncate(n);
                         *read_bytes += n as u64;
-                        
-                        tracing::info!("SFTP READ: {} bytes from {:?} at offset {}", n, path, offset);
 
                         tracing::debug!(
                             client_ip = %self.client_ip,
@@ -961,7 +946,7 @@ impl SftpState {
                 }
 
                 *written_bytes += data_len as u64;
-                tracing::info!("SFTP WRITE: {} bytes to {:?} at offset {}", data_len, path, offset);
+                tracing::debug!("SFTP WRITE: {} bytes to {:?} at offset {}", data_len, path, offset);
 
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
@@ -996,12 +981,6 @@ impl SftpState {
                 &full_path.to_string_lossy(),
                 "SFTP"
             );
-            tracing::info!(
-                client_ip = %self.client_ip,
-                username = ?self.username.as_deref(),
-                action = "DELETE",
-                "Removed file: {}", path
-            );
             Ok(self.build_status_packet(id, 0, "OK", ""))
         } else {
             Ok(self.build_status_packet(id, 4, "Failed to remove file", ""))
@@ -1032,12 +1011,6 @@ impl SftpState {
                 &full_path.to_string_lossy(),
                 "SFTP"
             );
-            tracing::info!(
-                client_ip = %self.client_ip,
-                username = ?self.username.as_deref(),
-                action = "MKDIR",
-                "Created directory: {}", path
-            );
             Ok(self.build_status_packet(id, 0, "OK", ""))
         } else {
             Ok(self.build_status_packet(id, 4, "Failed to create directory", ""))
@@ -1067,12 +1040,6 @@ impl SftpState {
                 &self.client_ip,
                 &full_path.to_string_lossy(),
                 "SFTP"
-            );
-            tracing::info!(
-                client_ip = %self.client_ip,
-                username = ?self.username.as_deref(),
-                action = "RMDIR",
-                "Removed directory: {}", path
             );
             Ok(self.build_status_packet(id, 0, "OK", ""))
         } else {
@@ -1106,7 +1073,7 @@ impl SftpState {
             }
         };
 
-        tracing::info!("SFTP RENAME: raw_old='{}', resolved_old='{}', raw_new='{}', resolved_new='{}'", 
+        tracing::debug!("SFTP RENAME: raw_old='{}', resolved_old='{}', raw_new='{}', resolved_new='{}'", 
             old_path, old_full.display(), new_path, new_full.display());
 
         if !old_full.exists() {
@@ -1181,20 +1148,28 @@ impl SftpState {
 
         match tokio::fs::rename(&old_full, &new_full).await {
             Ok(()) => {
-                crate::file_op_log!(
-                    rename,
-                    self.username.as_deref().unwrap_or("anonymous"),
-                    &self.client_ip,
-                    &old_full.to_string_lossy(),
-                    &new_full.to_string_lossy(),
-                    "SFTP"
-                );
-                tracing::info!(
-                    client_ip = %self.client_ip,
-                    username = ?self.username.as_deref(),
-                    action = "RENAME",
-                    "Renamed: {} -> {}", old_path, new_path
-                );
+                // 判断是重命名还是移动：检查父目录是否相同
+                let old_parent = old_full.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+                let new_parent = new_full.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+                if old_parent == new_parent {
+                    crate::file_op_log!(
+                        rename,
+                        self.username.as_deref().unwrap_or("anonymous"),
+                        &self.client_ip,
+                        &old_full.to_string_lossy(),
+                        &new_full.to_string_lossy(),
+                        "SFTP"
+                    );
+                } else {
+                    crate::file_op_log!(
+                        move,
+                        self.username.as_deref().unwrap_or("anonymous"),
+                        &self.client_ip,
+                        &old_full.to_string_lossy(),
+                        &new_full.to_string_lossy(),
+                        "SFTP"
+                    );
+                }
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
             Err(e) => {
@@ -1481,7 +1456,7 @@ impl SftpState {
         };
         let file_existed = full_path.exists();
 
-        tracing::info!("SFTP OPEN: raw='{}', resolved='{}', existed={}, flags=0x{:08X} (read={}, write={}, append={}, creat={}, trunc={}, excl={})", 
+        tracing::debug!("SFTP OPEN: raw='{}', resolved='{}', existed={}, flags=0x{:08X} (read={}, write={}, append={}, creat={}, trunc={}, excl={})", 
             path, full_path.display(), file_existed, pflags, need_read, need_write, need_append, need_creat, need_trunc, need_excl);
 
         let file_result = if need_write {
@@ -1529,7 +1504,7 @@ impl SftpState {
                     written_bytes: 0,
                     read_bytes: 0,
                 });
-                tracing::info!("SFTP OPEN: handle '{}' created for {}", handle, path);
+                tracing::debug!("SFTP OPEN: handle '{}' created for {}", handle, path);
                 Ok(self.build_handle_packet(id, &handle))
             }
             Err(e) => {
@@ -1613,12 +1588,6 @@ impl SftpState {
                 "SFTP",
                 true,
                 "符号链接创建成功"
-            );
-            tracing::info!(
-                client_ip = %self.client_ip,
-                username = ?self.username.as_deref(),
-                action = "SYMLINK",
-                "Created symlink: {} -> {}", link_path, target
             );
             Ok(self.build_status_packet(id, 0, "OK", ""))
         } else {
@@ -1860,12 +1829,6 @@ impl SftpState {
                     true,
                     "文件复制成功"
                 );
-                tracing::info!(
-                    client_ip = %self.client_ip,
-                    username = ?self.username.as_deref(),
-                    action = "COPY",
-                    "Copied: {} -> {}", src_path, dst_path
-                );
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
             Err(_) => Ok(self.build_status_packet(id, 4, "Failed to copy file", "")),
@@ -1908,12 +1871,6 @@ impl SftpState {
                     "SFTP",
                     true,
                     "硬链接创建成功"
-                );
-                tracing::info!(
-                    client_ip = %self.client_ip,
-                    username = ?self.username.as_deref(),
-                    action = "HARDLINK",
-                    "Created hardlink: {} -> {}", src_path, dst_path
                 );
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
