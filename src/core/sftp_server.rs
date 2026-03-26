@@ -160,6 +160,7 @@ impl SftpServer {
                                 tracing::info!(
                                     client_ip = %client_ip,
                                     action = "CONNECT",
+                                    protocol = "SFTP",
                                     "Client connected from {}", client_ip
                                 );
 
@@ -346,6 +347,7 @@ impl russh::server::Handler for SftpHandler {
                     client_ip = %self.client_ip,
                     username = %user,
                     action = "LOGIN",
+                    protocol = "SFTP",
                     "User {} logged in", user
                 );
 
@@ -356,9 +358,10 @@ impl russh::server::Handler for SftpHandler {
                     client_ip = %self.client_ip,
                     username = %user,
                     action = "AUTH_FAIL",
+                    protocol = "SFTP",
                     "Failed login attempt for user {}", user
                 );
-                Ok(server::Auth::Reject { 
+                Ok(server::Auth::Reject {
                     proceed_with_methods: None,
                     partial_success: false,
                 })
@@ -368,6 +371,7 @@ impl russh::server::Handler for SftpHandler {
                     client_ip = %self.client_ip,
                     username = %user,
                     action = "AUTH_ERROR",
+                    protocol = "SFTP",
                     "Authentication error for user {}: {}", user, e
                 );
                 Ok(server::Auth::Reject { 

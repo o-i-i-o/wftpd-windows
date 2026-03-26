@@ -106,30 +106,15 @@ pub struct LogEntry {
     #[serde(with = "custom_datetime_format")]
     pub timestamp: DateTime<Local>,
     pub level: LogLevel,
-    #[serde(default)]
+    #[serde(default, rename = "target")]
     pub target: String,
-    #[serde(flatten)]
-    pub data: LogData,
+    #[serde(default)]
+    pub fields: LogFields,
 }
 
-/// 日志数据类型枚举，区分系统日志和文件操作日志
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "log_type", content = "fields")]
-#[serde(rename_all = "snake_case")]
-pub enum LogData {
-    System(SystemFields),
-    FileOp(FileOpFields),
-}
-
-impl Default for LogData {
-    fn default() -> Self {
-        LogData::System(SystemFields::default())
-    }
-}
-
-/// 系统日志字段
+/// 日志字段结构
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SystemFields {
+pub struct LogFields {
     #[serde(default)]
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -138,27 +123,16 @@ pub struct SystemFields {
     pub username: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
-}
-
-/// 文件操作日志字段
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct FileOpFields {
-    #[serde(default)]
-    pub username: String,
-    #[serde(default)]
-    pub client_ip: String,
-    #[serde(default)]
-    pub operation: String,
-    #[serde(default)]
-    pub file_path: String,
-    #[serde(default)]
-    pub file_size: u64,
-    #[serde(default)]
-    pub protocol: String,
-    #[serde(default)]
-    pub success: bool,
-    #[serde(default)]
-    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub success: Option<bool>,
 }
 
 /// 泛型日志缓冲区，替代 LogBuffer 和 FileOpBuffer
@@ -243,12 +217,17 @@ where
             timestamp: Local::now(),
             level: log_level,
             target: target.to_string(),
-            data: LogData::System(SystemFields {
+            fields: LogFields {
                 message: visitor.message.unwrap_or_default(),
                 client_ip: visitor.client_ip,
                 username: visitor.username,
                 action: visitor.action,
-            }),
+                protocol: visitor.protocol,
+                operation: None,
+                file_path: None,
+                file_size: None,
+                success: None,
+            },
         };
 
         self.buffer.push(entry);
@@ -273,7 +252,7 @@ where
     fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
         let metadata = event.metadata();
         let target = metadata.target();
-        
+
         if !target.starts_with("file_op") {
             return;
         }
@@ -288,16 +267,17 @@ where
             timestamp: Local::now(),
             level: log_level,
             target: target.to_string(),
-            data: LogData::FileOp(FileOpFields {
-                username: visitor.username.unwrap_or_default(),
-                client_ip: visitor.client_ip.unwrap_or_default(),
-                operation: visitor.operation.unwrap_or_default(),
-                file_path: visitor.file_path.unwrap_or_default(),
-                file_size: visitor.file_size.unwrap_or(0),
-                protocol: visitor.protocol.unwrap_or_default(),
-                success: visitor.success.unwrap_or(true),
+            fields: LogFields {
                 message: visitor.message.unwrap_or_default(),
-            }),
+                client_ip: visitor.client_ip.clone(),
+                username: visitor.username.clone(),
+                action: None,
+                protocol: visitor.protocol.clone(),
+                operation: visitor.operation.clone(),
+                file_path: visitor.file_path.clone(),
+                file_size: visitor.file_size,
+                success: visitor.success,
+            },
         };
 
         self.buffer.push(entry);
@@ -309,6 +289,7 @@ struct SystemFieldVisitor {
     client_ip: Option<String>,
     username: Option<String>,
     action: Option<String>,
+    protocol: Option<String>,
 }
 
 impl SystemFieldVisitor {
@@ -318,6 +299,7 @@ impl SystemFieldVisitor {
             client_ip: None,
             username: None,
             action: None,
+            protocol: None,
         }
     }
 }
@@ -335,6 +317,7 @@ impl tracing::field::Visit for SystemFieldVisitor {
             "client_ip" => self.client_ip = Some(value.to_string()),
             "username" => self.username = Some(value.to_string()),
             "action" => self.action = Some(value.to_string()),
+            "protocol" => self.protocol = Some(value.to_string()),
             _ => {}
         }
     }
@@ -597,8 +580,8 @@ impl LogReader {
     }
 
     pub fn read_logs(&self, count: usize) -> Vec<LogEntry> {
-        let logs = self.read_entries(count, "wftpg-", |entry| matches!(entry.data, LogData::System(_)));
-        
+        let logs = self.read_entries(count, "wftpg-", |entry| entry.fields.operation.is_none());
+
         {
             let mut buffer = self.buffer.write();
             buffer.clear();
@@ -614,7 +597,7 @@ impl LogReader {
     }
 
     pub fn read_file_ops(&self, count: usize) -> Vec<LogEntry> {
-        self.read_entries(count, "file-ops-", |entry| matches!(entry.data, LogData::FileOp(_)))
+        self.read_entries(count, "file-ops-", |entry| entry.fields.operation.is_some())
     }
 
     pub fn get_recent_logs(&self, count: usize) -> Vec<LogEntry> {
@@ -792,12 +775,17 @@ mod tests {
                 timestamp: Local::now(),
                 level: LogLevel::Info,
                 target: format!("test{}", i),
-                data: LogData::System(SystemFields {
+                fields: LogFields {
                     message: format!("message{}", i),
                     client_ip: None,
                     username: None,
                     action: None,
-                }),
+                    protocol: None,
+                    operation: None,
+                    file_path: None,
+                    file_size: None,
+                    success: None,
+                },
             });
         }
         assert_eq!(buffer.len(), 5);
@@ -813,16 +801,17 @@ mod tests {
                 timestamp: Local::now(),
                 level: LogLevel::Info,
                 target: "file_op".to_string(),
-                data: LogData::FileOp(FileOpFields {
-                    username: format!("user{}", i),
-                    client_ip: "127.0.0.1".to_string(),
-                    operation: "UPLOAD".to_string(),
-                    file_path: format!("/path/{}", i),
-                    file_size: 100,
-                    protocol: "FTP".to_string(),
-                    success: true,
+                fields: LogFields {
                     message: "test".to_string(),
-                }),
+                    client_ip: Some("127.0.0.1".to_string()),
+                    username: Some(format!("user{}", i)),
+                    action: None,
+                    protocol: Some("FTP".to_string()),
+                    operation: Some("UPLOAD".to_string()),
+                    file_path: Some(format!("/path/{}", i)),
+                    file_size: Some(100),
+                    success: Some(true),
+                },
             });
         }
         assert_eq!(buffer.get_recent(10).len(), 5);
@@ -834,26 +823,26 @@ mod tests {
             timestamp: Local::now(),
             level: LogLevel::Info,
             target: "test".to_string(),
-            data: LogData::System(SystemFields {
+            fields: LogFields {
                 message: "Test message".to_string(),
                 client_ip: Some("192.168.1.1".to_string()),
                 username: Some("testuser".to_string()),
                 action: Some("CONNECT".to_string()),
-            }),
+                protocol: Some("SFTP".to_string()),
+                operation: None,
+                file_path: None,
+                file_size: None,
+                success: None,
+            },
         };
-        
+
         let json = serde_json::to_string(&entry).unwrap();
         let parsed: LogEntry = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(parsed.level, LogLevel::Info);
         assert_eq!(parsed.target, "test");
-        match parsed.data {
-            LogData::System(fields) => {
-                assert_eq!(fields.message, "Test message");
-                assert_eq!(fields.client_ip, Some("192.168.1.1".to_string()));
-            }
-            _ => panic!("Expected System log data"),
-        }
+        assert_eq!(parsed.fields.message, "Test message");
+        assert_eq!(parsed.fields.client_ip, Some("192.168.1.1".to_string()));
     }
 
     #[test]
@@ -862,29 +851,25 @@ mod tests {
             timestamp: Local::now(),
             level: LogLevel::Info,
             target: "file_op".to_string(),
-            data: LogData::FileOp(FileOpFields {
-                username: "user1".to_string(),
-                client_ip: "192.168.1.1".to_string(),
-                operation: "UPLOAD".to_string(),
-                file_path: "/test/file.txt".to_string(),
-                file_size: 1024,
-                protocol: "SFTP".to_string(),
-                success: true,
+            fields: LogFields {
                 message: "Upload successful".to_string(),
-            }),
+                client_ip: Some("192.168.1.1".to_string()),
+                username: Some("user1".to_string()),
+                action: None,
+                protocol: Some("SFTP".to_string()),
+                operation: Some("UPLOAD".to_string()),
+                file_path: Some("/test/file.txt".to_string()),
+                file_size: Some(1024),
+                success: Some(true),
+            },
         };
-        
+
         let json = serde_json::to_string(&entry).unwrap();
         let parsed: LogEntry = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(parsed.level, LogLevel::Info);
-        match parsed.data {
-            LogData::FileOp(fields) => {
-                assert_eq!(fields.username, "user1");
-                assert_eq!(fields.operation, "UPLOAD");
-                assert_eq!(fields.file_size, 1024);
-            }
-            _ => panic!("Expected FileOp log data"),
-        }
+        assert_eq!(parsed.fields.username, Some("user1".to_string()));
+        assert_eq!(parsed.fields.operation, Some("UPLOAD".to_string()));
+        assert_eq!(parsed.fields.file_size, Some(1024));
     }
 }

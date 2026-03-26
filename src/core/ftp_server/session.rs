@@ -581,6 +581,7 @@ async fn handle_command(
                                         client_ip = %client_ip,
                                         username = "anonymous",
                                         action = "LOGIN",
+                                        protocol = "FTP",
                                         "Anonymous user logged in"
                                     );
                                 }
@@ -634,6 +635,7 @@ async fn handle_command(
                                 client_ip = %client_ip,
                                 username = %username,
                                 action = "LOGIN",
+                                protocol = "FTP",
                                 "User {} logged in", username
                             );
                         }
@@ -642,6 +644,7 @@ async fn handle_command(
                                 client_ip = %client_ip,
                                 username = %username,
                                 action = "AUTH_FAIL",
+                                protocol = "FTP",
                                 "Authentication failed for user {}", username
                             );
                             let _ = control_stream.write_all(b"530 Not logged in, user cannot be authenticated\r\n").await;
@@ -931,6 +934,7 @@ async fn handle_command(
                 client_ip = %client_ip,
                 username = ?state.current_user.as_deref(),
                 action = "PASV",
+                protocol = "FTP",
                 "PASV mode: port {}", passive_port
             );
         }
