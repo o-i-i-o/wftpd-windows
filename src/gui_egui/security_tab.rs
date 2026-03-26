@@ -288,12 +288,14 @@ impl SecurityTab {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.check_save_result();
         
-        styles::page_header(ui, "🔒", "安全设置");
-
-        if let Some((msg, success)) = &self.status_message {
-            styles::status_message(ui, msg, *success);
-            ui.add_space(styles::SPACING_MD);
-        }
+        ui.horizontal(|ui| {
+            styles::page_header(ui, "🔒", "安全设置");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some((msg, success)) = &self.status_message {
+                    styles::status_message(ui, msg, *success);
+                }
+            });
+        });
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());

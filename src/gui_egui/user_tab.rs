@@ -366,12 +366,14 @@ impl UserTab {
 
         self.show_modal(&ctx);
 
-        styles::page_header(ui, "👥", "用户管理");
-
-        if let Some((msg, ok)) = &self.status_message.clone() {
-            styles::status_message(ui, msg, *ok);
-            ui.add_space(styles::SPACING_MD);
-        }
+        ui.horizontal(|ui| {
+            styles::page_header(ui, "👥", "用户管理");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some((msg, ok)) = &self.status_message.clone() {
+                    styles::status_message(ui, msg, *ok);
+                }
+            });
+        });
 
         ui.horizontal(|ui| {
             let add_btn = egui::Button::new(RichText::new("➕ 添加用户").color(Color32::WHITE).size(styles::FONT_SIZE_MD))

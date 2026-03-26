@@ -54,12 +54,14 @@ impl ServiceTab {
             self.refresh_status();
         }
 
-        styles::page_header(ui, "🖥", "系统服务管理");
-
-        if let Some((msg, ok)) = &self.status_message.clone() {
-            styles::status_message(ui, msg, *ok);
-            ui.add_space(styles::SPACING_MD);
-        }
+        ui.horizontal(|ui| {
+            styles::page_header(ui, "🖥", "系统服务管理");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some((msg, ok)) = &self.status_message.clone() {
+                    styles::status_message(ui, msg, *ok);
+                }
+            });
+        });
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
