@@ -632,6 +632,11 @@ fn main() -> eframe::Result<()> {
 
     let icon = load_icon();
 
+    let persistence_path = std::path::PathBuf::from("C:\\ProgramData\\wftpg\\gui_state");
+    if let Some(parent) = persistence_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 750.0])
@@ -639,6 +644,8 @@ fn main() -> eframe::Result<()> {
             .with_resizable(true)
             .with_visible(false)
             .with_icon(icon),
+        persist_window: true,
+        persistence_path: Some(persistence_path),
         ..Default::default()
     };
 

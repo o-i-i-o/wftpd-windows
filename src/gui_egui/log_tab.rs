@@ -231,9 +231,9 @@ impl LogTab {
                 .resizable(true)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                 .column(styles::table_column_percent(available_width, 0.20, 130.0))
-                .column(styles::table_column_percent(available_width, 0.10, 70.0))
-                .column(styles::table_column_percent(available_width, 0.10, 60.0))
-                .column(styles::table_column_percent(available_width, 0.15, 100.0))
+                .column(styles::table_column_percent(available_width, 0.08, 55.0))
+                .column(styles::table_column_percent(available_width, 0.08, 55.0))
+                .column(styles::table_column_percent(available_width, 0.12, 90.0))
                 .column(styles::table_column_remainder(280.0))
                 .min_scrolled_height(0.0)
                 .sense(egui::Sense::hover());
