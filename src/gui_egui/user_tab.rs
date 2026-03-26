@@ -1,4 +1,4 @@
-﻿use egui::{Color32, RichText, Ui, Frame};
+use egui::{Color32, RichText, Ui, Frame};
 use crate::core::users::{User, UserManager, Permissions};
 use crate::core::config::Config;
 use crate::gui_egui::styles;
@@ -130,7 +130,7 @@ impl UserTab {
                         ui.vertical_centered(|ui| {
                             ui.add_space(styles::SPACING_SM);
                             ui.label(RichText::new(format!("确定要删除用户 \"{}\" 吗？", name)).size(styles::FONT_SIZE_MD));
-                            ui.label(RichText::new("此操作不可撤销。").color(styles::DANGER_COLOR).size(styles::FONT_SIZE_SM));
+                            ui.label(RichText::new("此操作不可撤销。").color(styles::DANGER_COLOR).size(styles::FONT_SIZE_MD));
                             ui.add_space(styles::SPACING_MD);
                         });
                         ui.horizontal(|ui| {
@@ -239,7 +239,7 @@ impl UserTab {
                     
                     if let Some(ref err) = self.form_error.clone() {
                         ui.add_space(styles::SPACING_XS);
-                        ui.label(RichText::new(err).color(styles::DANGER_COLOR).size(styles::FONT_SIZE_SM));
+                        ui.label(RichText::new(err).color(styles::DANGER_COLOR).size(styles::FONT_SIZE_MD));
                     }
                     ui.add_space(styles::SPACING_SM);
                     ui.separator();
@@ -397,7 +397,7 @@ impl UserTab {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let count = self.user_manager.get_all_users().len();
                 ui.label(RichText::new(format!("共 {} 个用户", count))
-                    .size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
+                    .size(styles::FONT_SIZE_MD).color(styles::TEXT_MUTED_COLOR));
             });
         });
 
@@ -415,6 +415,7 @@ impl UserTab {
                 ui.set_min_width(ui.available_width());
                 
                 let available_width = ui.available_width();
+                
                 let table = TableBuilder::new(ui)
                     .striped(true)
                     .resizable(true)
@@ -457,14 +458,14 @@ impl UserTab {
                                 });
                                 row.col(|ui| {
                                     ui.label(RichText::new(&user_clone.home_dir)
-                                        .size(styles::FONT_SIZE_SM)
+                                        .size(styles::FONT_SIZE_MD)
                                         .color(styles::TEXT_SECONDARY_COLOR));
                                 });
                                 row.col(|ui| {
                                     let admin_rt = if user_clone.is_admin {
-                                        RichText::new("👑 管理员").size(styles::FONT_SIZE_SM).color(styles::PRIMARY_COLOR)
+                                        RichText::new("👑 管理员").size(styles::FONT_SIZE_MD).color(styles::PRIMARY_COLOR)
                                     } else {
-                                        RichText::new("👤 普通").size(styles::FONT_SIZE_SM).color(styles::TEXT_LABEL_COLOR)
+                                        RichText::new("👤 普通").size(styles::FONT_SIZE_MD).color(styles::TEXT_LABEL_COLOR)
                                     };
                                     ui.label(admin_rt);
                                 });
@@ -476,13 +477,13 @@ impl UserTab {
                                     };
                                     let st_icon = if user_clone.enabled { "●" } else { "○" };
                                     ui.label(RichText::new(format!("{} 启用", st_icon))
-                                        .size(styles::FONT_SIZE_SM).color(st_col));
+                                        .size(styles::FONT_SIZE_MD).color(st_col));
                                 });
                                 row.col(|ui| {
                                     ui.horizontal(|ui| {
                                         ui.spacing_mut().item_spacing.x = 6.0;
                                         
-                                        let edit_btn = egui::Button::new(RichText::new("编辑").size(styles::FONT_SIZE_SM))
+                                        let edit_btn = egui::Button::new(RichText::new("编辑").size(styles::FONT_SIZE_MD))
                                             .fill(styles::BG_SECONDARY)
                                             .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
                                             .corner_radius(egui::CornerRadius::same(4));
@@ -491,7 +492,7 @@ impl UserTab {
                                         }
                                         
                                         let toggle_btn = egui::Button::new(
-                                            RichText::new(if user_clone.enabled {"禁用"} else {"启用"}).size(styles::FONT_SIZE_SM))
+                                            RichText::new(if user_clone.enabled {"禁用"} else {"启用"}).size(styles::FONT_SIZE_MD))
                                             .fill(if user_clone.enabled { 
                                                 styles::DANGER_LIGHT 
                                             } else { 
@@ -503,7 +504,7 @@ impl UserTab {
                                             to_toggle = Some((user_clone.username.clone(), !user_clone.enabled));
                                         }
                                         
-                                        let del = egui::Button::new(RichText::new("删除").size(styles::FONT_SIZE_SM).color(Color32::WHITE))
+                                        let del = egui::Button::new(RichText::new("删除").size(styles::FONT_SIZE_MD).color(Color32::WHITE))
                                             .fill(styles::DANGER_DARK)
                                             .corner_radius(egui::CornerRadius::same(4));
                                         if ui.add(del).clicked() { 
@@ -512,8 +513,23 @@ impl UserTab {
                                     });
                                 });
                             });
+                            body.row(2.0, |mut row| {
+                                let col_count = 5;
+                                for _ in 0..col_count {
+                                    row.col(|ui| {
+                                        let rect = ui.available_rect_before_wrap();
+                                        let painter = ui.painter();
+                                        painter.hline(
+                                            rect.left()..=rect.right(),
+                                            rect.center().y,
+                                            egui::Stroke::new(1.0, styles::BORDER_COLOR),
+                                        );
+                                    });
+                                }
+                            });
                         }
                     });
+ 
             });
         }
 

@@ -190,7 +190,7 @@ impl LogTab {
             
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(RichText::new(format!("共 {} 条日志 | {}", self.logs.len(), self.format_last_refresh()))
-                    .size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
+                    .size(styles::FONT_SIZE_MD).color(styles::TEXT_MUTED_COLOR));
             });
         });
 
@@ -225,14 +225,15 @@ impl LogTab {
             }
 
             let available_width = ui.available_width();
+            
             let table = TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                .column(styles::table_column_percent(available_width, 0.16, 130.0))
-                .column(styles::table_column_percent(available_width, 0.08, 70.0))
-                .column(styles::table_column_percent(available_width, 0.07, 60.0))
-                .column(styles::table_column_percent(available_width, 0.12, 100.0))
+                .column(styles::table_column_percent(available_width, 0.20, 130.0))
+                .column(styles::table_column_percent(available_width, 0.10, 70.0))
+                .column(styles::table_column_percent(available_width, 0.10, 60.0))
+                .column(styles::table_column_percent(available_width, 0.15, 100.0))
                 .column(styles::table_column_remainder(280.0))
                 .min_scrolled_height(0.0)
                 .sense(egui::Sense::hover());
@@ -266,7 +267,7 @@ impl LogTab {
                         body.row(styles::FONT_SIZE_MD, |mut row| {
                             row.col(|ui| {
                                 ui.label(RichText::new(entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string())
-                                    .size(styles::FONT_SIZE_SM)
+                                    .size(styles::FONT_SIZE_MD)
                                     .color(styles::TEXT_SECONDARY_COLOR));
                             });
                             row.col(|ui| {
@@ -277,7 +278,7 @@ impl LogTab {
                                     _ => styles::SUCCESS_COLOR,
                                 };
                                 ui.label(RichText::new(entry.level.to_string())
-                                    .size(styles::FONT_SIZE_SM)
+                                    .size(styles::FONT_SIZE_MD)
                                     .strong()
                                     .color(level_color));
                             });
@@ -289,14 +290,14 @@ impl LogTab {
                                     _ => styles::TEXT_MUTED_COLOR,
                                 };
                                 ui.label(RichText::new(protocol)
-                                    .size(styles::FONT_SIZE_SM)
+                                    .size(styles::FONT_SIZE_MD)
                                     .strong()
                                     .color(protocol_color));
                             });
                             row.col(|ui| {
                                 let client_ip = entry.fields.client_ip.as_deref().unwrap_or("-");
                                 ui.label(RichText::new(client_ip)
-                                    .size(styles::FONT_SIZE_SM)
+                                    .size(styles::FONT_SIZE_MD)
                                     .color(styles::TEXT_LABEL_COLOR));
                             });
                             row.col(|ui| {
@@ -305,8 +306,22 @@ impl LogTab {
                                 } else {
                                     entry.fields.message.clone()
                                 };
-                                ui.label(RichText::new(&msg).size(styles::FONT_SIZE_SM).color(styles::TEXT_PRIMARY_COLOR));
+                                ui.label(RichText::new(&msg).size(styles::FONT_SIZE_MD).color(styles::TEXT_PRIMARY_COLOR));
                             });
+                        });
+                        body.row(2.0, |mut row| {
+                            let col_count = 5;
+                            for _ in 0..col_count {
+                                row.col(|ui| {
+                                    let rect = ui.available_rect_before_wrap();
+                                    let painter = ui.painter();
+                                    painter.hline(
+                                        rect.left()..=rect.right(),
+                                        rect.center().y,
+                                        egui::Stroke::new(1.0, styles::BORDER_COLOR),
+                                    );
+                                });
+                            }
                         });
                     }
                 });
@@ -317,7 +332,7 @@ impl LogTab {
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(RichText::new(format!("第 {} / {} 页", self.current_page, self.total_pages))
-                        .size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
+                        .size(styles::FONT_SIZE_MD).color(styles::TEXT_MUTED_COLOR));
                     
                     ui.add_space(styles::SPACING_SM);
                     

@@ -170,12 +170,12 @@ impl FileLogTab {
             
             ui.checkbox(&mut self.auto_refresh, "自动刷新");
             
-            ui.label(RichText::new("显示条数:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
+            ui.label(RichText::new("显示条数:").size(styles::FONT_SIZE_LG).color(styles::TEXT_SECONDARY_COLOR));
             
             let response = styles::input_frame().show(ui, |ui| {
                 ui.add(egui::TextEdit::singleline(&mut self.fetch_count_buf)
                     .desired_width(60.0)
-                    .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)))
+                    .font(egui::FontId::new(styles::FONT_SIZE_LG, egui::FontFamily::Proportional)))
             });
             
             if response.response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -192,7 +192,7 @@ impl FileLogTab {
             
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(RichText::new(format!("共 {} 条记录 | {}", self.logs.len(), self.format_last_refresh()))
-                    .size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
+                    .size(styles::FONT_SIZE_MD).color(styles::TEXT_MUTED_COLOR));
             });
         });
 
@@ -228,6 +228,7 @@ impl FileLogTab {
                 }
 
                 let available_width = ui.available_width();
+
                 let table = TableBuilder::new(ui)
                     .striped(true)
                     .resizable(true)
@@ -248,7 +249,7 @@ impl FileLogTab {
                 };
 
                 table
-                    .header(styles::FONT_SIZE_MD, |mut header| {
+                    .header(styles::FONT_SIZE_LG, |mut header| {
                         header.col(|ui| {
                             ui.strong("时间");
                         });
@@ -276,19 +277,19 @@ impl FileLogTab {
                             body.row(styles::FONT_SIZE_MD, |mut row| {
                                 row.col(|ui| {
                                     ui.label(RichText::new(entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string())
-                                        .size(styles::FONT_SIZE_SM)
+                                        .size(styles::FONT_SIZE_MD)
                                         .color(styles::TEXT_SECONDARY_COLOR));
                                 });
                                 row.col(|ui| {
                                     let username = entry.fields.username.as_deref().unwrap_or("-");
                                     ui.label(RichText::new(username)
-                                        .size(styles::FONT_SIZE_SM)
+                                        .size(styles::FONT_SIZE_MD)
                                         .color(styles::TEXT_PRIMARY_COLOR));
                                 });
                                 row.col(|ui| {
                                     let client_ip = entry.fields.client_ip.as_deref().unwrap_or("-");
                                     ui.label(RichText::new(client_ip)
-                                        .size(styles::FONT_SIZE_SM)
+                                        .size(styles::FONT_SIZE_MD)
                                         .color(styles::TEXT_LABEL_COLOR));
                                 });
                                 row.col(|ui| {
@@ -299,7 +300,7 @@ impl FileLogTab {
                                         _ => styles::TEXT_MUTED_COLOR,
                                     };
                                     ui.label(RichText::new(protocol)
-                                        .size(styles::FONT_SIZE_SM)
+                                        .size(styles::FONT_SIZE_MD)
                                         .strong()
                                         .color(protocol_color));
                                 });
@@ -316,7 +317,7 @@ impl FileLogTab {
                                     };
                                     let status_icon = if success { "✓" } else { "✗" };
                                     ui.label(RichText::new(format!("{} {}", status_icon, operation))
-                                        .size(styles::FONT_SIZE_SM)
+                                        .size(styles::FONT_SIZE_MD)
                                         .strong()
                                         .color(op_color));
                                 });
@@ -326,19 +327,32 @@ impl FileLogTab {
                                         .map(format_size)
                                         .unwrap_or_else(|| "-".to_string());
                                     ui.label(RichText::new(&size_str)
-                                        .size(styles::FONT_SIZE_SM)
+                                        .size(styles::FONT_SIZE_MD)
                                         .color(styles::TEXT_LABEL_COLOR));
                                 });
                                 row.col(|ui| {
                                     let file_path = entry.fields.file_path.as_deref().unwrap_or("-");
                                     ui.label(RichText::new(file_path)
-                                        .size(styles::FONT_SIZE_SM)
+                                        .size(styles::FONT_SIZE_MD)
                                         .color(styles::TEXT_PRIMARY_COLOR));
                                 });
                             });
+                            body.row(2.0, |mut row| {
+                                let col_count = 7;
+                                for _ in 0..col_count {
+                                    row.col(|ui| {
+                                        let rect = ui.available_rect_before_wrap();
+                                        let painter = ui.painter();
+                                        painter.hline(
+                                            rect.left()..=rect.right(),
+                                            rect.center().y,
+                                            egui::Stroke::new(1.0, styles::BORDER_COLOR),
+                                        );
+                                    });
+                                }
+                            });
                         }
                     });
-                
                 ui.add_space(styles::SPACING_MD);
             });
 
@@ -349,7 +363,7 @@ impl FileLogTab {
                 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(RichText::new(format!("第 {} / {} 页", self.current_page, self.total_pages))
-                        .size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
+                        .size(styles::FONT_SIZE_MD).color(styles::TEXT_MUTED_COLOR));
                     
                     ui.add_space(styles::SPACING_SM);
                     

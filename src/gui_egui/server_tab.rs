@@ -785,19 +785,27 @@ impl ServerTab {
         if open_file_dialog {
             match self.file_dialog_target {
                 FileDialogTarget::AnonymousHome => {
-                    self.file_dialog = FileDialog::new().title("选择匿名用户目录");
+                    self.file_dialog = FileDialog::new()
+                        .title("选择匿名用户目录")
+                        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
                     self.file_dialog.pick_directory();
                 }
                 FileDialogTarget::SftpHostKey => {
-                    self.file_dialog = FileDialog::new().title("选择 SFTP 主机密钥文件");
+                    self.file_dialog = FileDialog::new()
+                        .title("选择 SFTP 主机密钥文件")
+                        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
                     self.file_dialog.pick_file();
                 }
                 FileDialogTarget::FtpsCert => {
-                    self.file_dialog = FileDialog::new().title("选择 FTPS 证书文件");
+                    self.file_dialog = FileDialog::new()
+                        .title("选择 FTPS 证书文件")
+                        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
                     self.file_dialog.pick_file();
                 }
                 FileDialogTarget::FtpsKey => {
-                    self.file_dialog = FileDialog::new().title("选择 FTPS 私钥文件");
+                    self.file_dialog = FileDialog::new()
+                        .title("选择 FTPS 私钥文件")
+                        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
                     self.file_dialog.pick_file();
                 }
                 FileDialogTarget::None => {}
