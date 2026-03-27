@@ -1,4 +1,4 @@
-﻿use anyhow::{Result, Context};
+use anyhow::{Result, Context};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
@@ -138,7 +138,7 @@ pub struct LoggingConfig {
 }
 
 pub fn get_program_data_path() -> PathBuf {
-    let program_data = env::var("PROGRAMDATA").unwrap_or_else(|_| "C:\\ProgramData".to_string());
+    let program_data = env::var("PROGRAMDATA").unwrap_or("C:\\ProgramData".to_string());
     PathBuf::from(&program_data).join("wftpg")
 }
 

@@ -1,10 +1,11 @@
 //! WFTPG - SFTP/FTP Server Library
-//! 
+//!
 //! This library provides the core functionality for the WFTPG SFTP/FTP server.
 
 pub mod core;
 pub mod gui_egui;
 
+use parking_lot::Mutex;
 use std::sync::Arc;
 use std::path::PathBuf;
 
@@ -14,8 +15,8 @@ use core::logger::TracingLogger;
 use core::server_manager::ServerManager;
 
 pub struct AppState {
-    pub config: Arc<std::sync::Mutex<Config>>,
-    pub user_manager: Arc<std::sync::Mutex<UserManager>>,
+    pub config: Arc<Mutex<Config>>,
+    pub user_manager: Arc<Mutex<UserManager>>,
     pub logger: TracingLogger,
     server_manager: ServerManager,
     pub config_path: PathBuf,
@@ -39,8 +40,8 @@ impl AppState {
             .map_err(|e| anyhow::anyhow!("Failed to initialize logger: {}", e))?;
         
         Ok(AppState {
-            config: Arc::new(std::sync::Mutex::new(config)),
-            user_manager: Arc::new(std::sync::Mutex::new(user_manager)),
+            config: Arc::new(Mutex::new(config)),
+            user_manager: Arc::new(Mutex::new(user_manager)),
             logger,
             server_manager: ServerManager::new(),
             config_path,
@@ -82,17 +83,17 @@ impl AppState {
     
     pub fn start_all(&self) -> anyhow::Result<()> {
         let (ftp_enabled, sftp_enabled) = {
-            let config = self.config.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            let config = self.config.lock();
             (config.ftp.enabled, config.sftp.enabled)
         };
-        
+
         if ftp_enabled {
             self.start_ftp()?;
         }
         if sftp_enabled {
             self.start_sftp()?;
         }
-        
+
         Ok(())
     }
     
@@ -103,14 +104,14 @@ impl AppState {
     
     pub fn reload_config(&self) -> anyhow::Result<()> {
         let config = crate::core::config::Config::load(&self.config_path)?;
-        let mut current_config = self.config.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut current_config = self.config.lock();
         *current_config = config;
         Ok(())
     }
-    
+
     pub fn reload_users(&self) -> anyhow::Result<()> {
         let users = crate::core::users::UserManager::load(&self.users_path)?;
-        let mut current_users = self.user_manager.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut current_users = self.user_manager.lock();
         *current_users = users;
         Ok(())
     }

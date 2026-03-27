@@ -1,4 +1,5 @@
 use anyhow::Result;
+use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -235,14 +236,14 @@ impl SessionConfig {
 
 pub async fn handle_session(
     mut socket: TcpStream,
-    config: Arc<std::sync::Mutex<Config>>,
-    user_manager: Arc<std::sync::Mutex<UserManager>>,
+    config: Arc<Mutex<Config>>,
+    user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
     client_ip: String,
     _logger: TracingLogger,
 ) -> Result<()> {
     let session_config = {
-        let cfg = config.lock().map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
+        let cfg = config.lock();
         SessionConfig::from_config(&cfg, &client_ip)
     };
 
@@ -264,7 +265,7 @@ pub async fn handle_session(
 
     loop {
         let conn_timeout = {
-            let cfg = config.lock().map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
+            let cfg = config.lock();
             cfg.server.connection_timeout
         };
 
@@ -330,14 +331,14 @@ pub async fn handle_session(
 
 pub async fn handle_session_tls(
     socket: AsyncTlsTcpStream,
-    config: Arc<std::sync::Mutex<Config>>,
-    user_manager: Arc<std::sync::Mutex<UserManager>>,
+    config: Arc<Mutex<Config>>,
+    user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
     client_ip: String,
     _logger: TracingLogger,
 ) -> Result<()> {
     let session_config = {
-        let cfg = config.lock().map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
+        let cfg = config.lock();
         SessionConfig::from_config(&cfg, &client_ip)
     };
 
@@ -359,7 +360,7 @@ pub async fn handle_session_tls(
 
     loop {
         let conn_timeout = {
-            let cfg = config.lock().map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
+            let cfg = config.lock();
             cfg.server.connection_timeout
         };
 
@@ -396,7 +397,7 @@ pub async fn handle_session_tls(
                     };
                     
                     let (allow_anonymous, anonymous_home, tls_config, require_ssl) = {
-                        let cfg = config.lock().map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
+                        let cfg = config.lock();
                         (
                             cfg.ftp.allow_anonymous,
                             cfg.ftp.anonymous_home.clone(),
@@ -444,8 +445,8 @@ async fn handle_command(
     control_stream: &mut ControlStream,
     cmd: &FtpCommand,
     state: &mut SessionState,
-    config: &Arc<std::sync::Mutex<Config>>,
-    user_manager: &Arc<std::sync::Mutex<UserManager>>,
+    config: &Arc<Mutex<Config>>,
+    user_manager: &Arc<Mutex<UserManager>>,
     _logger: &TracingLogger,
     quota_manager: &Arc<QuotaManager>,
     client_ip: &str,
@@ -602,8 +603,7 @@ async fn handle_command(
                 } else {
                     let password = password.as_deref().unwrap_or("");
                     let (auth_result, home_dir_opt) = {
-                        let mut users = user_manager.lock()
-                            .map_err(|_| anyhow::anyhow!("Failed to lock user manager"))?;
+                        let mut users = user_manager.lock();
                         if users.get_user(username).is_none() {
                             let _ = users.reload(&Config::get_users_path());
                         }
@@ -889,8 +889,7 @@ async fn handle_command(
 
         PASV => {
             let ((port_min, port_max), bind_ip, passive_ip_override) = {
-                let cfg = config.lock()
-                    .map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
+                let cfg = config.lock();
                 (cfg.ftp.passive_ports, cfg.ftp.bind_ip.clone(), cfg.ftp.passive_ip_override.clone())
             };
 
@@ -941,8 +940,7 @@ async fn handle_command(
 
         EPSV => {
             let ((port_min, port_max), bind_ip) = {
-                let cfg = config.lock()
-                    .map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
+                let cfg = config.lock();
                 (cfg.ftp.passive_ports, cfg.ftp.bind_ip.clone())
             };
 
@@ -1214,8 +1212,7 @@ async fn handle_command(
             let can_list = if state.current_user.as_deref() == Some("anonymous") {
                 true
             } else {
-                let users = user_manager.lock()
-                    .map_err(|_| anyhow::anyhow!("Failed to lock user manager"))?;
+                let users = user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                 user.is_some_and(|u| u.permissions.can_list)
             };
@@ -1288,8 +1285,7 @@ async fn handle_command(
             }
 
             let can_list = {
-                let users = user_manager.lock()
-                    .map_err(|_| anyhow::anyhow!("Failed to lock user manager"))?;
+                let users = user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                 user.is_none_or(|u| u.permissions.can_list)
             };
@@ -1391,8 +1387,7 @@ async fn handle_command(
                 }
 
                 let (can_read, speed_limit_kbps) = {
-                    let users = user_manager.lock()
-                        .map_err(|_| anyhow::anyhow!("Failed to lock user manager"))?;
+                    let users = user_manager.lock();
                     let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                     (
                         user.is_none_or(|u| u.permissions.can_read),
@@ -1474,8 +1469,7 @@ async fn handle_command(
 
             if let Some(filename) = filename {
                 let (can_write, quota_mb, speed_limit_kbps) = {
-                    let users = user_manager.lock()
-                        .map_err(|_| anyhow::anyhow!("Failed to lock user manager"))?;
+                    let users = user_manager.lock();
                     let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                     (
                         user.is_some_and(|u| u.permissions.can_write),
@@ -1631,8 +1625,7 @@ async fn handle_command(
 
             if let Some(filename) = filename {
                 let can_append = {
-                    let users = user_manager.lock()
-                        .map_err(|_| anyhow::anyhow!("Failed to lock user manager"))?;
+                    let users = user_manager.lock();
                     let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                     user.is_some_and(|u| u.permissions.can_append)
                 };
@@ -1697,8 +1690,7 @@ async fn handle_command(
             }
 
             let can_delete = {
-                let users = user_manager.lock()
-                    .map_err(|_| anyhow::anyhow!("Failed to lock user manager"))?;
+                let users = user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                 user.is_some_and(|u| u.permissions.can_delete)
             };
@@ -1749,8 +1741,7 @@ async fn handle_command(
             }
 
             let can_mkdir = {
-                let users = user_manager.lock()
-                    .map_err(|_| anyhow::anyhow!("Failed to lock user manager"))?;
+                let users = user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                 user.is_some_and(|u| u.permissions.can_mkdir)
             };
@@ -1803,8 +1794,7 @@ async fn handle_command(
             }
 
             let can_rmdir = {
-                let users = user_manager.lock()
-                    .map_err(|_| anyhow::anyhow!("Failed to lock user manager"))?;
+                let users = user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                 user.is_some_and(|u| u.permissions.can_rmdir)
             };
@@ -1849,8 +1839,7 @@ async fn handle_command(
             }
 
             let can_rename = {
-                let users = user_manager.lock()
-                    .map_err(|_| anyhow::anyhow!("Failed to lock user manager"))?;
+                let users = user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                 user.is_some_and(|u| u.permissions.can_rename)
             };
@@ -2009,8 +1998,7 @@ async fn handle_command(
             }
 
             let can_write = {
-                let users = user_manager.lock()
-                    .map_err(|_| anyhow::anyhow!("Failed to lock user manager"))?;
+                let users = user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                 user.is_some_and(|u| u.permissions.can_write)
             };

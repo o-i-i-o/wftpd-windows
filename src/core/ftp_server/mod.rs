@@ -7,7 +7,9 @@ mod tls;
 mod ftps_listener;
 
 use anyhow::Result;
+use parking_lot::Mutex;
 use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::core::config::{Config, get_program_data_path};
 use crate::core::logger::TracingLogger;
@@ -17,64 +19,54 @@ use crate::core::quota::QuotaManager;
 use crate::core::ftp_server::tls::TlsConfig;
 
 pub struct FtpServer {
-    config: Arc<std::sync::Mutex<Config>>,
-    user_manager: Arc<std::sync::Mutex<UserManager>>,
+    config: Arc<Mutex<Config>>,
+    user_manager: Arc<Mutex<UserManager>>,
     _logger: TracingLogger,
     quota_manager: Arc<QuotaManager>,
-    running: Arc<std::sync::Mutex<bool>>,
-    shutdown_tx: Arc<tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
-    ftps_shutdown_tx: Arc<tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
-    tls_config: Arc<std::sync::Mutex<Option<TlsConfig>>>,
+    running: Arc<Mutex<bool>>,
+    shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
+    ftps_shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
+    tls_config: Arc<Mutex<Option<TlsConfig>>>,
 }
 
 impl FtpServer {
     pub fn new(
-        config: Arc<std::sync::Mutex<Config>>,
-        user_manager: Arc<std::sync::Mutex<UserManager>>,
+        config: Arc<Mutex<Config>>,
+        user_manager: Arc<Mutex<UserManager>>,
         _logger: TracingLogger,
     ) -> Self {
         let tls_config = {
-            match config.lock() {
-                Ok(cfg) => {
-                    if cfg.ftp.ftps.enabled {
-                        let cert_path = cfg.ftp.ftps.cert_path.as_deref();
-                        let key_path = cfg.ftp.ftps.key_path.as_deref();
-                        Some(TlsConfig::new(cert_path, key_path, cfg.ftp.ftps.require_ssl))
-                    } else {
-                        None
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("获取配置锁失败: {}", e);
-                    None
-                }
+            let cfg = config.lock();
+            if cfg.ftp.ftps.enabled {
+                let cert_path = cfg.ftp.ftps.cert_path.as_deref();
+                let key_path = cfg.ftp.ftps.key_path.as_deref();
+                Some(TlsConfig::new(cert_path, key_path, cfg.ftp.ftps.require_ssl))
+            } else {
+                None
             }
         };
-        
+
         let quota_manager = QuotaManager::new(&get_program_data_path());
-        
+
         FtpServer {
             config,
             user_manager,
             _logger,
             quota_manager: Arc::new(quota_manager),
-            running: Arc::new(std::sync::Mutex::new(false)),
-            shutdown_tx: Arc::new(tokio::sync::Mutex::new(None)),
-            ftps_shutdown_tx: Arc::new(tokio::sync::Mutex::new(None)),
-            tls_config: Arc::new(std::sync::Mutex::new(tls_config)),
+            running: Arc::new(Mutex::new(false)),
+            shutdown_tx: Arc::new(TokioMutex::new(None)),
+            ftps_shutdown_tx: Arc::new(TokioMutex::new(None)),
+            tls_config: Arc::new(Mutex::new(tls_config)),
         }
     }
 
     pub async fn start(&self) -> Result<()> {
         let (bind_ip, ftp_port, warnings, ftps_enabled, ftps_implicit, ftps_port) = {
-            let cfg = match self.config.lock() {
-                Ok(guard) => guard,
-                Err(e) => return Err(anyhow::anyhow!("获取配置锁失败: {}", e)),
-            };
+            let cfg = self.config.lock();
             let warnings = cfg.validate_paths();
             (
-                cfg.ftp.bind_ip.clone(), 
-                cfg.server.ftp_port, 
+                cfg.ftp.bind_ip.clone(),
+                cfg.server.ftp_port,
                 warnings,
                 cfg.ftp.ftps.enabled,
                 cfg.ftp.ftps.implicit_ssl,
@@ -111,10 +103,7 @@ impl FtpServer {
         }
 
         {
-            let mut running = match self.running.lock() {
-                Ok(guard) => guard,
-                Err(e) => return Err(anyhow::anyhow!("获取运行状态锁失败: {}", e)),
-            };
+            let mut running = self.running.lock();
             *running = true;
         }
 
@@ -127,7 +116,7 @@ impl FtpServer {
         tracing::info!("FTP server started on {}", bind_addr);
 
         if ftps_enabled && ftps_implicit {
-            let tls_cfg_opt = self.tls_config.lock().unwrap().clone();
+            let tls_cfg_opt = self.tls_config.lock().clone();
             if let Some(tls_cfg) = tls_cfg_opt {
                 let (ftps_shutdown_tx, ftps_shutdown_rx) = tokio::sync::oneshot::channel();
                 {
@@ -200,9 +189,8 @@ impl FtpServer {
                 }
             }
 
-            if let Ok(mut running) = running_clone.lock() {
-                *running = false;
-            }
+            let mut running = running_clone.lock();
+            *running = false;
         });
 
         Ok(())
@@ -216,22 +204,13 @@ impl FtpServer {
             }
         }
         {
-            let mut running = match self.running.lock() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    tracing::error!("获取运行状态锁失败: {}", e);
-                    return;
-                }
-            };
+            let mut running = self.running.lock();
             *running = false;
         }
         tracing::info!("FTP server stopped");
     }
 
     pub fn is_running(&self) -> bool {
-        match self.running.lock() {
-            Ok(guard) => *guard,
-            Err(_) => false,
-        }
+        *self.running.lock()
     }
 }

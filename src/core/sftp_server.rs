@@ -1,4 +1,5 @@
 use anyhow::Result;
+use parking_lot::Mutex;
 use russh::*;
 use russh::keys::*;
 use russh::keys::ssh_key::rand_core::OsRng;
@@ -7,9 +8,8 @@ use russh::MethodKind;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::Mutex as StdMutex;
 use std::collections::HashSet;
-use tokio::sync::Mutex;
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::core::config::{Config, get_program_data_path};
 use crate::core::logger::TracingLogger;
@@ -30,38 +30,35 @@ const MAX_BUFFER_SIZE: usize = 10 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct SftpServer {
-    config: Arc<StdMutex<Config>>,
-    user_manager: Arc<StdMutex<UserManager>>,
+    config: Arc<Mutex<Config>>,
+    user_manager: Arc<Mutex<UserManager>>,
     _logger: TracingLogger,
     quota_manager: Arc<QuotaManager>,
-    running: Arc<StdMutex<bool>>,
-    shutdown_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
+    running: Arc<Mutex<bool>>,
+    shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
 }
 
 impl SftpServer {
     pub fn new(
-        config: Arc<StdMutex<Config>>,
-        user_manager: Arc<StdMutex<UserManager>>,
+        config: Arc<Mutex<Config>>,
+        user_manager: Arc<Mutex<UserManager>>,
         _logger: TracingLogger,
     ) -> Self {
         let quota_manager = QuotaManager::new(&get_program_data_path());
-        
+
         SftpServer {
             config,
             user_manager,
             _logger,
             quota_manager: Arc::new(quota_manager),
-            running: Arc::new(StdMutex::new(false)),
-            shutdown_tx: Arc::new(Mutex::new(None)),
+            running: Arc::new(Mutex::new(false)),
+            shutdown_tx: Arc::new(TokioMutex::new(None)),
         }
     }
 
     pub async fn start(&self) -> Result<()> {
         let (bind_ip, sftp_port, host_key_path, warnings) = {
-            let cfg = match self.config.lock() {
-                Ok(guard) => guard,
-                Err(e) => return Err(anyhow::anyhow!("获取配置锁失败: {}", e)),
-            };
+            let cfg = self.config.lock();
             let warnings = cfg.validate_paths();
             (
                 cfg.sftp.bind_ip.clone(),
@@ -97,10 +94,7 @@ impl SftpServer {
         }
 
         {
-            let mut running = match self.running.lock() {
-                Ok(guard) => guard,
-                Err(e) => return Err(anyhow::anyhow!("获取运行状态锁失败: {}", e)),
-            };
+            let mut running = self.running.lock();
             *running = true;
         }
 
@@ -143,13 +137,8 @@ impl SftpServer {
                                 let client_ip = peer_addr.ip().to_string();
 
                                 let ip_allowed = {
-                                    match config_clone.lock() {
-                                        Ok(cfg) => cfg.is_ip_allowed(&client_ip),
-                                        Err(e) => {
-                                            tracing::error!("Failed to lock config for IP filtering: {}", e);
-                                            false
-                                        }
-                                    }
+                                    let cfg = config_clone.lock();
+                                    cfg.is_ip_allowed(&client_ip)
                                 };
 
                                 if !ip_allowed {
@@ -191,9 +180,8 @@ impl SftpServer {
                 }
             }
 
-            if let Ok(mut running) = running_clone.lock() {
-                *running = false;
-            }
+            let mut running = running_clone.lock();
+            *running = false;
         });
 
         Ok(())
@@ -207,23 +195,14 @@ impl SftpServer {
             }
         }
         {
-            let mut running = match self.running.lock() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    tracing::error!("获取运行状态锁失败: {}", e);
-                    return;
-                }
-            };
+            let mut running = self.running.lock();
             *running = false;
         }
         tracing::info!("SFTP server stopped");
     }
 
     pub fn is_running(&self) -> bool {
-        match self.running.lock() {
-            Ok(guard) => *guard,
-            Err(_) => false,
-        }
+        *self.running.lock()
     }
 
     async fn load_or_generate_host_key(path: &str) -> Result<PrivateKey> {
@@ -255,14 +234,14 @@ impl SftpServer {
 }
 
 struct SftpHandler {
-    user_manager: Arc<StdMutex<UserManager>>,
+    user_manager: Arc<Mutex<UserManager>>,
     _logger: TracingLogger,
     quota_manager: Arc<QuotaManager>,
     authenticated: bool,
     username: Option<String>,
     home_dir: Option<String>,
     sftp_channel: Option<ChannelId>,
-    sftp_state: Option<Arc<Mutex<SftpState>>>,
+    sftp_state: Option<Arc<TokioMutex<SftpState>>>,
     client_ip: String,
     users_path: std::path::PathBuf,
 }
@@ -271,7 +250,7 @@ struct SftpState {
     home_dir: String,
     cwd: String,
     username: Option<String>,
-    user_manager: Arc<StdMutex<UserManager>>,
+    user_manager: Arc<Mutex<UserManager>>,
     _logger: TracingLogger,
     quota_manager: Arc<QuotaManager>,
     handles: HashMap<String, SftpFileHandle>,
@@ -308,15 +287,12 @@ impl russh::server::Handler for SftpHandler {
         user: &str,
         password: &str,
     ) -> Result<server::Auth, Self::Error> {
-        let mut users = match self.user_manager.lock() {
-            Ok(guard) => guard,
-            Err(_) => return Ok(server::Auth::reject()),
-        };
-        
+        let mut users = self.user_manager.lock();
+
         if users.get_user(user).is_none() {
             let _ = users.reload(&self.users_path);
         }
-        
+
         match users.authenticate(user, password) {
             Ok(true) => {
                 if let Some(u) = users.get_user(user) {
@@ -339,7 +315,7 @@ impl russh::server::Handler for SftpHandler {
                         }
                     }
                 }
-                
+
                 self.authenticated = true;
                 self.username = Some(user.to_string());
 
@@ -388,10 +364,7 @@ impl russh::server::Handler for SftpHandler {
         public_key: &PublicKey,
     ) -> Result<server::Auth, Self::Error> {
         let (enabled, user_pubkey_path, home_dir) = {
-            let users = match self.user_manager.lock() {
-                Ok(guard) => guard,
-                Err(_) => return Ok(server::Auth::reject()),
-            };
+            let users = self.user_manager.lock();
             if let Some(u) = users.get_user(user) {
                 (u.enabled, get_program_data_path().join(format!("keys/{}.pub", user)).to_string_lossy().to_string(), Some(u.home_dir.clone()))
             } else {
@@ -503,7 +476,7 @@ impl russh::server::Handler for SftpHandler {
                 state.cache_permissions();
                 state.init_rate_limiter();
                 
-                self.sftp_state = Some(Arc::new(Mutex::new(state)));
+                self.sftp_state = Some(Arc::new(TokioMutex::new(state)));
             } else {
                 tracing::error!("SFTP subsystem request failed: home directory not set");
                 let _ = session.channel_failure(channel);
@@ -602,23 +575,23 @@ impl SftpState {
         if let Some(perms) = &self.cached_permissions {
             return check_fn(perms);
         }
-        
-        if let Ok(users) = self.user_manager.lock()
-            && let Some(username) = &self.username
-            && let Some(user) = users.get_user(username)
-        {
-            return check_fn(&user.permissions);
+
+        if let Some(username) = &self.username {
+            let users = self.user_manager.lock();
+            if let Some(user) = users.get_user(username) {
+                return check_fn(&user.permissions);
+            }
         }
-        
+
         false
     }
-    
+
     fn cache_permissions(&mut self) {
-        if let Ok(users) = self.user_manager.lock()
-            && let Some(username) = &self.username
-            && let Some(user) = users.get_user(username)
-        {
-            self.cached_permissions = Some(user.permissions);
+        if let Some(username) = &self.username {
+            let users = self.user_manager.lock();
+            if let Some(user) = users.get_user(username) {
+                self.cached_permissions = Some(user.permissions);
+            }
         }
     }
     

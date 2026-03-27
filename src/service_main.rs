@@ -298,7 +298,7 @@ fn start_enabled_services(state: &Arc<AppState>) {
 }
 
 fn get_enabled_services(state: &Arc<AppState>) -> (bool, bool) {
-    if let Ok(cfg) = state.config.try_lock() {
+    if let Some(cfg) = state.config.try_lock() {
         (cfg.ftp.enabled, cfg.sftp.enabled)
     } else {
         (false, false)

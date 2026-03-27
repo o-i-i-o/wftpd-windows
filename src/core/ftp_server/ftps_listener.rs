@@ -1,4 +1,5 @@
 use anyhow::Result;
+use parking_lot::Mutex;
 use std::sync::Arc;
 
 use crate::core::config::Config;
@@ -8,15 +9,15 @@ use crate::core::logger::TracingLogger;
 use crate::core::ftp_server::tls::TlsConfig;
 
 pub async fn start_ftps_implicit_server(
-    config: Arc<std::sync::Mutex<Config>>,
-    user_manager: Arc<std::sync::Mutex<UserManager>>,
+    config: Arc<Mutex<Config>>,
+    user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
     tls_config: TlsConfig,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     logger: TracingLogger,
 ) -> Result<()> {
     let (bind_ip, ftps_port) = {
-        let cfg = config.lock().map_err(|e| anyhow::anyhow!("Failed to lock config: {}", e))?;
+        let cfg = config.lock();
         (cfg.ftp.bind_ip.clone(), cfg.ftp.ftps.implicit_ssl_port)
     };
 

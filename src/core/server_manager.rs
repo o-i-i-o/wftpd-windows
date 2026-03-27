@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::ffi::OsString;
 use std::sync::mpsc;
 
@@ -44,8 +45,7 @@ impl ServerManager {
         logger: TracingLogger,
     ) -> anyhow::Result<()> {
         {
-            let state = self.ftp_state.lock()
-                .map_err(|e| anyhow::anyhow!("获取FTP状态锁失败: {}", e))?;
+            let state = self.ftp_state.lock();
             if state.server.is_some() {
                 return Ok(());
             }
@@ -65,8 +65,7 @@ impl ServerManager {
         runtime.block_on(server.start())?;
 
         {
-            let mut state = self.ftp_state.lock()
-                .map_err(|e| anyhow::anyhow!("获取FTP状态锁失败: {}", e))?;
+            let mut state = self.ftp_state.lock();
             state.server = Some(server);
             state.runtime = Some(runtime);
         }
@@ -84,16 +83,10 @@ impl ServerManager {
     ) -> mpsc::Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         let ftp_state = Arc::clone(&self.ftp_state);
-        
+
         std::thread::spawn(move || {
             {
-                let state = match ftp_state.lock() {
-                    Ok(guard) => guard,
-                    Err(e) => {
-                        let _ = tx.send(Err(format!("获取FTP状态锁失败: {}", e)));
-                        return;
-                    }
-                };
+                let state = ftp_state.lock();
                 if state.server.is_some() {
                     let _ = tx.send(Ok(()));
                     return;
@@ -125,14 +118,7 @@ impl ServerManager {
             }
 
             {
-                let mut state = match ftp_state.lock() {
-                    Ok(guard) => guard,
-                    Err(e) => {
-                        runtime.shutdown_background();
-                        let _ = tx.send(Err(format!("获取FTP状态锁失败: {}", e)));
-                        return;
-                    }
-                };
+                let mut state = ftp_state.lock();
                 state.server = Some(server);
                 state.runtime = Some(runtime);
             }
@@ -147,13 +133,7 @@ impl ServerManager {
 
     pub fn stop_ftp(&self) {
         let (maybe_server, maybe_runtime) = {
-            let mut state = match self.ftp_state.lock() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    tracing::error!("获取FTP状态锁失败: {}", e);
-                    return;
-                }
-            };
+            let mut state = self.ftp_state.lock();
             (state.server.take(), state.runtime.take())
         };
 
@@ -168,16 +148,10 @@ impl ServerManager {
     pub fn stop_ftp_async(&self) -> mpsc::Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         let ftp_state = Arc::clone(&self.ftp_state);
-        
+
         std::thread::spawn(move || {
             let (maybe_server, maybe_runtime) = {
-                let mut state = match ftp_state.lock() {
-                    Ok(guard) => guard,
-                    Err(e) => {
-                        let _ = tx.send(Err(format!("获取FTP状态锁失败: {}", e)));
-                        return;
-                    }
-                };
+                let mut state = ftp_state.lock();
                 (state.server.take(), state.runtime.take())
             };
 
@@ -195,10 +169,7 @@ impl ServerManager {
     }
 
     pub fn is_ftp_running(&self) -> bool {
-        let state = match self.ftp_state.lock() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
+        let state = self.ftp_state.lock();
         state.server.as_ref().is_some_and(|s| s.is_running())
     }
 
@@ -209,8 +180,7 @@ impl ServerManager {
         logger: TracingLogger,
     ) -> anyhow::Result<()> {
         {
-            let state = self.sftp_state.lock()
-                .map_err(|e| anyhow::anyhow!("获取SFTP状态锁失败: {}", e))?;
+            let state = self.sftp_state.lock();
             if state.server.is_some() {
                 return Ok(());
             }
@@ -230,8 +200,7 @@ impl ServerManager {
         runtime.block_on(server.start())?;
 
         {
-            let mut state = self.sftp_state.lock()
-                .map_err(|e| anyhow::anyhow!("获取SFTP状态锁失败: {}", e))?;
+            let mut state = self.sftp_state.lock();
             state.server = Some(server);
             state.runtime = Some(runtime);
         }
@@ -249,16 +218,10 @@ impl ServerManager {
     ) -> mpsc::Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         let sftp_state = Arc::clone(&self.sftp_state);
-        
+
         std::thread::spawn(move || {
             {
-                let state = match sftp_state.lock() {
-                    Ok(guard) => guard,
-                    Err(e) => {
-                        let _ = tx.send(Err(format!("获取SFTP状态锁失败: {}", e)));
-                        return;
-                    }
-                };
+                let state = sftp_state.lock();
                 if state.server.is_some() {
                     let _ = tx.send(Ok(()));
                     return;
@@ -290,14 +253,7 @@ impl ServerManager {
             }
 
             {
-                let mut state = match sftp_state.lock() {
-                    Ok(guard) => guard,
-                    Err(e) => {
-                        runtime.shutdown_background();
-                        let _ = tx.send(Err(format!("获取SFTP状态锁失败: {}", e)));
-                        return;
-                    }
-                };
+                let mut state = sftp_state.lock();
                 state.server = Some(server);
                 state.runtime = Some(runtime);
             }
@@ -312,13 +268,7 @@ impl ServerManager {
 
     pub fn stop_sftp(&self) {
         let (maybe_server, maybe_runtime) = {
-            let mut state = match self.sftp_state.lock() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    tracing::error!("获取SFTP状态锁失败: {}", e);
-                    return;
-                }
-            };
+            let mut state = self.sftp_state.lock();
             (state.server.take(), state.runtime.take())
         };
 
@@ -333,16 +283,10 @@ impl ServerManager {
     pub fn stop_sftp_async(&self) -> mpsc::Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         let sftp_state = Arc::clone(&self.sftp_state);
-        
+
         std::thread::spawn(move || {
             let (maybe_server, maybe_runtime) = {
-                let mut state = match sftp_state.lock() {
-                    Ok(guard) => guard,
-                    Err(e) => {
-                        let _ = tx.send(Err(format!("获取SFTP状态锁失败: {}", e)));
-                        return;
-                    }
-                };
+                let mut state = sftp_state.lock();
                 (state.server.take(), state.runtime.take())
             };
 
@@ -360,10 +304,7 @@ impl ServerManager {
     }
 
     pub fn is_sftp_running(&self) -> bool {
-        let state = match self.sftp_state.lock() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
+        let state = self.sftp_state.lock();
         state.server.as_ref().is_some_and(|s| s.is_running())
     }
 

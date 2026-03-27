@@ -387,7 +387,9 @@ impl tracing::field::Visit for FileOpFieldVisitor {
     fn record_i64(&mut self, _field: &tracing::field::Field, _value: i64) {}
 }
 
-static mut GLOBAL_LOGGER: Option<GlobalLogger> = None;
+use std::sync::OnceLock;
+
+static GLOBAL_LOGGER: OnceLock<GlobalLogger> = OnceLock::new();
 
 struct GlobalLogger {
     buffer: LogBuffer<LogEntry>,
@@ -403,13 +405,11 @@ pub struct TracingLogger {
 
 impl TracingLogger {
     pub fn init(log_dir: &str, _max_size: u64, max_files: usize, log_level: &str) -> Result<Self, String> {
-        unsafe {
-            if let Some(ref global) = GLOBAL_LOGGER {
-                return Ok(TracingLogger {
-                    buffer: global.buffer.clone(),
-                    file_op_buffer: global.file_op_buffer.clone(),
-                });
-            }
+        if let Some(global) = GLOBAL_LOGGER.get() {
+            return Ok(TracingLogger {
+                buffer: global.buffer.clone(),
+                file_op_buffer: global.file_op_buffer.clone(),
+            });
         }
 
         let path = PathBuf::from(log_dir);
@@ -479,16 +479,14 @@ impl TracingLogger {
         tracing::subscriber::set_global_default(subscriber)
             .map_err(|e| format!("设置 tracing 日志失败: {}", e))?;
 
-        unsafe {
-            GLOBAL_LOGGER = Some(GlobalLogger {
-                buffer: buffer.clone(),
-                file_op_buffer: file_op_buffer.clone(),
-                _guard: guard,
-                _file_op_guard: file_op_guard,
-            });
-        }
+        let _ = GLOBAL_LOGGER.set(GlobalLogger {
+            buffer: buffer.clone(),
+            file_op_buffer: file_op_buffer.clone(),
+            _guard: guard,
+            _file_op_guard: file_op_guard,
+        });
 
-        Ok(TracingLogger { 
+        Ok(TracingLogger {
             buffer,
             file_op_buffer,
         })
