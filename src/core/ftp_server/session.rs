@@ -6,7 +6,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::core::config::Config;
-use crate::core::logger::TracingLogger;
 use crate::core::users::UserManager;
 use crate::core::quota::QuotaManager;
 use crate::core::path_utils::{safe_resolve_path, to_ftp_path, resolve_directory_path, PathResolveError, path_starts_with_ignore_case};
@@ -40,9 +39,10 @@ impl ControlStream {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn is_tls(&self) -> bool {
-        matches!(self, ControlStream::Tls(_))
+    pub async fn write_response(&mut self, buf: &[u8], context: &str) {
+        if let Err(e) = self.write_all(buf).await {
+            tracing::warn!("Failed to write FTP response ({}): {}", context, e);
+        }
     }
 
     pub async fn upgrade_to_tls(&mut self, acceptor: &tokio_native_tls::TlsAcceptor) -> Result<()> {
@@ -116,11 +116,6 @@ impl SessionState {
 
     pub fn resolve_path(&self, path: &str) -> Result<PathBuf, PathResolveError> {
         safe_resolve_path(&self.cwd, &self.home_dir, path)
-    }
-
-    #[allow(dead_code)]
-    pub fn ftp_path(&self, local_path: &std::path::Path) -> Result<String, PathResolveError> {
-        to_ftp_path(local_path, std::path::Path::new(&self.home_dir))
     }
 
     pub fn validate_port_ip(&self, port_ip: &str) -> bool {
@@ -240,7 +235,6 @@ pub async fn handle_session(
     user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
     client_ip: String,
-    _logger: TracingLogger,
 ) -> Result<()> {
     let session_config = {
         let cfg = config.lock();
@@ -249,12 +243,14 @@ pub async fn handle_session(
 
     if !session_config.ip_allowed {
         tracing::warn!("Connection rejected from {} by IP filter", client_ip);
-        let _ = socket.write_all(b"530 Connection denied by IP filter\r\n").await;
+        if let Err(e) = socket.write_all(b"530 Connection denied by IP filter\r\n").await {
+            tracing::debug!("Failed to send IP filter rejection to {}: {}", client_ip, e);
+        }
         return Ok(());
     }
 
     let mut control_stream = ControlStream::Plain(Some(socket));
-    let _ = control_stream.write_all(format!("220 {}\r\n", session_config.welcome_msg).as_bytes()).await;
+    control_stream.write_response(format!("220 {}\r\n", session_config.welcome_msg).as_bytes(), "welcome message").await;
 
     let mut state = SessionState::new(&client_ip);
     state.transfer_mode = session_config.default_transfer_mode;
@@ -280,7 +276,7 @@ pub async fn handle_session(
                 cmd_buffer.extend_from_slice(&read_buffer[..n]);
                 
                 if cmd_buffer.len() > MAX_COMMAND_LENGTH {
-                    let _ = control_stream.write_all(b"500 Command too long\r\n").await;
+                    control_stream.write_response(b"500 Command too long\r\n", "command too long").await;
                     cmd_buffer.clear();
                     continue;
                 }
@@ -303,7 +299,6 @@ pub async fn handle_session(
                         &mut state,
                         &config,
                         &user_manager,
-                        &_logger,
                         &quota_manager,
                         &client_ip,
                         &session_config.allow_anonymous,
@@ -320,7 +315,7 @@ pub async fn handle_session(
                 break;
             }
             Err(_) => {
-                let _ = control_stream.write_all(b"421 Connection timed out\r\n").await;
+                control_stream.write_response(b"421 Connection timed out\r\n", "connection timeout").await;
                 break;
             }
         }
@@ -335,7 +330,6 @@ pub async fn handle_session_tls(
     user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
     client_ip: String,
-    _logger: TracingLogger,
 ) -> Result<()> {
     let session_config = {
         let cfg = config.lock();
@@ -348,7 +342,7 @@ pub async fn handle_session_tls(
     }
 
     let mut control_stream = ControlStream::Tls(Box::new(socket));
-    let _ = control_stream.write_all(format!("220 {}\r\n", session_config.welcome_msg).as_bytes()).await;
+    control_stream.write_response(format!("220 {}\r\n", session_config.welcome_msg).as_bytes(), "welcome message (TLS)").await;
 
     let mut state = SessionState::new(&client_ip);
     state.transfer_mode = session_config.default_transfer_mode;
@@ -375,7 +369,7 @@ pub async fn handle_session_tls(
                 cmd_buffer.extend_from_slice(&read_buffer[..n]);
                 
                 if cmd_buffer.len() > MAX_COMMAND_LENGTH {
-                    let _ = control_stream.write_all(b"500 Command too long\r\n").await;
+                    control_stream.write_response(b"500 Command too long\r\n", "command too long (TLS)").await;
                     cmd_buffer.clear();
                     continue;
                 }
@@ -416,7 +410,6 @@ pub async fn handle_session_tls(
                         &mut state,
                         &config,
                         &user_manager,
-                        &_logger,
                         &quota_manager,
                         &client_ip,
                         &allow_anonymous,
@@ -431,7 +424,7 @@ pub async fn handle_session_tls(
                 }
             }
             Ok(Err(_)) | Err(_) => {
-                let _ = control_stream.write_all(b"421 Connection timed out\r\n").await;
+                control_stream.write_response(b"421 Connection timed out\r\n", "connection timeout (TLS)").await;
                 break;
             }
         }
@@ -447,7 +440,6 @@ async fn handle_command(
     state: &mut SessionState,
     config: &Arc<Mutex<Config>>,
     user_manager: &Arc<Mutex<UserManager>>,
-    _logger: &TracingLogger,
     quota_manager: &Arc<QuotaManager>,
     client_ip: &str,
     allow_anonymous: &bool,
@@ -464,7 +456,7 @@ async fn handle_command(
             
             if tls_config.is_tls_available() {
                 if tls_upper == "TLS" || tls_upper == "TLS-C" || tls_upper == "SSL" {
-                    let _ = control_stream.write_all(b"234 AUTH command OK; starting TLS connection\r\n").await;
+                    control_stream.write_response(b"234 AUTH command OK; starting TLS connection\r\n", "FTP response").await;
                     
                     if let Some(acceptor) = &tls_config.acceptor {
                         match control_stream.upgrade_to_tls(acceptor).await {
@@ -474,15 +466,15 @@ async fn handle_command(
                             }
                             Err(e) => {
                                 tracing::error!("TLS upgrade failed: {}", e);
-                                let _ = control_stream.write_all(b"431 Unable to negotiate TLS connection\r\n").await;
+                                control_stream.write_response(b"431 Unable to negotiate TLS connection\r\n", "FTP response").await;
                             }
                         }
                     }
                 } else {
-                    let _ = control_stream.write_all(format!("504 AUTH {} not supported\r\n", tls_type).as_bytes()).await;
+                    control_stream.write_response(format!("504 AUTH {} not supported\r\n", tls_type).as_bytes(), "FTP response").await;
                 }
             } else {
-                let _ = control_stream.write_all(b"502 TLS not configured on server\r\n").await;
+                control_stream.write_response(b"502 TLS not configured on server\r\n", "FTP response").await;
             }
         }
 
@@ -491,16 +483,16 @@ async fn handle_command(
                 if let Some(size_str) = size {
                     if let Ok(size_val) = size_str.parse::<u64>() {
                         state.pbsz_set = true;
-                        let _ = control_stream.write_all(format!("200 PBSZ={} OK\r\n", size_val).as_bytes()).await;
+                        control_stream.write_response(format!("200 PBSZ={} OK\r\n", size_val).as_bytes(), "FTP response").await;
                     } else {
-                        let _ = control_stream.write_all(b"501 Invalid PBSZ value\r\n").await;
+                        control_stream.write_response(b"501 Invalid PBSZ value\r\n", "FTP response").await;
                     }
                 } else {
                     state.pbsz_set = true;
-                    let _ = control_stream.write_all(b"200 PBSZ=0 OK\r\n").await;
+                    control_stream.write_response(b"200 PBSZ=0 OK\r\n", "FTP response").await;
                 }
             } else {
-                let _ = control_stream.write_all(b"503 PBSZ requires AUTH first\r\n").await;
+                control_stream.write_response(b"503 PBSZ requires AUTH first\r\n", "FTP response").await;
             }
         }
 
@@ -510,41 +502,41 @@ async fn handle_command(
                     match level.to_uppercase().as_str() {
                         "P" => {
                             state.data_protection = true;
-                            let _ = control_stream.write_all(b"200 PROT Private OK\r\n").await;
+                            control_stream.write_response(b"200 PROT Private OK\r\n", "FTP response").await;
                         }
                         "C" => {
                             state.data_protection = false;
-                            let _ = control_stream.write_all(b"200 PROT Clear OK\r\n").await;
+                            control_stream.write_response(b"200 PROT Clear OK\r\n", "FTP response").await;
                         }
                         "S" => {
-                            let _ = control_stream.write_all(b"536 PROT Safe not supported\r\n").await;
+                            control_stream.write_response(b"536 PROT Safe not supported\r\n", "FTP response").await;
                         }
                         "E" => {
-                            let _ = control_stream.write_all(b"536 PROT Confidential not supported\r\n").await;
+                            control_stream.write_response(b"536 PROT Confidential not supported\r\n", "FTP response").await;
                         }
                         _ => {
-                            let _ = control_stream.write_all(b"504 Unknown PROT level\r\n").await;
+                            control_stream.write_response(b"504 Unknown PROT level\r\n", "FTP response").await;
                         }
                     }
                 } else {
-                    let _ = control_stream.write_all(b"501 PROT requires parameter (C/P/S/E)\r\n").await;
+                    control_stream.write_response(b"501 PROT requires parameter (C/P/S/E)\r\n", "FTP response").await;
                 }
             } else {
-                let _ = control_stream.write_all(b"503 PROT requires PBSZ first\r\n").await;
+                control_stream.write_response(b"503 PROT requires PBSZ first\r\n", "FTP response").await;
             }
         }
 
         CCC => {
             if state.tls_enabled {
-                let _ = control_stream.write_all(b"200 CCC OK - reverting to clear text\r\n").await;
+                control_stream.write_response(b"200 CCC OK - reverting to clear text\r\n", "FTP response").await;
             } else {
-                let _ = control_stream.write_all(b"533 CCC not available - not in TLS mode\r\n").await;
+                control_stream.write_response(b"533 CCC not available - not in TLS mode\r\n", "FTP response").await;
             }
         }
 
         USER(username) => {
             if require_ssl && !state.tls_enabled {
-                let _ = control_stream.write_all(b"530 SSL required for login\r\n").await;
+                control_stream.write_response(b"530 SSL required for login\r\n", "FTP response").await;
                 return Ok(true);
             }
             
@@ -552,19 +544,19 @@ async fn handle_command(
             if username_lower == "anonymous" || username_lower == "ftp" {
                 if *allow_anonymous {
                     state.current_user = Some("anonymous".to_string());
-                    let _ = control_stream.write_all(b"331 Anonymous login okay, send email as password\r\n").await;
+                    control_stream.write_response(b"331 Anonymous login okay, send email as password\r\n", "FTP response").await;
                 } else {
-                    let _ = control_stream.write_all(b"530 Anonymous access not allowed\r\n").await;
+                    control_stream.write_response(b"530 Anonymous access not allowed\r\n", "FTP response").await;
                 }
             } else {
                 state.current_user = Some(username.to_string());
-                let _ = control_stream.write_all(b"331 User name okay, need password\r\n").await;
+                control_stream.write_response(b"331 User name okay, need password\r\n", "FTP response").await;
             }
         }
 
         PASS(password) => {
             if require_ssl && !state.tls_enabled {
-                let _ = control_stream.write_all(b"530 SSL required for login\r\n").await;
+                control_stream.write_response(b"530 SSL required for login\r\n", "FTP response").await;
                 return Ok(true);
             }
             
@@ -577,7 +569,7 @@ async fn handle_command(
                                     state.cwd = home_canon.to_string_lossy().to_string();
                                     state.home_dir = state.cwd.clone();
                                     state.authenticated = true;
-                                    let _ = control_stream.write_all(b"230 Anonymous user logged in\r\n").await;
+                                    control_stream.write_response(b"230 Anonymous user logged in\r\n", "FTP response").await;
                                     tracing::info!(
                                         client_ip = %client_ip,
                                         username = "anonymous",
@@ -588,17 +580,17 @@ async fn handle_command(
                                 }
                                 Err(e) => {
                                     tracing::error!("PASS failed: cannot canonicalize anonymous home directory '{}': {}", anon_home, e);
-                                    let _ = control_stream.write_all(b"550 Anonymous home directory not found\r\n").await;
+                                    control_stream.write_response(b"550 Anonymous home directory not found\r\n", "FTP response").await;
                                     state.current_user = None;
                                 }
                             }
                         } else {
                             tracing::error!("PASS failed: anonymous access allowed but no anonymous_home configured");
-                            let _ = control_stream.write_all(b"530 Anonymous home directory not configured\r\n").await;
+                            control_stream.write_response(b"530 Anonymous home directory not configured\r\n", "FTP response").await;
                             state.current_user = None;
                         }
                     } else {
-                        let _ = control_stream.write_all(b"530 Anonymous access not allowed\r\n").await;
+                        control_stream.write_response(b"530 Anonymous access not allowed\r\n", "FTP response").await;
                     }
                 } else {
                     let password = password.as_deref().unwrap_or("");
@@ -623,14 +615,14 @@ async fn handle_command(
                                     }
                                     Err(e) => {
                                         tracing::error!("PASS failed: cannot canonicalize user home directory '{}': {}", home_dir, e);
-                                        let _ = control_stream.write_all(b"550 Home directory not found\r\n").await;
+                                        control_stream.write_response(b"550 Home directory not found\r\n", "FTP response").await;
                                         state.authenticated = false;
                                         state.current_user = None;
                                         return Ok(true);
                                     }
                                 }
                             }
-                            let _ = control_stream.write_all(b"230 User logged in\r\n").await;
+                            control_stream.write_response(b"230 User logged in\r\n", "FTP response").await;
                             tracing::info!(
                                 client_ip = %client_ip,
                                 username = %username,
@@ -647,7 +639,7 @@ async fn handle_command(
                                 protocol = "FTP",
                                 "Authentication failed for user {}", username
                             );
-                            let _ = control_stream.write_all(b"530 Not logged in, user cannot be authenticated\r\n").await;
+                            control_stream.write_response(b"530 Not logged in, user cannot be authenticated\r\n", "FTP response").await;
                         }
                         Err(e) => {
                             tracing::error!(
@@ -656,22 +648,22 @@ async fn handle_command(
                                 action = "AUTH_ERROR",
                                 "Authentication error for user {}: {}", username, e
                             );
-                            let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                            control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                         }
                     }
                 }
             } else {
-                let _ = control_stream.write_all(b"530 Please login with USER and PASS\r\n").await;
+                control_stream.write_response(b"530 Please login with USER and PASS\r\n", "FTP response").await;
             }
         }
 
         QUIT => {
-            let _ = control_stream.write_all(b"221 Goodbye\r\n").await;
+            control_stream.write_response(b"221 Goodbye\r\n", "FTP response").await;
             return Ok(false);
         }
 
         SYST => {
-            let _ = control_stream.write_all(b"215 UNIX Type: L8\r\n").await;
+            control_stream.write_response(b"215 UNIX Type: L8\r\n", "FTP response").await;
         }
 
         FEAT => {
@@ -680,28 +672,28 @@ async fn handle_command(
                 features.push_str(" AUTH TLS\r\n PBSZ\r\n PROT\r\n");
             }
             features.push_str("211 End\r\n");
-            let _ = control_stream.write_all(features.as_bytes()).await;
+            control_stream.write_response(features.as_bytes(), "FTP response").await;
         }
 
         NOOP => {
-            let _ = control_stream.write_all(b"200 OK\r\n").await;
+            control_stream.write_response(b"200 OK\r\n", "FTP response").await;
         }
 
         PWD | XPWD => {
             match to_ftp_path(std::path::Path::new(&state.cwd), std::path::Path::new(&state.home_dir)) {
                 Ok(ftp_path) => {
-                    let _ = control_stream.write_all(format!("257 \"{}\"\r\n", ftp_path).as_bytes()).await;
+                    control_stream.write_response(format!("257 \"{}\"\r\n", ftp_path).as_bytes(), "FTP response").await;
                 }
                 Err(e) => {
                     tracing::error!("PWD failed: {}", e);
-                    let _ = control_stream.write_all(b"550 Failed to get current directory\r\n").await;
+                    control_stream.write_response(b"550 Failed to get current directory\r\n", "FTP response").await;
                 }
             }
         }
 
         CWD(dir) => {
             if !state.authenticated {
-                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                 return Ok(true);
             }
             if let Some(dir) = dir {
@@ -709,38 +701,38 @@ async fn handle_command(
                     Ok(new_path) => {
                         if new_path.exists() && new_path.is_dir() && path_starts_with_ignore_case(&new_path, &state.home_dir) {
                             state.cwd = new_path.to_string_lossy().to_string();
-                            let _ = control_stream.write_all(b"250 Directory successfully changed\r\n").await;
+                            control_stream.write_response(b"250 Directory successfully changed\r\n", "FTP response").await;
                         } else {
-                            let _ = control_stream.write_all(b"550 Failed to change directory\r\n").await;
+                            control_stream.write_response(b"550 Failed to change directory\r\n", "FTP response").await;
                         }
                     }
                     Err(e) => {
                         tracing::warn!("CWD failed for '{}': {}", dir, e);
-                        let _ = control_stream.write_all(format!("550 {}\r\n", e).as_bytes()).await;
+                        control_stream.write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response").await;
                     }
                 }
             } else {
-                let _ = control_stream.write_all(b"501 Syntax error: CWD requires directory parameter\r\n").await;
+                control_stream.write_response(b"501 Syntax error: CWD requires directory parameter\r\n", "FTP response").await;
             }
         }
 
         CDUP | XCUP => {
             if !state.authenticated {
-                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                 return Ok(true);
             }
             match state.resolve_path("..") {
                 Ok(new_path) => {
                     if path_starts_with_ignore_case(&new_path, &state.home_dir) && new_path.exists() {
                         state.cwd = new_path.to_string_lossy().to_string();
-                        let _ = control_stream.write_all(b"250 Directory changed\r\n").await;
+                        control_stream.write_response(b"250 Directory changed\r\n", "FTP response").await;
                     } else {
-                        let _ = control_stream.write_all(b"550 Cannot change to parent directory: Permission denied\r\n").await;
+                        control_stream.write_response(b"550 Cannot change to parent directory: Permission denied\r\n", "FTP response").await;
                     }
                 }
                 Err(e) => {
                     tracing::warn!("CDUP failed: {}", e);
-                    let _ = control_stream.write_all(format!("550 {}\r\n", e).as_bytes()).await;
+                    control_stream.write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response").await;
                 }
             }
         }
@@ -755,39 +747,39 @@ async fn handle_command(
                 match main_type {
                     "I" => {
                         state.transfer_mode = "binary".to_string();
-                        let _ = control_stream.write_all(b"200 Type set to I (Binary)\r\n").await;
+                        control_stream.write_response(b"200 Type set to I (Binary)\r\n", "FTP response").await;
                     }
                     "L" => {
                         if sub_type == "8" {
                             state.transfer_mode = "binary".to_string();
-                            let _ = control_stream.write_all(b"200 Type set to L 8 (Local byte size 8)\r\n").await;
+                            control_stream.write_response(b"200 Type set to L 8 (Local byte size 8)\r\n", "FTP response").await;
                         } else {
-                            let _ = control_stream.write_all(b"504 Only L 8 is supported\r\n").await;
+                            control_stream.write_response(b"504 Only L 8 is supported\r\n", "FTP response").await;
                         }
                     }
                     "A" => {
                         match sub_type {
                             "N" | "" => {
                                 state.transfer_mode = "ascii".to_string();
-                                let _ = control_stream.write_all(b"200 Type set to A (ASCII Non-print)\r\n").await;
+                                control_stream.write_response(b"200 Type set to A (ASCII Non-print)\r\n", "FTP response").await;
                             }
                             "T" => {
                                 state.transfer_mode = "ascii".to_string();
-                                let _ = control_stream.write_all(b"200 Type set to A T (ASCII Telnet format)\r\n").await;
+                                control_stream.write_response(b"200 Type set to A T (ASCII Telnet format)\r\n", "FTP response").await;
                             }
                             "C" => {
-                                let _ = control_stream.write_all(b"504 ASA carriage control not supported\r\n").await;
+                                control_stream.write_response(b"504 ASA carriage control not supported\r\n", "FTP response").await;
                             }
                             _ => {
-                                let _ = control_stream.write_all(b"501 Unknown subtype\r\n").await;
+                                control_stream.write_response(b"501 Unknown subtype\r\n", "FTP response").await;
                             }
                         }
                     }
                     "E" => {
-                        let _ = control_stream.write_all(b"504 EBCDIC not supported, use A or I\r\n").await;
+                        control_stream.write_response(b"504 EBCDIC not supported, use A or I\r\n", "FTP response").await;
                     }
                     _ => {
-                        let _ = control_stream.write_all(b"501 Unknown type\r\n").await;
+                        control_stream.write_response(b"501 Unknown type\r\n", "FTP response").await;
                     }
                 }
             } else {
@@ -796,7 +788,7 @@ async fn handle_command(
                     "ascii" => "200 Type is A (ASCII)\r\n",
                     _ => "200 Type set\r\n",
                 };
-                let _ = control_stream.write_all(type_str.as_bytes()).await;
+                control_stream.write_response(type_str.as_bytes(), "FTP response").await;
             }
         }
 
@@ -805,22 +797,22 @@ async fn handle_command(
                 match mode.to_uppercase().as_str() {
                     "S" => {
                         state.transfer_mode_type = TransferModeType::Stream;
-                        let _ = control_stream.write_all(b"200 Mode set to Stream\r\n").await;
+                        control_stream.write_response(b"200 Mode set to Stream\r\n", "FTP response").await;
                     }
                     "B" => {
                         state.transfer_mode_type = TransferModeType::Block;
-                        let _ = control_stream.write_all(b"200 Mode set to Block\r\n").await;
+                        control_stream.write_response(b"200 Mode set to Block\r\n", "FTP response").await;
                     }
                     "C" => {
                         state.transfer_mode_type = TransferModeType::Compressed;
-                        let _ = control_stream.write_all(b"200 Mode set to Compressed\r\n").await;
+                        control_stream.write_response(b"200 Mode set to Compressed\r\n", "FTP response").await;
                     }
                     _ => {
-                        let _ = control_stream.write_all(b"501 Unknown mode\r\n").await;
+                        control_stream.write_response(b"501 Unknown mode\r\n", "FTP response").await;
                     }
                 }
             } else {
-                let _ = control_stream.write_all(b"501 Syntax error: MODE requires parameter\r\n").await;
+                control_stream.write_response(b"501 Syntax error: MODE requires parameter\r\n", "FTP response").await;
             }
         }
 
@@ -829,41 +821,41 @@ async fn handle_command(
                 match structure.to_uppercase().as_str() {
                     "F" => {
                         state.file_structure = FileStructure::File;
-                        let _ = control_stream.write_all(b"200 Structure set to File\r\n").await;
+                        control_stream.write_response(b"200 Structure set to File\r\n", "FTP response").await;
                     }
                     "R" => {
                         state.file_structure = FileStructure::Record;
-                        let _ = control_stream.write_all(b"200 Structure set to Record\r\n").await;
+                        control_stream.write_response(b"200 Structure set to Record\r\n", "FTP response").await;
                     }
                     "P" => {
                         state.file_structure = FileStructure::Page;
-                        let _ = control_stream.write_all(b"200 Structure set to Page\r\n").await;
+                        control_stream.write_response(b"200 Structure set to Page\r\n", "FTP response").await;
                     }
                     _ => {
-                        let _ = control_stream.write_all(b"501 Unknown structure\r\n").await;
+                        control_stream.write_response(b"501 Unknown structure\r\n", "FTP response").await;
                     }
                 }
             } else {
-                let _ = control_stream.write_all(b"501 Syntax error: STRU requires parameter\r\n").await;
+                control_stream.write_response(b"501 Syntax error: STRU requires parameter\r\n", "FTP response").await;
             }
         }
 
         ALLO => {
-            let _ = control_stream.write_all(b"200 ALLO command successful\r\n").await;
+            control_stream.write_response(b"200 ALLO command successful\r\n", "FTP response").await;
         }
 
         OPTS(opts_arg) => {
             if let Some(opts_arg) = opts_arg {
                 let opts_upper = opts_arg.to_uppercase();
                 if opts_upper.starts_with("UTF8") || opts_upper.starts_with("UTF-8") {
-                    let _ = control_stream.write_all(b"200 UTF8 enabled\r\n").await;
+                    control_stream.write_response(b"200 UTF8 enabled\r\n", "FTP response").await;
                 } else if opts_upper.starts_with("MODE") {
-                    let _ = control_stream.write_all(b"200 Mode set\r\n").await;
+                    control_stream.write_response(b"200 Mode set\r\n", "FTP response").await;
                 } else {
-                    let _ = control_stream.write_all(b"200 Options set\r\n").await;
+                    control_stream.write_response(b"200 Options set\r\n", "FTP response").await;
                 }
             } else {
-                let _ = control_stream.write_all(b"200 Options set\r\n").await;
+                control_stream.write_response(b"200 Options set\r\n", "FTP response").await;
             }
         }
 
@@ -871,7 +863,7 @@ async fn handle_command(
             if let Some(offset_str) = offset_str {
                 if let Ok(offset) = offset_str.parse::<u64>() {
                     state.rest_offset = offset;
-                    let _ = control_stream.write_all(format!("350 Restarting at {}\r\n", offset).as_bytes()).await;
+                    control_stream.write_response(format!("350 Restarting at {}\r\n", offset).as_bytes(), "FTP response").await;
                     tracing::debug!(
                         client_ip = %client_ip,
                         username = ?state.current_user.as_deref(),
@@ -879,11 +871,11 @@ async fn handle_command(
                         "REST command: offset {}", offset
                     );
                 } else {
-                    let _ = control_stream.write_all(b"501 Syntax error in REST parameter\r\n").await;
+                    control_stream.write_response(b"501 Syntax error in REST parameter\r\n", "FTP response").await;
                 }
             } else {
                 state.rest_offset = 0;
-                let _ = control_stream.write_all(b"350 Restarting at 0\r\n").await;
+                control_stream.write_response(b"350 Restarting at 0\r\n", "FTP response").await;
             }
         }
 
@@ -896,7 +888,7 @@ async fn handle_command(
             let passive_port = match state.passive_manager.try_bind_port(port_min, port_max, &bind_ip).await {
                 Ok(port) => port,
                 Err(e) => {
-                    let _ = control_stream.write_all(format!("425 Could not enter passive mode: {}\r\n", e).as_bytes()).await;
+                    control_stream.write_response(format!("425 Could not enter passive mode: {}\r\n", e).as_bytes(), "FTP response").await;
                     return Ok(true);
                 }
             };
@@ -914,20 +906,19 @@ async fn handle_command(
 
             let ip_parts: Vec<&str> = response_ip.split('.').collect();
             if ip_parts.len() != 4 {
-                let _ = control_stream.write_all(b"425 Invalid IP address format\r\n").await;
+                control_stream.write_response(b"425 Invalid IP address format\r\n", "FTP response").await;
                 return Ok(true);
             }
 
             let p1 = passive_port >> 8;
             let p2 = passive_port & 0xFF;
 
-            let _ = control_stream.write_all(
+            control_stream.write_response(
                 format!(
                     "227 Entering Passive Mode ({},{},{},{},{},{}).\r\n",
                     ip_parts[0], ip_parts[1], ip_parts[2], ip_parts[3], p1, p2
                 )
-            .as_bytes(),
-            ).await;
+            .as_bytes(), "PASV response").await;
 
             tracing::info!(
                 client_ip = %client_ip,
@@ -947,7 +938,7 @@ async fn handle_command(
             let passive_port = match state.passive_manager.try_bind_port(port_min, port_max, &bind_ip).await {
                 Ok(port) => port,
                 Err(e) => {
-                    let _ = control_stream.write_all(format!("425 Could not enter extended passive mode: {}\r\n", e).as_bytes()).await;
+                    control_stream.write_response(format!("425 Could not enter extended passive mode: {}\r\n", e).as_bytes(), "FTP response").await;
                     return Ok(true);
                 }
             };
@@ -955,9 +946,9 @@ async fn handle_command(
             state.passive_mode = true;
             state.data_port = Some(passive_port);
 
-            let _ = control_stream.write_all(
+            control_stream.write_response(
                 format!("229 Entering Extended Passive Mode (|||{}|)\r\n", passive_port).as_bytes(),
-            ).await;
+            "EPSV response").await;
         }
 
         PORT(data) => {
@@ -965,7 +956,7 @@ async fn handle_command(
                 let parts: Vec<u16> = data.split(',').filter_map(|s| s.parse().ok()).collect();
                 if parts.len() == 6 {
                     if !state.validate_port_ip(data) {
-                        let _ = control_stream.write_all(b"500 PORT command rejected: IP address must match control connection\r\n").await;
+                        control_stream.write_response(b"500 PORT command rejected: IP address must match control connection\r\n", "FTP response").await;
                         return Ok(true);
                     }
                     
@@ -974,12 +965,12 @@ async fn handle_command(
                     state.data_port = Some(port);
                     state.data_addr = Some(addr);
                     state.passive_mode = false;
-                    let _ = control_stream.write_all(b"200 PORT command successful\r\n").await;
+                    control_stream.write_response(b"200 PORT command successful\r\n", "FTP response").await;
                 } else {
-                    let _ = control_stream.write_all(b"501 Syntax error in parameters or arguments\r\n").await;
+                    control_stream.write_response(b"501 Syntax error in parameters or arguments\r\n", "FTP response").await;
                 }
             } else {
-                let _ = control_stream.write_all(b"501 Syntax error: PORT requires parameters\r\n").await;
+                control_stream.write_response(b"501 Syntax error: PORT requires parameters\r\n", "FTP response").await;
             }
         }
 
@@ -995,48 +986,48 @@ async fn handle_command(
                         "1" => {
                             if let Ok(port) = tcp_port.parse::<u16>() {
                                 if !state.validate_eprt_ip(net_addr) {
-                                    let _ = control_stream.write_all(b"500 EPRT command rejected: IP address must match control connection\r\n").await;
+                                    control_stream.write_response(b"500 EPRT command rejected: IP address must match control connection\r\n", "FTP response").await;
                                     return Ok(true);
                                 }
                                 state.data_port = Some(port);
                                 state.data_addr = Some(format!("{}:{}", net_addr, port));
                                 state.passive_mode = false;
-                                let _ = control_stream.write_all(b"200 EPRT command successful\r\n").await;
+                                control_stream.write_response(b"200 EPRT command successful\r\n", "FTP response").await;
                             } else {
-                                let _ = control_stream.write_all(b"501 Invalid port number\r\n").await;
+                                control_stream.write_response(b"501 Invalid port number\r\n", "FTP response").await;
                             }
                         }
                         "2" => {
                             if let Ok(port) = tcp_port.parse::<u16>() {
                                 if !state.validate_eprt_ip(net_addr) {
-                                    let _ = control_stream.write_all(b"500 EPRT command rejected: IP address must match control connection\r\n").await;
+                                    control_stream.write_response(b"500 EPRT command rejected: IP address must match control connection\r\n", "FTP response").await;
                                     return Ok(true);
                                 }
                                 state.data_port = Some(port);
                                 state.data_addr = Some(format!("[{}]:{}", net_addr, port));
                                 state.passive_mode = false;
-                                let _ = control_stream.write_all(b"200 EPRT command successful (IPv6)\r\n").await;
+                                control_stream.write_response(b"200 EPRT command successful (IPv6)\r\n", "FTP response").await;
                             } else {
-                                let _ = control_stream.write_all(b"501 Invalid port number\r\n").await;
+                                control_stream.write_response(b"501 Invalid port number\r\n", "FTP response").await;
                             }
                         }
                         _ => {
-                            let _ = control_stream.write_all(b"522 Protocol not supported, use (1,2)\r\n").await;
+                            control_stream.write_response(b"522 Protocol not supported, use (1,2)\r\n", "FTP response").await;
                         }
                     }
                 } else {
-                    let _ = control_stream.write_all(b"501 Syntax error in EPRT parameters\r\n").await;
+                    control_stream.write_response(b"501 Syntax error in EPRT parameters\r\n", "FTP response").await;
                 }
             } else {
-                let _ = control_stream.write_all(b"501 Syntax error: EPRT requires parameters\r\n").await;
+                control_stream.write_response(b"501 Syntax error: EPRT requires parameters\r\n", "FTP response").await;
             }
         }
 
         ABOR => {
             state.abort_flag.store(true, std::sync::atomic::Ordering::Relaxed);
             state.rest_offset = 0;
-            let _ = control_stream.write_all(b"426 Connection closed; transfer aborted\r\n").await;
-            let _ = control_stream.write_all(b"226 Abort successful\r\n").await;
+            control_stream.write_response(b"426 Connection closed; transfer aborted\r\n", "FTP response").await;
+            control_stream.write_response(b"226 Abort successful\r\n", "FTP response").await;
         }
 
         REIN => {
@@ -1050,72 +1041,112 @@ async fn handle_command(
             state.rename_from = None;
             state.data_protection = false;
             state.pbsz_set = false;
-            let _ = control_stream.write_all(b"220 Service ready for new user\r\n").await;
+            control_stream.write_response(b"220 Service ready for new user\r\n", "FTP response").await;
         }
 
         ACCT => {
-            let _ = control_stream.write_all(b"202 Account not required\r\n").await;
+            control_stream.write_response(b"202 Account not required\r\n", "FTP response").await;
         }
 
         HELP(cmd) => {
             if let Some(cmd) = cmd {
                 let help_text = match cmd.to_uppercase().as_str() {
-                    "USER" => "214 USER <username>: Specify user name\r\n",
-                    "PASS" => "214 PASS <password>: Specify password\r\n",
-                    "CWD" => "214 CWD <directory>: Change working directory\r\n",
-                    "CDUP" => "214 CDUP: Change to parent directory\r\n",
-                    "PWD" => "214 PWD: Print working directory\r\n",
-                    "LIST" => "214 LIST [<path>]: List directory contents\r\n",
-                    "NLST" => "214 NLST [<path>]: List directory names\r\n",
-                    "RETR" => "214 RETR <filename>: Retrieve file\r\n",
-                    "STOR" => "214 STOR <filename>: Store file\r\n",
-                    "DELE" => "214 DELE <filename>: Delete file\r\n",
-                    "MKD" => "214 MKD <directory>: Create directory\r\n",
-                    "RMD" => "214 RMD <directory>: Remove directory\r\n",
-                    "RNFR" => "214 RNFR <filename>: Specify rename source\r\n",
-                    "RNTO" => "214 RNTO <filename>: Specify rename destination\r\n",
-                    "PASV" => "214 PASV: Enter passive mode\r\n",
-                    "EPSV" => "214 EPSV: Enter extended passive mode\r\n",
-                    "PORT" => "214 PORT <h1,h2,h3,h4,p1,p2>: Enter active mode\r\n",
-                    "EPRT" => "214 EPRT |<netproto>|<netaddr>|<tcpport>|: Extended active mode\r\n",
-                    "TYPE" => "214 TYPE <type>: Set transfer type (A/I)\r\n",
-                    "MODE" => "214 MODE <mode>: Set transfer mode (S/B/C)\r\n",
-                    "STRU" => "214 STRU <structure>: Set file structure (F/R/P)\r\n",
-                    "REST" => "214 REST <offset>: Set restart marker\r\n",
-                    "SIZE" => "214 SIZE <filename>: Get file size\r\n",
-                    "MDTM" => "214 MDTM <filename>: Get modification time\r\n",
-                    "ABOR" => "214 ABOR: Abort current transfer\r\n",
-                    "QUIT" => "214 QUIT: Disconnect from server\r\n",
-                    "AUTH" => "214 AUTH <type>: Initiate TLS (TLS/SSL)\r\n",
-                    "PBSZ" => "214 PBSZ <size>: Set protection buffer size\r\n",
-                    "PROT" => "214 PROT <level>: Set data protection (C/P)\r\n",
-                    _ => "214 Unknown command\r\n",
+                    "USER" => "214 USER <username>: Specify user name for authentication. Use 'anonymous' or 'ftp' for anonymous access.\r\n",
+                    "PASS" => "214 PASS <password>: Specify password for authentication. For anonymous access, use email as password.\r\n",
+                    "ACCT" => "214 ACCT <account>: Send account information (not required by this server).\r\n",
+                    "CWD" => "214 CWD <directory>: Change working directory to the specified path. Supports relative and absolute paths.\r\n",
+                    "CDUP" => "214 CDUP: Change to parent directory (same as CWD ..).\r\n",
+                    "XCUP" => "214 XCUP: Change to parent directory (deprecated, use CDUP).\r\n",
+                    "PWD" => "214 PWD: Print current working directory path.\r\n",
+                    "XPWD" => "214 XPWD: Print current working directory (deprecated, use PWD).\r\n",
+                    "LIST" => "214 LIST [<path>]: List directory contents in Unix format. If no path specified, lists current directory.\r\n",
+                    "NLST" => "214 NLST [<path>]: List directory names only (no details). Useful for automated scripts.\r\n",
+                    "MLSD" => "214 MLSD [<path>]: List directory contents with machine-readable facts (RFC 3659).\r\n",
+                    "MLST" => "214 MLST [<path>]: Show facts for a single file/directory (RFC 3659).\r\n",
+                    "RETR" => "214 RETR <filename>: Retrieve/download a file from the server. Supports REST for resume.\r\n",
+                    "STOR" => "214 STOR <filename>: Store/upload a file to the server. Overwrites existing files.\r\n",
+                    "STOU" => "214 STOU: Store file with unique name (server generates filename). Returns the generated name.\r\n",
+                    "APPE" => "214 APPE <filename>: Append data to existing file, or create if not exists.\r\n",
+                    "DELE" => "214 DELE <filename>: Delete a file from the server.\r\n",
+                    "MKD" => "214 MKD <directory>: Create a new directory.\r\n",
+                    "XMKD" => "214 XMKD <directory>: Create directory (deprecated, use MKD).\r\n",
+                    "RMD" => "214 RMD <directory>: Remove an empty directory.\r\n",
+                    "XRMD" => "214 XRMD <directory>: Remove directory (deprecated, use RMD).\r\n",
+                    "RNFR" => "214 RNFR <filename>: Specify rename-from filename (first part of rename sequence).\r\n",
+                    "RNTO" => "214 RNTO <filename>: Specify rename-to filename (second part of rename sequence).\r\n",
+                    "PASV" => "214 PASV: Enter passive mode for data transfer. Server opens a port for client to connect.\r\n",
+                    "EPSV" => "214 EPSV: Enter extended passive mode (supports IPv6, RFC 2428).\r\n",
+                    "PORT" => "214 PORT <h1,h2,h3,h4,p1,p2>: Enter active mode. Client IP must match control connection.\r\n",
+                    "EPRT" => "214 EPRT |<netproto>|<netaddr>|<tcpport>|: Extended active mode (supports IPv6, RFC 2428).\r\n",
+                    "TYPE" => "214 TYPE <type>: Set transfer type. A=ASCII, I=Binary(Image), L 8=Local byte size 8.\r\n",
+                    "MODE" => "214 MODE <mode>: Set transfer mode. S=Stream, B=Block, C=Compressed.\r\n",
+                    "STRU" => "214 STRU <structure>: Set file structure. F=File, R=Record, P=Page.\r\n",
+                    "REST" => "214 REST <offset>: Set restart marker for resuming transfers. Use before RETR or STOR.\r\n",
+                    "SIZE" => "214 SIZE <filename>: Get file size in bytes (RFC 3659).\r\n",
+                    "MDTM" => "214 MDTM <filename>: Get file modification time in YYYYMMDDHHMMSS format (RFC 3659).\r\n",
+                    "ABOR" => "214 ABOR: Abort current data transfer and close data connection.\r\n",
+                    "QUIT" => "214 QUIT: Disconnect from server and close control connection.\r\n",
+                    "REIN" => "214 REIN: Reinitialize connection, reset all parameters (stay connected).\r\n",
+                    "SYST" => "214 SYST: Return system type (returns 'UNIX Type: L8').\r\n",
+                    "FEAT" => "214 FEAT: List server-supported features and extensions.\r\n",
+                    "STAT" => "214 STAT [<path>]: Without parameter: show server status. With parameter: show file/directory info.\r\n",
+                    "HELP" => "214 HELP [<command>]: Show help information. Without parameter: list all commands.\r\n",
+                    "NOOP" => "214 NOOP: No operation, returns 200 OK. Used to keep connection alive.\r\n",
+                    "SITE" => "214 SITE <command>: Execute server-specific commands (CHMOD, IDLE, HELP).\r\n",
+                    "AUTH" => "214 AUTH <type>: Initiate TLS/SSL authentication. Type can be TLS, TLS-C, or SSL.\r\n",
+                    "PBSZ" => "214 PBSZ <size>: Set protection buffer size (must be 0 for TLS). Use after AUTH.\r\n",
+                    "PROT" => "214 PROT <level>: Set data channel protection level. C=Clear, P=Private(encrypted).\r\n",
+                    "CCC" => "214 CCC: Clear command channel (revert to unencrypted control connection).\r\n",
+                    "OPTS" => "214 OPTS <option>: Set options (e.g., OPTS UTF8 ON).\r\n",
+                    "ALLO" => "214 ALLO <size>: Allocate storage space (no-op on this server, returns success).\r\n",
+                    _ => "214 Unknown command or no help available\r\n",
                 };
-                let _ = control_stream.write_all(help_text.as_bytes()).await;
+                control_stream.write_response(help_text.as_bytes(), "FTP response").await;
             } else {
-                let _ = control_stream.write_all(b"214-The following commands are recognized:\r\n").await;
-                let _ = control_stream.write_all(b"214-USER PASS ACCT CWD CDUP PWD LIST NLST RETR STOR\r\n").await;
-                let _ = control_stream.write_all(b"214-DELE MKD RMD RNFR RNTO PASV EPSV PORT EPRT\r\n").await;
-                let _ = control_stream.write_all(b"214-TYPE MODE STRU REST SIZE MDTM ABOR QUIT REIN\r\n").await;
-                let _ = control_stream.write_all(b"214-MLSD MLST SYST FEAT STAT HELP NOOP STOU SITE\r\n").await;
-                if tls_config.is_tls_available() {
-                    let _ = control_stream.write_all(b"214-AUTH PBSZ PROT CCC\r\n").await;
-                }
-                let _ = control_stream.write_all(b"214 Direct comments to admin\r\n").await;
+                control_stream.write_response(b"214-The following commands are recognized:\r\n", "FTP response").await;
+                control_stream.write_response(b"214-Connection and Authentication:\r\n", "FTP response").await;
+                control_stream.write_response(b"214-  USER PASS ACCT AUTH PBSZ PROT CCC QUIT REIN\r\n", "FTP response").await;
+                control_stream.write_response(b"214-Directory Operations:\r\n", "FTP response").await;
+                control_stream.write_response(b"214-  CWD CDUP XCUP PWD XPWD MKD XMKD RMD XRMD\r\n", "FTP response").await;
+                control_stream.write_response(b"214-File Operations:\r\n", "FTP response").await;
+                control_stream.write_response(b"214-  RETR STOR STOU APPE DELE RNFR RNTO REST SIZE MDTM\r\n", "FTP response").await;
+                control_stream.write_response(b"214-Directory Listing:\r\n", "FTP response").await;
+                control_stream.write_response(b"214-  LIST NLST MLSD MLST STAT\r\n", "FTP response").await;
+                control_stream.write_response(b"214-Transfer Settings:\r\n", "FTP response").await;
+                control_stream.write_response(b"214-  TYPE MODE STRU PASV EPSV PORT EPRT\r\n", "FTP response").await;
+                control_stream.write_response(b"214-Miscellaneous:\r\n", "FTP response").await;
+                control_stream.write_response(b"214-  SYST FEAT HELP NOOP SITE OPTS ALLO ABOR\r\n", "FTP response").await;
+                control_stream.write_response(b"214-Use 'HELP <command>' for detailed information on a specific command.\r\n", "FTP response").await;
+                control_stream.write_response(b"214 Direct comments to admin\r\n", "FTP response").await;
             }
         }
 
         STAT => {
             if let Some(ref username) = state.current_user {
-                let _ = control_stream.write_all(b"211-FTP server status:\r\n").await;
-                let _ = control_stream.write_all(format!("211-Connected to: {}\r\n", client_ip).as_bytes()).await;
-                let _ = control_stream.write_all(format!("211-Logged in as: {}\r\n", username).as_bytes()).await;
-                let _ = control_stream.write_all(format!("211-Current directory: {}\r\n", state.cwd).as_bytes()).await;
-                let _ = control_stream.write_all(format!("211-Transfer mode: {}\r\n", if state.passive_mode { "Passive" } else { "Active" }).as_bytes()).await;
-                let _ = control_stream.write_all(format!("211-TLS: {}\r\n", if state.tls_enabled { "Enabled" } else { "Disabled" }).as_bytes()).await;
-                let _ = control_stream.write_all(b"211 End\r\n").await;
+                control_stream.write_response(b"211-FTP server status:\r\n", "FTP response").await;
+                control_stream.write_response(format!("211-Connected to: {}\r\n", client_ip).as_bytes(), "FTP response").await;
+                control_stream.write_response(format!("211-Logged in as: {}\r\n", username).as_bytes(), "FTP response").await;
+                control_stream.write_response(format!("211-Current directory: {}\r\n", state.cwd).as_bytes(), "FTP response").await;
+                control_stream.write_response(format!("211-Transfer mode: {}\r\n", if state.passive_mode { "Passive" } else { "Active" }).as_bytes(), "FTP response").await;
+                control_stream.write_response(format!("211-Transfer type: {}\r\n", state.transfer_mode.to_uppercase()).as_bytes(), "FTP response").await;
+                control_stream.write_response(format!("211-File structure: {:?}\r\n", state.file_structure).as_bytes(), "FTP response").await;
+                control_stream.write_response(format!("211-Transfer mode type: {:?}\r\n", state.transfer_mode_type).as_bytes(), "FTP response").await;
+                control_stream.write_response(format!("211-TLS: {}\r\n", if state.tls_enabled { "Enabled" } else { "Disabled" }).as_bytes(), "FTP response").await;
+                if state.tls_enabled {
+                    control_stream.write_response(format!("211-Data protection: {}\r\n", if state.data_protection { "Private (encrypted)" } else { "Clear" }).as_bytes(), "FTP response").await;
+                }
+                if state.rest_offset > 0 {
+                    control_stream.write_response(format!("211-Restart offset: {}\r\n", state.rest_offset).as_bytes(), "FTP response").await;
+                }
+                if let Some(data_port) = state.data_port {
+                    control_stream.write_response(format!("211-Data port: {}\r\n", data_port).as_bytes(), "FTP response").await;
+                }
+                if let Some(ref rename_from) = state.rename_from {
+                    control_stream.write_response(format!("211-Rename from: {}\r\n", rename_from).as_bytes(), "FTP response").await;
+                }
+                control_stream.write_response(b"211 End\r\n", "FTP response").await;
             } else {
-                let _ = control_stream.write_all(b"211 FTP server status - Not logged in\r\n").await;
+                control_stream.write_response(b"211 FTP server status - Not logged in\r\n", "FTP response").await;
             }
         }
 
@@ -1127,24 +1158,24 @@ async fn handle_command(
 
                 match site_action.as_str() {
                     "HELP" => {
-                        let _ = control_stream.write_all(b"214-The following SITE commands are recognized:\r\n").await;
-                        let _ = control_stream.write_all(b"214-CHMOD IDLE HELP\r\n").await;
-                        let _ = control_stream.write_all(b"214 End\r\n").await;
+                        control_stream.write_response(b"214-The following SITE commands are recognized:\r\n", "FTP response").await;
+                        control_stream.write_response(b"214-CHMOD IDLE HELP\r\n", "FTP response").await;
+                        control_stream.write_response(b"214 End\r\n", "FTP response").await;
                     }
                     "IDLE" => {
                         if let Some(secs_str) = site_arg {
                             if let Ok(secs) = secs_str.parse::<u64>() {
-                                let _ = control_stream.write_all(format!("200 Idle timeout set to {} seconds\r\n", secs).as_bytes()).await;
+                                control_stream.write_response(format!("200 Idle timeout set to {} seconds\r\n", secs).as_bytes(), "FTP response").await;
                             } else {
-                                let _ = control_stream.write_all(b"501 Invalid idle time\r\n").await;
+                                control_stream.write_response(b"501 Invalid idle time\r\n", "FTP response").await;
                             }
                         } else {
-                            let _ = control_stream.write_all(b"501 SITE IDLE requires time parameter\r\n").await;
+                            control_stream.write_response(b"501 SITE IDLE requires time parameter\r\n", "FTP response").await;
                         }
                     }
                     "CHMOD" => {
                         if !state.authenticated {
-                            let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                            control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                             return Ok(true);
                         }
                         
@@ -1157,55 +1188,55 @@ async fn handle_command(
                                 let target_path = match state.resolve_path(target) {
                                     Ok(p) => p,
                                     Err(e) => {
-                                        let _ = control_stream.write_all(format!("550 {}\r\n", e).as_bytes()).await;
+                                        control_stream.write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response").await;
                                         return Ok(true);
                                     }
                                 };
                                 
                                 if !path_starts_with_ignore_case(&target_path, &state.home_dir) {
-                                    let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                                    control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                                     return Ok(true);
                                 }
                                 
                                 if let Ok(_mode_val) = u32::from_str_radix(mode, 8) {
                                     #[cfg(windows)]
                                     {
-                                        let _ = control_stream.write_all(b"200 CHMOD command accepted (Windows: permissions managed by ACL)\r\n").await;
+                                        control_stream.write_response(b"200 CHMOD command accepted (Windows: permissions managed by ACL)\r\n", "FTP response").await;
                                     }
                                     #[cfg(not(windows))]
                                     {
                                         use std::os::unix::fs::PermissionsExt;
                                         match std::fs::set_permissions(&target_path, std::fs::Permissions::from_mode(mode_val)) {
                                             Ok(()) => {
-                                                let _ = control_stream.write_all(format!("200 CHMOD {} {}\r\n", mode, target).as_bytes()).await;
+                                                control_stream.write_response(format!("200 CHMOD {} {}\r\n", mode, target).as_bytes(), "FTP response").await;
                                             }
                                             Err(e) => {
-                                                let _ = control_stream.write_all(format!("550 CHMOD failed: {}\r\n", e).as_bytes()).await;
+                                                control_stream.write_response(format!("550 CHMOD failed: {}\r\n", e).as_bytes(), "FTP response").await;
                                             }
                                         }
                                     }
                                 } else {
-                                    let _ = control_stream.write_all(b"501 Invalid mode format\r\n").await;
+                                    control_stream.write_response(b"501 Invalid mode format\r\n", "FTP response").await;
                                 }
                             } else {
-                                let _ = control_stream.write_all(b"501 SITE CHMOD requires mode and filename\r\n").await;
+                                control_stream.write_response(b"501 SITE CHMOD requires mode and filename\r\n", "FTP response").await;
                             }
                         } else {
-                            let _ = control_stream.write_all(b"501 SITE CHMOD requires parameters\r\n").await;
+                            control_stream.write_response(b"501 SITE CHMOD requires parameters\r\n", "FTP response").await;
                         }
                     }
                     _ => {
-                        let _ = control_stream.write_all(format!("500 Unknown SITE command: {}\r\n", site_action).as_bytes()).await;
+                        control_stream.write_response(format!("500 Unknown SITE command: {}\r\n", site_action).as_bytes(), "FTP response").await;
                     }
                 }
             } else {
-                let _ = control_stream.write_all(b"501 SITE command requires parameter\r\n").await;
+                control_stream.write_response(b"501 SITE command requires parameter\r\n", "FTP response").await;
             }
         }
 
         LIST(path) | NLST(path) => {
             if !state.authenticated {
-                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1218,7 +1249,7 @@ async fn handle_command(
             };
 
             if !can_list {
-                let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1226,19 +1257,19 @@ async fn handle_command(
                 match resolve_directory_path(&state.cwd, &state.home_dir, path_arg) {
                     Ok(path) => path,
                     Err(PathResolveError::PathEscape) => {
-                        let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                        control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                         return Ok(true);
                     }
                     Err(PathResolveError::NotADirectory) => {
-                        let _ = control_stream.write_all(b"550 Not a directory\r\n").await;
+                        control_stream.write_response(b"550 Not a directory\r\n", "FTP response").await;
                         return Ok(true);
                     }
                     Err(PathResolveError::NotFound) => {
-                        let _ = control_stream.write_all(b"550 Directory not found\r\n").await;
+                        control_stream.write_response(b"550 Directory not found\r\n", "FTP response").await;
                         return Ok(true);
                     }
                     Err(_) => {
-                        let _ = control_stream.write_all(b"550 Failed to resolve path\r\n").await;
+                        control_stream.write_response(b"550 Failed to resolve path\r\n", "FTP response").await;
                         return Ok(true);
                     }
                 }
@@ -1246,7 +1277,7 @@ async fn handle_command(
                 PathBuf::from(&state.cwd)
             };
 
-            let _ = control_stream.write_all(b"150 Here comes the directory listing\r\n").await;
+            control_stream.write_response(b"150 Here comes the directory listing\r\n", "FTP response").await;
 
             let current_username = state.current_user.clone().unwrap_or_else(|| "anonymous".to_string());
             let is_ascii = state.transfer_mode == "ascii";
@@ -1275,12 +1306,12 @@ async fn handle_command(
                     state.passive_manager.remove_listener(port);
                 }
 
-            let _ = control_stream.write_all(b"226 Transfer complete\r\n").await;
+            control_stream.write_response(b"226 Transfer complete\r\n", "FTP response").await;
         }
 
         MLSD(path) | MLST(path) => {
             if !state.authenticated {
-                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1291,7 +1322,7 @@ async fn handle_command(
             };
 
             if !can_list {
-                let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1299,7 +1330,7 @@ async fn handle_command(
                 match resolve_directory_path(&state.cwd, &state.home_dir, path_arg) {
                     Ok(path) => path,
                     Err(_) => {
-                        let _ = control_stream.write_all(b"550 Failed to resolve path\r\n").await;
+                        control_stream.write_response(b"550 Failed to resolve path\r\n", "FTP response").await;
                         return Ok(true);
                     }
                 }
@@ -1317,21 +1348,21 @@ async fn handle_command(
                                 let name = target_path.file_name()
                                     .map(|n| n.to_string_lossy().to_string())
                                     .unwrap_or_else(|| target_path.to_string_lossy().to_string());
-                                let _ = control_stream.write_all(format!("250-Listing {}\r\n {} {}\r\n250 End\r\n", ftp_path, facts, name).as_bytes()).await;
+                                control_stream.write_response(format!("250-Listing {}\r\n {} {}\r\n250 End\r\n", ftp_path, facts, name).as_bytes(), "FTP response").await;
                             }
                             Err(e) => {
                                 tracing::error!("MLST failed: {}", e);
-                                let _ = control_stream.write_all(b"550 Failed to get file path\r\n").await;
+                                control_stream.write_response(b"550 Failed to get file path\r\n", "FTP response").await;
                             }
                         }
                     } else {
-                        let _ = control_stream.write_all(b"550 Failed to get file info\r\n").await;
+                        control_stream.write_response(b"550 Failed to get file info\r\n", "FTP response").await;
                     }
                 } else {
-                    let _ = control_stream.write_all(b"550 File not found\r\n").await;
+                    control_stream.write_response(b"550 File not found\r\n", "FTP response").await;
                 }
             } else {
-                let _ = control_stream.write_all(b"150 Here comes the directory listing\r\n").await;
+                control_stream.write_response(b"150 Here comes the directory listing\r\n", "FTP response").await;
 
                 let mlst_owner = state.current_user.clone().unwrap_or_else(|| "anonymous".to_string());
                 
@@ -1355,13 +1386,13 @@ async fn handle_command(
                         state.passive_manager.remove_listener(port);
                     }
 
-                let _ = control_stream.write_all(b"226 Transfer complete\r\n").await;
+                control_stream.write_response(b"226 Transfer complete\r\n", "FTP response").await;
             }
         }
 
         RETR(filename) => {
             if !state.authenticated {
-                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1370,7 +1401,7 @@ async fn handle_command(
                     Ok(p) => p,
                     Err(e) => {
                         tracing::warn!("RETR failed for '{}': {}", filename, e);
-                        let _ = control_stream.write_all(format!("550 {}\r\n", e).as_bytes()).await;
+                        control_stream.write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response").await;
                         return Ok(true);
                     }
                 };
@@ -1382,7 +1413,7 @@ async fn handle_command(
                 if !file_path.exists() || !file_path.is_file() || !starts_with_home {
                     tracing::warn!("RETR denied: path='{}', home='{}', exists={}, is_file={}, starts_with={}", 
                         file_path.display(), state.home_dir, file_path.exists(), file_path.is_file(), starts_with_home);
-                    let _ = control_stream.write_all(b"550 File not found\r\n").await;
+                    control_stream.write_response(b"550 File not found\r\n", "FTP response").await;
                     return Ok(true);
                 }
 
@@ -1396,14 +1427,14 @@ async fn handle_command(
                 };
 
                 if !can_read {
-                    let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                    control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                     return Ok(true);
                 }
 
                 let file_metadata = match tokio::fs::metadata(&file_path).await {
                     Ok(m) => m,
                     Err(e) => {
-                        let _ = control_stream.write_all(format!("450 File unavailable: {}\r\n", e).as_bytes()).await;
+                        control_stream.write_response(format!("450 File unavailable: {}\r\n", e).as_bytes(), "FTP response").await;
                         return Ok(true);
                     }
                 };
@@ -1416,12 +1447,12 @@ async fn handle_command(
                 };
 
                 if state.rest_offset > 0 {
-                    let _ = control_stream.write_all(format!("110 Restart marker at {}\r\n", state.rest_offset).as_bytes()).await;
+                    control_stream.write_response(format!("110 Restart marker at {}\r\n", state.rest_offset).as_bytes(), "FTP response").await;
                 }
 
-                let _ = control_stream.write_all(
+                control_stream.write_response(
                     format!("150 Opening BINARY mode data connection ({} bytes)\r\n", remaining)
-                        .as_bytes(),
+                        .as_bytes(), "RETR opening"
                 ).await;
 
                 let is_ascii = state.transfer_mode == "ascii";
@@ -1445,7 +1476,7 @@ async fn handle_command(
                         state.passive_manager.remove_listener(port);
                     }
 
-                let _ = control_stream.write_all(b"226 Transfer complete\r\n").await;
+                control_stream.write_response(b"226 Transfer complete\r\n", "FTP response").await;
 
                 let final_size = tokio::fs::metadata(&file_path).await.map(|m| m.len()).unwrap_or(remaining);
                 crate::file_op_log!(
@@ -1463,7 +1494,7 @@ async fn handle_command(
 
         STOR(filename) => {
             if !state.authenticated {
-                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1480,7 +1511,7 @@ async fn handle_command(
 
                 if !can_write {
                     tracing::warn!("STOR denied: user {} lacks write permission", state.current_user.as_deref().unwrap_or("unknown"));
-                    let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                    control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                     return Ok(true);
                 }
 
@@ -1495,7 +1526,7 @@ async fn handle_command(
                     },
                     Err(e) => {
                         tracing::warn!("STOR failed for '{}': {}", filename, e);
-                        let _ = control_stream.write_all(format!("550 {}\r\n", e).as_bytes()).await;
+                        control_stream.write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response").await;
                         return Ok(true);
                     }
                 };
@@ -1508,7 +1539,7 @@ async fn handle_command(
                     file_path.display(), normalized_home_dir, starts_with_home);
                 if !starts_with_home {
                     tracing::warn!("STOR denied: path outside home - {} (home: {})", file_path.display(), state.home_dir);
-                    let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                    control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                     return Ok(true);
                 }
 
@@ -1516,7 +1547,7 @@ async fn handle_command(
                     let current_usage = quota_manager.get_usage(state.current_user.as_deref().unwrap_or("anonymous")).await;
                     let quota_bytes = quota * 1024 * 1024;
                     if current_usage >= quota_bytes {
-                        let _ = control_stream.write_all(b"552 Quota exceeded\r\n").await;
+                        control_stream.write_response(b"552 Quota exceeded\r\n", "FTP response").await;
                         tracing::warn!(
                             client_ip = %client_ip,
                             username = ?state.current_user.as_deref(),
@@ -1528,7 +1559,7 @@ async fn handle_command(
                 }
 
                 let file_existed = file_path.exists();
-                let _ = control_stream.write_all(b"150 Opening BINARY mode data connection\r\n").await;
+                control_stream.write_response(b"150 Opening BINARY mode data connection\r\n", "FTP response").await;
 
                 let mut transfer_success = false;
                 let mut total_written: u64 = 0;
@@ -1570,7 +1601,7 @@ async fn handle_command(
                     }
 
                 if transfer_success {
-                    let _ = control_stream.write_all(b"226 Transfer complete\r\n").await;
+                    control_stream.write_response(b"226 Transfer complete\r\n", "FTP response").await;
 
                     let uploaded_size = tokio::fs::metadata(&file_path).await.map(|m| m.len()).unwrap_or(total_written);
                     
@@ -1599,7 +1630,7 @@ async fn handle_command(
                         );
                     }
                 } else {
-                    let _ = control_stream.write_all(b"451 Transfer failed\r\n").await;
+                    control_stream.write_response(b"451 Transfer failed\r\n", "FTP response").await;
                     crate::file_op_log!(
                         failed,
                         state.current_user.as_deref().unwrap_or("anonymous"),
@@ -1613,13 +1644,13 @@ async fn handle_command(
 
                 state.rest_offset = 0;
             } else {
-                let _ = control_stream.write_all(b"501 Syntax error: STOR requires filename\r\n").await;
+                control_stream.write_response(b"501 Syntax error: STOR requires filename\r\n", "FTP response").await;
             }
         }
 
         APPE(filename) => {
             if !state.authenticated {
-                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1631,7 +1662,7 @@ async fn handle_command(
                 };
 
                 if !can_append {
-                    let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                    control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                     return Ok(true);
                 }
 
@@ -1639,15 +1670,15 @@ async fn handle_command(
                     Ok(p) => p,
                     Err(e) => {
                         tracing::warn!("APPE failed for '{}': {}", filename, e);
-                        let _ = control_stream.write_all(format!("550 {}\r\n", e).as_bytes()).await;
+                        control_stream.write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response").await;
                         return Ok(true);
                     }
                 };
                 if !path_starts_with_ignore_case(&file_path, &state.home_dir) {
-                    let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                    control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                     return Ok(true);
                 }
-                let _ = control_stream.write_all(b"150 Opening BINARY mode data connection for append\r\n").await;
+                control_stream.write_response(b"150 Opening BINARY mode data connection for append\r\n", "FTP response").await;
 
                 let is_ascii = state.transfer_mode == "ascii";
 
@@ -1659,7 +1690,9 @@ async fn handle_command(
                     &mut state.passive_manager,
                 ).await {
                     let abort = Arc::clone(&state.abort_flag);
-                    let _ = transfer::receive_file_append(&mut data_stream, &file_path, abort, is_ascii).await;
+                    if let Err(e) = transfer::receive_file_append(&mut data_stream, &file_path, abort, is_ascii).await {
+                        tracing::warn!("APPE transfer error: {}", e);
+                    }
                 }
 
                 if state.passive_mode
@@ -1667,7 +1700,7 @@ async fn handle_command(
                         state.passive_manager.remove_listener(port);
                     }
 
-                let _ = control_stream.write_all(b"226 Transfer complete\r\n").await;
+                control_stream.write_response(b"226 Transfer complete\r\n", "FTP response").await;
 
                 let appended_size = tokio::fs::metadata(&file_path).await.map(|m| m.len()).unwrap_or(0);
                 crate::file_op_log!(
@@ -1685,7 +1718,7 @@ async fn handle_command(
 
         DELE(filename) => {
             if !state.authenticated {
-                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1696,7 +1729,7 @@ async fn handle_command(
             };
 
             if !can_delete {
-                let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1705,22 +1738,22 @@ async fn handle_command(
                     Ok(p) => p,
                     Err(e) => {
                         tracing::warn!("DELE failed for '{}': {}", filename, e);
-                        let _ = control_stream.write_all(format!("550 {}\r\n", e).as_bytes()).await;
+                        control_stream.write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response").await;
                         return Ok(true);
                     }
                 };
                 if !path_starts_with_ignore_case(&file_path, &state.home_dir) {
-                    let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                    control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                     return Ok(true);
                 }
                 
                 if !file_path.exists() {
-                    let _ = control_stream.write_all(b"450 File unavailable: file not found\r\n").await;
+                    control_stream.write_response(b"450 File unavailable: file not found\r\n", "FTP response").await;
                     return Ok(true);
                 }
                 
                 if tokio::fs::remove_file(&file_path).await.is_ok() {
-                    let _ = control_stream.write_all(b"250 File deleted\r\n").await;
+                    control_stream.write_response(b"250 File deleted\r\n", "FTP response").await;
                     crate::file_op_log!(
                         delete,
                         state.current_user.as_deref().unwrap_or("anonymous"),
@@ -1729,14 +1762,14 @@ async fn handle_command(
                         "FTP"
                     );
                 } else {
-                    let _ = control_stream.write_all(b"450 File unavailable: delete operation failed\r\n").await;
+                    control_stream.write_response(b"450 File unavailable: delete operation failed\r\n", "FTP response").await;
                 }
             }
         }
 
         MKD(dirname) => {
             if !state.authenticated {
-                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1747,7 +1780,7 @@ async fn handle_command(
             };
 
             if !can_mkdir {
-                let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1756,22 +1789,22 @@ async fn handle_command(
                     Ok(p) => p,
                     Err(e) => {
                         tracing::warn!("MKD failed for '{}': {}", dirname, e);
-                        let _ = control_stream.write_all(format!("550 {}\r\n", e).as_bytes()).await;
+                        control_stream.write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response").await;
                         return Ok(true);
                     }
                 };
                 if !path_starts_with_ignore_case(&dir_path, &state.home_dir) {
-                    let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                    control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                     return Ok(true);
                 }
                 if tokio::fs::create_dir_all(&dir_path).await.is_ok() {
                     match to_ftp_path(&dir_path, std::path::Path::new(&state.home_dir)) {
                         Ok(ftp_path) => {
-                            let _ = control_stream.write_all(format!("257 \"{}\" created\r\n", ftp_path).as_bytes()).await;
+                            control_stream.write_response(format!("257 \"{}\" created\r\n", ftp_path).as_bytes(), "FTP response").await;
                         }
                         Err(e) => {
                             tracing::error!("MKD failed to get ftp path: {}", e);
-                            let _ = control_stream.write_all(b"257 Directory created\r\n").await;
+                            control_stream.write_response(b"257 Directory created\r\n", "FTP response").await;
                         }
                     }
                     crate::file_op_log!(
@@ -1782,14 +1815,14 @@ async fn handle_command(
                         "FTP"
                     );
                 } else {
-                    let _ = control_stream.write_all(b"550 Create directory operation failed\r\n").await;
+                    control_stream.write_response(b"550 Create directory operation failed\r\n", "FTP response").await;
                 }
             }
         }
 
         RMD(dirname) => {
             if !state.authenticated {
-                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1800,7 +1833,7 @@ async fn handle_command(
             };
 
             if !can_rmdir {
-                let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1809,16 +1842,16 @@ async fn handle_command(
                     Ok(p) => p,
                     Err(e) => {
                         tracing::warn!("RMD failed for '{}': {}", dirname, e);
-                        let _ = control_stream.write_all(format!("550 {}\r\n", e).as_bytes()).await;
+                        control_stream.write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response").await;
                         return Ok(true);
                     }
                 };
                 if !path_starts_with_ignore_case(&dir_path, &state.home_dir) {
-                    let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                    control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                     return Ok(true);
                 }
                 if tokio::fs::remove_dir_all(&dir_path).await.is_ok() {
-                    let _ = control_stream.write_all(b"250 Directory removed\r\n").await;
+                    control_stream.write_response(b"250 Directory removed\r\n", "FTP response").await;
                     crate::file_op_log!(
                         rmdir,
                         state.current_user.as_deref().unwrap_or("anonymous"),
@@ -1827,14 +1860,14 @@ async fn handle_command(
                         "FTP"
                     );
                 } else {
-                    let _ = control_stream.write_all(b"550 Remove directory operation failed\r\n").await;
+                    control_stream.write_response(b"550 Remove directory operation failed\r\n", "FTP response").await;
                 }
             }
         }
 
         RNFR(from_name) => {
             if !state.authenticated {
-                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1845,7 +1878,7 @@ async fn handle_command(
             };
 
             if !can_rename {
-                let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -1854,7 +1887,7 @@ async fn handle_command(
                     Ok(p) => p,
                     Err(e) => {
                         tracing::warn!("RNFR failed for '{}': {}", from_name, e);
-                        let _ = control_stream.write_all(format!("550 {}\r\n", e).as_bytes()).await;
+                        control_stream.write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response").await;
                         return Ok(true);
                     }
                 };
@@ -1862,7 +1895,7 @@ async fn handle_command(
                     from_name, from_path.display(), from_path.exists(), path_starts_with_ignore_case(&from_path, &state.home_dir));
                 if from_path.exists() && path_starts_with_ignore_case(&from_path, &state.home_dir) {
                     state.rename_from = Some(from_path.to_string_lossy().to_string());
-                    let _ = control_stream.write_all(b"350 File exists, ready for destination name\r\n").await;
+                    control_stream.write_response(b"350 File exists, ready for destination name\r\n", "FTP response").await;
                     tracing::debug!(
                         client_ip = %client_ip,
                         username = ?state.current_user.as_deref(),
@@ -1871,10 +1904,10 @@ async fn handle_command(
                     );
                 } else {
                     tracing::warn!("RNFR failed: file not found or outside home - raw='{}', resolved='{}'", from_name, from_path.display());
-                    let _ = control_stream.write_all(b"450 File unavailable: file not found\r\n").await;
+                    control_stream.write_response(b"450 File unavailable: file not found\r\n", "FTP response").await;
                 }
             } else {
-                let _ = control_stream.write_all(b"501 Syntax error: RNFR requires filename\r\n").await;
+                control_stream.write_response(b"501 Syntax error: RNFR requires filename\r\n", "FTP response").await;
             }
         }
 
@@ -1885,7 +1918,7 @@ async fn handle_command(
                         Ok(p) => p,
                         Err(e) => {
                             tracing::warn!("RNTO failed for '{}': {}", to_name, e);
-                            let _ = control_stream.write_all(format!("550 {}\r\n", e).as_bytes()).await;
+                            control_stream.write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response").await;
                             state.rename_from = None;
                             return Ok(true);
                         }
@@ -1893,14 +1926,14 @@ async fn handle_command(
                     tracing::debug!("RNTO: raw='{}', resolved='{}', from='{}'", to_name, to_path.display(), from_path);
                     if !path_starts_with_ignore_case(&to_path, &state.home_dir) {
                         tracing::warn!("RNTO failed: destination outside home - {}", to_path.display());
-                        let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                        control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                         state.rename_from = None;
                         return Ok(true);
                     }
                     let from_path_buf = PathBuf::from(from_path);
                     match tokio::fs::rename(&from_path_buf, &to_path).await {
                         Ok(()) => {
-                            let _ = control_stream.write_all(b"250 Rename successful\r\n").await;
+                            control_stream.write_response(b"250 Rename successful\r\n", "FTP response").await;
                             // 判断是重命名还是移动：检查父目录是否相同
                             let from_parent = from_path_buf.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
                             let to_parent = to_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
@@ -1926,21 +1959,21 @@ async fn handle_command(
                         }
                         Err(e) => {
                             tracing::error!("Rename failed: {} -> {}: {} (os error {})", from_path, to_path.display(), e, e.raw_os_error().unwrap_or(0));
-                            let _ = control_stream.write_all(b"550 Rename failed\r\n").await;
+                            control_stream.write_response(b"550 Rename failed\r\n", "FTP response").await;
                         }
                     }
                 } else {
-                    let _ = control_stream.write_all(b"501 Syntax error: RNTO requires filename\r\n").await;
+                    control_stream.write_response(b"501 Syntax error: RNTO requires filename\r\n", "FTP response").await;
                 }
             } else {
-                let _ = control_stream.write_all(b"503 Bad sequence of commands\r\n").await;
+                control_stream.write_response(b"503 Bad sequence of commands\r\n", "FTP response").await;
             }
             state.rename_from = None;
         }
 
         SIZE(filename) => {
             if !state.authenticated {
-                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                 return Ok(true);
             }
             if let Some(filename) = filename {
@@ -1948,25 +1981,25 @@ async fn handle_command(
                     Ok(p) => p,
                     Err(e) => {
                         tracing::warn!("SIZE failed for '{}': {}", filename, e);
-                        let _ = control_stream.write_all(format!("550 {}\r\n", e).as_bytes()).await;
+                        control_stream.write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response").await;
                         return Ok(true);
                     }
                 };
                 if path_starts_with_ignore_case(&file_path, &state.home_dir) {
                     if let Ok(metadata) = tokio::fs::metadata(&file_path).await {
-                        let _ = control_stream.write_all(format!("213 {}\r\n", metadata.len()).as_bytes()).await;
+                        control_stream.write_response(format!("213 {}\r\n", metadata.len()).as_bytes(), "FTP response").await;
                     } else {
-                        let _ = control_stream.write_all(b"450 File unavailable: file not found\r\n").await;
+                        control_stream.write_response(b"450 File unavailable: file not found\r\n", "FTP response").await;
                     }
                 } else {
-                    let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                    control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                 }
             }
         }
 
         MDTM(filename) => {
             if !state.authenticated {
-                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                 return Ok(true);
             }
             if let Some(filename) = filename {
@@ -1974,26 +2007,26 @@ async fn handle_command(
                     Ok(p) => p,
                     Err(e) => {
                         tracing::warn!("MDTM failed for '{}': {}", filename, e);
-                        let _ = control_stream.write_all(format!("550 {}\r\n", e).as_bytes()).await;
+                        control_stream.write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response").await;
                         return Ok(true);
                     }
                 };
                 if path_starts_with_ignore_case(&file_path, &state.home_dir) {
                     if let Ok(metadata) = tokio::fs::metadata(&file_path).await {
                         let mtime = transfer::get_file_mtime_raw(&metadata);
-                        let _ = control_stream.write_all(format!("213 {}\r\n", mtime).as_bytes()).await;
+                        control_stream.write_response(format!("213 {}\r\n", mtime).as_bytes(), "FTP response").await;
                     } else {
-                        let _ = control_stream.write_all(b"450 File unavailable: file not found\r\n").await;
+                        control_stream.write_response(b"450 File unavailable: file not found\r\n", "FTP response").await;
                     }
                 } else {
-                    let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                    control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                 }
             }
         }
 
         STOU => {
             if !state.authenticated {
-                let _ = control_stream.write_all(b"530 Not logged in\r\n").await;
+                control_stream.write_response(b"530 Not logged in\r\n", "FTP response").await;
                 return Ok(true);
             }
 
@@ -2004,32 +2037,24 @@ async fn handle_command(
             };
 
             if !can_write {
-                let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
+                control_stream.write_response(b"550 Permission denied\r\n", "FTP response").await;
                 return Ok(true);
             }
 
-            let unique_name = format!("stou_{}_{}", 
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs(),
-                rand::random::<u32>()
-            );
-            
-            let file_path = match state.resolve_path(&unique_name) {
-                Ok(p) => p,
+            let file_path = match generate_unique_filename(state, 100).await {
+                Ok(path) => path,
                 Err(e) => {
                     tracing::warn!("STOU failed: {}", e);
-                    let _ = control_stream.write_all(format!("550 {}\r\n", e).as_bytes()).await;
+                    control_stream.write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response").await;
                     return Ok(true);
                 }
             };
-            if !path_starts_with_ignore_case(&file_path, &state.home_dir) {
-                let _ = control_stream.write_all(b"550 Permission denied\r\n").await;
-                return Ok(true);
-            }
 
-            let _ = control_stream.write_all(format!("150 FILE: {}\r\n", unique_name).as_bytes()).await;
+            let unique_name = file_path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            control_stream.write_response(format!("150 FILE: {}\r\n", unique_name).as_bytes(), "FTP response").await;
 
             let is_ascii = state.transfer_mode == "ascii";
 
@@ -2041,7 +2066,9 @@ async fn handle_command(
                 &mut state.passive_manager,
             ).await {
                 let abort = Arc::clone(&state.abort_flag);
-                let _ = transfer::receive_file(&mut data_stream, &file_path, 0, abort, is_ascii).await;
+                if let Err(e) = transfer::receive_file(&mut data_stream, &file_path, 0, abort, is_ascii).await {
+                    tracing::warn!("STOU transfer error: {}", e);
+                }
             }
 
             if state.passive_mode
@@ -2049,7 +2076,7 @@ async fn handle_command(
                     state.passive_manager.remove_listener(port);
                 }
 
-            let _ = control_stream.write_all(b"226 Transfer complete\r\n").await;
+            control_stream.write_response(b"226 Transfer complete\r\n", "FTP response").await;
 
             let uploaded_size = tokio::fs::metadata(&file_path).await.map(|m| m.len()).unwrap_or(0);
             crate::file_op_log!(
@@ -2063,9 +2090,41 @@ async fn handle_command(
         }
 
         Unknown(cmd_str) => {
-            let _ = control_stream.write_all(format!("202 Command not implemented: {}\r\n", cmd_str).as_bytes()).await;
+            control_stream.write_response(format!("202 Command not implemented: {}\r\n", cmd_str).as_bytes(), "FTP response").await;
         }
     }
 
     Ok(true)
+}
+
+async fn generate_unique_filename(state: &SessionState, max_attempts: u32) -> Result<PathBuf, String> {
+    let base_name = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    
+    for attempt in 0..max_attempts {
+        let unique_name = if attempt == 0 {
+            format!("stou_{}_{:04x}", base_name, rand::random::<u16>())
+        } else {
+            format!("stou_{}_{:04x}_{}", base_name, rand::random::<u16>(), attempt)
+        };
+        
+        let file_path = match state.resolve_path(&unique_name) {
+            Ok(p) => p,
+            Err(e) => return Err(format!("Path resolution error: {}", e)),
+        };
+        
+        if !path_starts_with_ignore_case(&file_path, &state.home_dir) {
+            return Err("Generated path outside home directory".to_string());
+        }
+        
+        if !file_path.exists() {
+            return Ok(file_path);
+        }
+        
+        tracing::debug!("STOU filename collision detected, retrying: {}", unique_name);
+    }
+    
+    Err(format!("Could not generate unique filename after {} attempts", max_attempts))
 }

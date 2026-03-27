@@ -5,7 +5,6 @@ use std::sync::Arc;
 use crate::core::config::Config;
 use crate::core::users::UserManager;
 use crate::core::quota::QuotaManager;
-use crate::core::logger::TracingLogger;
 use crate::core::ftp_server::tls::TlsConfig;
 
 pub async fn start_ftps_implicit_server(
@@ -14,7 +13,6 @@ pub async fn start_ftps_implicit_server(
     quota_manager: Arc<QuotaManager>,
     tls_config: TlsConfig,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
-    logger: TracingLogger,
 ) -> Result<()> {
     let (bind_ip, ftps_port) = {
         let cfg = config.lock();
@@ -72,7 +70,6 @@ pub async fn start_ftps_implicit_server(
                         let config = Arc::clone(&config);
                         let user_manager = Arc::clone(&user_manager);
                         let quota_manager = Arc::clone(&quota_manager);
-                        let logger = logger.clone();
 
                         tokio::spawn(async move {
                             if let Err(e) = crate::core::ftp_server::session::handle_session_tls(
@@ -81,7 +78,6 @@ pub async fn start_ftps_implicit_server(
                                 user_manager,
                                 quota_manager,
                                 client_ip,
-                                logger,
                             ).await {
                                 tracing::debug!("FTPS session error: {}", e);
                             }

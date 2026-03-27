@@ -12,7 +12,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::core::config::{Config, get_program_data_path};
-use crate::core::logger::TracingLogger;
 use crate::core::users::UserManager;
 use crate::core::quota::QuotaManager;
 
@@ -21,7 +20,6 @@ use crate::core::ftp_server::tls::TlsConfig;
 pub struct FtpServer {
     config: Arc<Mutex<Config>>,
     user_manager: Arc<Mutex<UserManager>>,
-    _logger: TracingLogger,
     quota_manager: Arc<QuotaManager>,
     running: Arc<Mutex<bool>>,
     shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
@@ -33,7 +31,6 @@ impl FtpServer {
     pub fn new(
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
-        _logger: TracingLogger,
     ) -> Self {
         let tls_config = {
             let cfg = config.lock();
@@ -51,7 +48,6 @@ impl FtpServer {
         FtpServer {
             config,
             user_manager,
-            _logger,
             quota_manager: Arc::new(quota_manager),
             running: Arc::new(Mutex::new(false)),
             shutdown_tx: Arc::new(TokioMutex::new(None)),
@@ -110,7 +106,6 @@ impl FtpServer {
         let config = Arc::clone(&self.config);
         let user_manager = Arc::clone(&self.user_manager);
         let quota_manager = Arc::clone(&self.quota_manager);
-        let logger_clone = self._logger.clone();
         let running_clone = Arc::clone(&self.running);
 
         tracing::info!("FTP server started on {}", bind_addr);
@@ -130,7 +125,6 @@ impl FtpServer {
                 let config_clone = Arc::clone(&config);
                 let user_manager_clone = Arc::clone(&user_manager);
                 let quota_manager_clone = Arc::clone(&quota_manager);
-                let logger_ftps = logger_clone.clone();
                 
                 tokio::spawn(async move {
                     if let Err(e) = ftps_listener::start_ftps_implicit_server(
@@ -139,7 +133,6 @@ impl FtpServer {
                         quota_manager_clone,
                         tls_cfg,
                         ftps_shutdown_rx,
-                        logger_ftps,
                     ).await {
                         tracing::error!("FTPS implicit SSL server error: {}", e);
                     }
@@ -159,7 +152,6 @@ impl FtpServer {
                                 let config = Arc::clone(&config);
                                 let user_manager = Arc::clone(&user_manager);
                                 let quota_manager = Arc::clone(&quota_manager);
-                                let logger = logger_clone.clone();
                                 let client_ip = peer_addr.ip().to_string();
 
                                 tracing::info!(
@@ -175,7 +167,6 @@ impl FtpServer {
                                         user_manager,
                                         quota_manager,
                                         client_ip,
-                                        logger,
                                     ).await {
                                         tracing::debug!("FTP session error: {}", e);
                                     }

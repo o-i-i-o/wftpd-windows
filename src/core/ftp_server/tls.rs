@@ -12,41 +12,30 @@ pub type AsyncTlsTcpStream = AsyncTlsStream<TcpStream>;
 
 #[derive(Clone)]
 pub struct TlsConfig {
-    pub enabled: bool,
-    pub require_ssl: bool,
     pub acceptor: Option<Arc<TlsAcceptor>>,
 }
 
 impl TlsConfig {
-    pub fn new(cert_path: Option<&str>, key_path: Option<&str>, require_ssl: bool) -> Self {
+    pub fn new(cert_path: Option<&str>, key_path: Option<&str>, _require_ssl: bool) -> Self {
         match (cert_path, key_path) {
             (Some(cert), Some(key)) => {
                 match load_tls_acceptor(cert, key) {
                     Ok(acceptor) => {
                         tracing::info!("TLS enabled with certificate: {}", cert);
                         TlsConfig {
-                            enabled: true,
-                            require_ssl,
                             acceptor: Some(Arc::new(acceptor)),
                         }
                     }
                     Err(e) => {
                         tracing::error!("Failed to load TLS certificate: {}", e);
                         TlsConfig {
-                            enabled: false,
-                            require_ssl: false,
                             acceptor: None,
                         }
                     }
                 }
             }
             _ => {
-                if require_ssl {
-                    tracing::warn!("SSL required but no certificate configured");
-                }
                 TlsConfig {
-                    enabled: false,
-                    require_ssl: false,
                     acceptor: None,
                 }
             }

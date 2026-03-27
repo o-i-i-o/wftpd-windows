@@ -53,7 +53,6 @@ impl AppState {
         self.server_manager.start_ftp(
             Arc::clone(&self.config),
             Arc::clone(&self.user_manager),
-            self.logger.clone(),
         )
     }
     

@@ -42,7 +42,6 @@ impl ServerManager {
         &self,
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
-        logger: TracingLogger,
     ) -> anyhow::Result<()> {
         {
             let state = self.ftp_state.lock();
@@ -59,7 +58,6 @@ impl ServerManager {
         let server = FtpServer::new(
             config,
             user_manager,
-            logger,
         );
 
         runtime.block_on(server.start())?;
@@ -79,7 +77,6 @@ impl ServerManager {
         &self,
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
-        logger: TracingLogger,
     ) -> mpsc::Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         let ftp_state = Arc::clone(&self.ftp_state);
@@ -108,7 +105,6 @@ impl ServerManager {
             let server = FtpServer::new(
                 config,
                 user_manager,
-                logger,
             );
 
             if let Err(e) = runtime.block_on(server.start()) {
