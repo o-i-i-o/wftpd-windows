@@ -25,6 +25,11 @@ pub enum FtpCommand {
     PROT(Option<String>),
     AUTH(Option<String>),
     CCC,
+    // RFC 2228 Security Commands
+    ADAT(Option<String>),
+    MIC(Option<String>),
+    CONF(Option<String>),
+    ENC(Option<String>),
     ABOR,
     REIN,
     ACCT,
@@ -77,6 +82,11 @@ impl FtpCommand {
             "PROT" => FtpCommand::PROT(arg.map(|s| s.to_string())),
             "AUTH" => FtpCommand::AUTH(arg.map(|s| s.to_string())),
             "CCC" => FtpCommand::CCC,
+            // RFC 2228 Security Commands
+            "ADAT" => FtpCommand::ADAT(arg.map(|s| s.to_string())),
+            "MIC" => FtpCommand::MIC(arg.map(|s| s.to_string())),
+            "CONF" => FtpCommand::CONF(arg.map(|s| s.to_string())),
+            "ENC" => FtpCommand::ENC(arg.map(|s| s.to_string())),
             "ABOR" => FtpCommand::ABOR,
             "REIN" => FtpCommand::REIN,
             "ACCT" => FtpCommand::ACCT,

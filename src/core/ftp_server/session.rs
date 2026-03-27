@@ -534,6 +534,66 @@ async fn handle_command(
             }
         }
 
+        // RFC 2228 Security Commands
+        ADAT(_data) => {
+            if state.tls_enabled {
+                // ADAT用于Kerberos等认证机制的安全数据交换
+                // 在TLS模式下，我们已经有了加密通道，所以返回不支持
+                tracing::debug!("ADAT received but not implemented (TLS already provides security)");
+                control_stream.write_response(b"504 ADAT not implemented - TLS provides security\r\n", "FTP response").await;
+            } else {
+                control_stream.write_response(b"503 ADAT requires AUTH first\r\n", "FTP response").await;
+            }
+        }
+
+        MIC(data) => {
+            if state.tls_enabled {
+                // MIC用于完整性保护的命令
+                // 在TLS模式下，TLS已经提供了完整性保护
+                if let Some(data) = data {
+                    tracing::debug!("MIC command received: {} (TLS already provides integrity)", data);
+                    // 返回200表示接受，但实际不处理（TLS已提供完整性）
+                    control_stream.write_response(b"200 MIC accepted - integrity provided by TLS\r\n", "FTP response").await;
+                } else {
+                    control_stream.write_response(b"501 MIC requires data parameter\r\n", "FTP response").await;
+                }
+            } else {
+                control_stream.write_response(b"503 MIC requires AUTH first\r\n", "FTP response").await;
+            }
+        }
+
+        CONF(data) => {
+            if state.tls_enabled {
+                // CONF用于机密性保护的命令
+                // 在TLS模式下，TLS已经提供了机密性
+                if let Some(data) = data {
+                    tracing::debug!("CONF command received: {} (TLS already provides confidentiality)", data);
+                    // 返回200表示接受，但实际不处理（TLS已提供机密性）
+                    control_stream.write_response(b"200 CONF accepted - confidentiality provided by TLS\r\n", "FTP response").await;
+                } else {
+                    control_stream.write_response(b"501 CONF requires data parameter\r\n", "FTP response").await;
+                }
+            } else {
+                control_stream.write_response(b"503 CONF requires AUTH first\r\n", "FTP response").await;
+            }
+        }
+
+        ENC(data) => {
+            if state.tls_enabled {
+                // ENC用于加密保护的命令
+                // 在TLS模式下，TLS已经提供了加密
+                if let Some(data) = data {
+                    tracing::debug!("ENC command received: {} (TLS already provides encryption)", data);
+                    // 返回200表示接受，但实际不处理（TLS已提供加密）
+                    control_stream.write_response(b"200 ENC accepted - encryption provided by TLS\r\n", "FTP response").await;
+                } else {
+                    control_stream.write_response(b"501 ENC requires data parameter\r\n", "FTP response").await;
+                }
+            } else {
+                control_stream.write_response(b"503 ENC requires AUTH first\r\n", "FTP response").await;
+            }
+        }
+
         USER(username) => {
             if require_ssl && !state.tls_enabled {
                 control_stream.write_response(b"530 SSL required for login\r\n", "FTP response").await;
@@ -669,7 +729,9 @@ async fn handle_command(
         FEAT => {
             let mut features = "211-Features:\r\n SIZE\r\n MDTM\r\n REST STREAM\r\n PASV\r\n EPSV\r\n EPRT\r\n PORT\r\n MLST\r\n MLSD\r\n MODE S\r\n STRU F\r\n UTF8\r\n TVFS\r\n".to_string();
             if tls_config.is_tls_available() {
-                features.push_str(" AUTH TLS\r\n PBSZ\r\n PROT\r\n");
+                features.push_str(" AUTH TLS\r\n PBSZ\r\n PROT\r\n CCC\r\n");
+                // RFC 2228 Security Extensions
+                features.push_str(" MIC\r\n CONF\r\n ENC\r\n");
             }
             features.push_str("211 End\r\n");
             control_stream.write_response(features.as_bytes(), "FTP response").await;
@@ -1097,6 +1159,11 @@ async fn handle_command(
                     "PBSZ" => "214 PBSZ <size>: Set protection buffer size (must be 0 for TLS). Use after AUTH.\r\n",
                     "PROT" => "214 PROT <level>: Set data channel protection level. C=Clear, P=Private(encrypted).\r\n",
                     "CCC" => "214 CCC: Clear command channel (revert to unencrypted control connection).\r\n",
+                    // RFC 2228 Security Commands
+                    "ADAT" => "214 ADAT <data>: Authentication/Security Data (RFC 2228). Used for Kerberos/GSSAPI.\r\n",
+                    "MIC" => "214 MIC <data>: Integrity Protected Command (RFC 2228). Command with integrity protection.\r\n",
+                    "CONF" => "214 CONF <data>: Confidentiality Protected Command (RFC 2228). Encrypted command.\r\n",
+                    "ENC" => "214 ENC <data>: Privacy Protected Command (RFC 2228). Fully encrypted command.\r\n",
                     "OPTS" => "214 OPTS <option>: Set options (e.g., OPTS UTF8 ON).\r\n",
                     "ALLO" => "214 ALLO <size>: Allocate storage space (no-op on this server, returns success).\r\n",
                     _ => "214 Unknown command or no help available\r\n",
@@ -1106,6 +1173,8 @@ async fn handle_command(
                 control_stream.write_response(b"214-The following commands are recognized:\r\n", "FTP response").await;
                 control_stream.write_response(b"214-Connection and Authentication:\r\n", "FTP response").await;
                 control_stream.write_response(b"214-  USER PASS ACCT AUTH PBSZ PROT CCC QUIT REIN\r\n", "FTP response").await;
+                control_stream.write_response(b"214-RFC 2228 Security Extensions (requires TLS):\r\n", "FTP response").await;
+                control_stream.write_response(b"214-  ADAT MIC CONF ENC\r\n", "FTP response").await;
                 control_stream.write_response(b"214-Directory Operations:\r\n", "FTP response").await;
                 control_stream.write_response(b"214-  CWD CDUP XCUP PWD XPWD MKD XMKD RMD XRMD\r\n", "FTP response").await;
                 control_stream.write_response(b"214-File Operations:\r\n", "FTP response").await;

@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -50,11 +50,11 @@ impl TlsConfig {
 fn load_tls_acceptor(cert_path: &str, key_path: &str) -> Result<TlsAcceptor> {
     let cert_path = Path::new(cert_path);
     let key_path = Path::new(key_path);
-    
+
     let cert_extension = cert_path.extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase());
-    
+
     let identity = match cert_extension.as_deref() {
         Some("pfx") | Some("p12") => {
             let mut cert_file = File::open(cert_path)?;
@@ -66,16 +66,24 @@ fn load_tls_acceptor(cert_path: &str, key_path: &str) -> Result<TlsAcceptor> {
             let mut cert_file = File::open(cert_path)?;
             let mut cert_data = Vec::new();
             cert_file.read_to_end(&mut cert_data)?;
-            
+
             let mut key_file = File::open(key_path)?;
             let mut key_data = Vec::new();
             key_file.read_to_end(&mut key_data)?;
-            
+
             Identity::from_pkcs8(&cert_data, &key_data)?
         }
     };
-    
-    let native_acceptor = native_tls::TlsAcceptor::builder(identity).build()?;
+
+    // 配置安全的TLS参数
+    let native_acceptor = native_tls::TlsAcceptor::builder(identity)
+        .min_protocol_version(Some(native_tls::Protocol::Tlsv12))
+        .build()?;
+
+    tracing::info!(
+        "TLS acceptor configured with min_protocol=TLSv1.2"
+    );
+
     let acceptor = TlsAcceptor::from(native_acceptor);
     Ok(acceptor)
 }

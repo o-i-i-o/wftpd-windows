@@ -530,6 +530,49 @@ impl ServerManager {
         Self::wait_service_stopping(&service)
     }
 
+    pub fn restart_service(&self) -> anyhow::Result<()> {
+        use windows_service::{
+            service::{ServiceAccess, ServiceState},
+            service_manager::{ServiceManager, ServiceManagerAccess},
+        };
+
+        let manager = ServiceManager::local_computer(
+            None::<&str>, 
+            ServiceManagerAccess::CONNECT
+        ).map_err(|e| anyhow::anyhow!("连接服务管理器失败: {:?}", e))?;
+        
+        let service = manager.open_service(
+            "wftpd", 
+            ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::START
+        ).map_err(|e| anyhow::anyhow!("打开服务失败: {:?}", e))?;
+        
+        // 检查当前状态
+        match service.query_status() {
+            Ok(status) => {
+                if status.current_state == ServiceState::Running {
+                    // 服务正在运行，先停止
+                    service.stop()
+                        .map_err(|e| anyhow::anyhow!("停止服务失败: {:?}", e))?;
+                    // 等待服务停止
+                    Self::wait_service_stopping(&service)?;
+                } else if status.current_state == ServiceState::StopPending {
+                    // 服务正在停止，等待完成
+                    Self::wait_service_stopping(&service)?;
+                }
+                // 服务已停止，现在启动
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("查询服务状态失败: {:?}", e));
+            }
+        }
+        
+        // 启动服务
+        service.start(&[] as &[&std::ffi::OsStr])
+            .map_err(|e| anyhow::anyhow!("启动服务失败: {:?}", e))?;
+        
+        Self::wait_service_starting(&service)
+    }
+
     fn wait_service_stopping(service: &windows_service::service::Service) -> anyhow::Result<()> {
         use windows_service::service::ServiceState;
         

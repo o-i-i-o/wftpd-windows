@@ -152,6 +152,20 @@ impl ServiceTab {
                                 Err(e) => self.set_err(format!("停止失败：{}", e)),
                             }
                         }
+
+                        ui.separator();
+
+                        // 重启服务按钮
+                        let restart_btn = egui::Button::new(
+                            RichText::new("🔄 重启服务").color(Color32::WHITE).size(styles::FONT_SIZE_MD)
+                        ).fill(styles::INFO_COLOR)
+                         .corner_radius(egui::CornerRadius::same(6));
+                        if ui.add(restart_btn).clicked() {
+                            match self.manager.restart_service() {
+                                Ok(_) => self.set_ok("服务已重启"),
+                                Err(e) => self.set_err(format!("重启失败：{}", e)),
+                            }
+                        }
                     }
 
                     ui.separator();
