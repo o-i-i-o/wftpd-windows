@@ -4,6 +4,9 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use russh::keys::{self, PrivateKey};
+use russh::keys::ssh_key::rand_core::OsRng;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub server: ServerConfig,
@@ -256,7 +259,12 @@ impl Config {
         if self.sftp.enabled {
             let host_key_path = Path::new(&self.sftp.host_key_path);
             if !host_key_path.exists() {
-                warnings.push(format!("SFTP已启用，但主机密钥文件不存在: {}", self.sftp.host_key_path));
+                tracing::info!("SFTP主机密钥不存在，正在生成: {}", self.sftp.host_key_path);
+                if let Err(e) = Self::generate_host_key(&self.sftp.host_key_path) {
+                    warnings.push(format!("SFTP主机密钥生成失败: {}", e));
+                } else {
+                    tracing::info!("SFTP主机密钥生成成功");
+                }
             }
         }
         
@@ -351,6 +359,32 @@ impl Config {
         self.security.allowed_ips.iter().any(|cidr| {
             ip_matches_cidr(ip, cidr).unwrap_or(false)
         })
+    }
+
+    fn generate_host_key(path: &str) -> Result<()> {
+        let path = PathBuf::from(path);
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .context("Failed to create SSH directory")?;
+        }
+
+        let mut rng = OsRng;
+        let key = PrivateKey::random(&mut rng, keys::Algorithm::Ed25519)
+            .context("Failed to generate Ed25519 key")?;
+        let openssh = key.to_openssh(keys::ssh_key::LineEnding::default())
+            .context("Failed to encode private key")?;
+        fs::write(&path, &openssh)
+            .context("Failed to write private key file")?;
+
+        let pub_path = path.with_extension("pub");
+        let public_key = key.public_key();
+        let pub_openssh = public_key.to_openssh()
+            .context("Failed to encode public key")?;
+        fs::write(&pub_path, &pub_openssh)
+            .context("Failed to write public key file")?;
+
+        Ok(())
     }
 }
 
