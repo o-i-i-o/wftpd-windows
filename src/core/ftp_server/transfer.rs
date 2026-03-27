@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -373,7 +373,9 @@ pub async fn send_directory_listing(
             
             if is_nlst {
                 let line = format!("{}\r\n", name);
-                let _ = data_stream.write_all(line.as_bytes()).await;
+                if let Err(e) = data_stream.write_all(line.as_bytes()).await {
+                    tracing::debug!("NLST write error: {}", e);
+                }
             } else {
                 let is_dir = metadata.is_dir();
                 let perms = if is_dir {
@@ -388,7 +390,9 @@ pub async fn send_directory_listing(
                     "{} {:>2} {:<8} {:<8} {:>10} {} {}\r\n",
                     perms, nlink, username, username, size, mtime, name
                 );
-                let _ = data_stream.write_all(line.as_bytes()).await;
+                if let Err(e) = data_stream.write_all(line.as_bytes()).await {
+                    tracing::debug!("LIST write error: {}", e);
+                }
             }
         }
     }
@@ -408,7 +412,9 @@ pub async fn send_mlsd_listing(
             let name = entry.file_name().to_string_lossy().to_string();
             let facts = build_mlst_facts(&metadata, owner);
             let line = format!("{} {}\r\n", facts, name);
-            let _ = data_stream.write_all(line.as_bytes()).await;
+            if let Err(e) = data_stream.write_all(line.as_bytes()).await {
+                tracing::debug!("MLSD write error: {}", e);
+            }
         }
     }
 

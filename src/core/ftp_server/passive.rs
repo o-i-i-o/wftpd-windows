@@ -52,10 +52,6 @@ impl PassiveManager {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn clear(&mut self) {
-        self.listeners.clear();
-    }
 }
 
 impl Default for PassiveManager {

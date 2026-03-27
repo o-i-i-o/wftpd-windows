@@ -10,7 +10,6 @@ use tokio_native_tls::TlsStream as AsyncTlsStream;
 
 pub type AsyncTlsTcpStream = AsyncTlsStream<TcpStream>;
 
-#[allow(dead_code)]
 #[derive(Clone)]
 pub struct TlsConfig {
     pub enabled: bool,
