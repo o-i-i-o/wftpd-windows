@@ -58,7 +58,13 @@ impl AboutTab {
 
             ui.vertical(|ui| {
                 ui.label(
-                    RichText::new("作者: boss@oi-io.cc")
+                    RichText::new("作者: 吴威富")
+                        .size(styles::FONT_SIZE_MD)
+                        .color(styles::TEXT_PRIMARY_COLOR),
+                );
+                ui.add_space(styles::SPACING_SM);
+                    ui.label(
+                    RichText::new("电子邮箱: boss@oi-io.cc")
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_PRIMARY_COLOR),
                 );
@@ -111,7 +117,7 @@ impl AboutTab {
                 );
                 ui.add_space(styles::SPACING_SM);
                 ui.label(
-                    RichText::new("Copyright © 2024 WFTPG Contributors")
+                    RichText::new("Copyright © 2026 WFTPG Contributors")
                         .size(styles::FONT_SIZE_SM)
                         .color(styles::TEXT_MUTED_COLOR),
                 );
