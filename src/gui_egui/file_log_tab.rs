@@ -90,10 +90,9 @@ impl FileLogTab {
                         }
                         if let Ok(line) = line
                             && let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line)
+                            && log_entry.fields.operation.is_some()
                         {
-                            if log_entry.fields.operation.is_some() {
-                                all_logs.push(log_entry);
-                            }
+                            all_logs.push(log_entry);
                         }
                     }
                 }

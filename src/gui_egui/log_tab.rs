@@ -88,10 +88,9 @@ impl LogTab {
                         }
                         if let Ok(line) = line
                             && let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line)
+                            && log_entry.fields.operation.is_none()
                         {
-                            if log_entry.fields.operation.is_none() {
-                                all_logs.push(log_entry);
-                            }
+                            all_logs.push(log_entry);
                         }
                     }
                 }

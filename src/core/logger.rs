@@ -565,10 +565,10 @@ impl LogReader {
                     if logs.len() >= count {
                         break;
                     }
-                    if let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line) {
-                        if filter(&log_entry) {
-                            logs.push(log_entry);
-                        }
+                    if let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line)
+                        && filter(&log_entry)
+                    {
+                        logs.push(log_entry);
                     }
                 }
             }

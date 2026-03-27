@@ -1,3 +1,5 @@
+#![allow(clippy::upper_case_acronyms)]
+
 #[derive(Debug, Clone)]
 pub enum FtpCommand {
     USER(String),

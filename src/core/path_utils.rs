@@ -557,8 +557,9 @@ fn validate_symlink_chain(
                 current.push(name);
                 
                 // 检查当前路径是否是符号链接
-                if let Ok(metadata) = current.symlink_metadata() {
-                    if metadata.file_type().is_symlink() {
+                if let Ok(metadata) = current.symlink_metadata()
+                    && metadata.file_type().is_symlink()
+                {
                         // 读取符号链接目标
                         let link_target = match std::fs::read_link(&current) {
                             Ok(target) => target,
@@ -587,12 +588,11 @@ fn validate_symlink_chain(
                             Err(_) => {
                                 // 目标不存在，使用安全路径构建
                                 let parent = current.parent().unwrap_or(Path::new("/"));
-                                let safe_target = build_safe_path(
+                                build_safe_path(
                                     home_canon,
                                     &parent.join(&link_target),
                                     input_desc,
-                                )?;
-                                safe_target
+                                )?
                             }
                         };
                         
@@ -615,16 +615,15 @@ fn validate_symlink_chain(
                         );
                         
                         // 继续验证符号链接目标内部的组件
-                        if !components.peek().is_none() {
+                        if components.peek().is_some() {
                             // 还有后续组件，需要继续验证
                             current = canon_target;
                         }
-                    }
                 }
             }
         }
     }
-    
+
     // 最终验证完整路径
     let final_path = match path.canonicalize() {
         Ok(canon) => canon,

@@ -8,7 +8,7 @@ use tracing_subscriber::layer::SubscriberExt;
 
 use wftpg::core::server_manager::ServerManager;
 
-use wftpg::gui_egui::{server_tab, user_tab, security_tab, service_tab, log_tab, file_log_tab, styles};
+use wftpg::gui_egui::{about_tab, file_log_tab, log_tab, security_tab, server_tab, service_tab, styles, user_tab};
 
 #[cfg(windows)]
 mod admin {
@@ -123,6 +123,7 @@ struct WftpgApp {
     service_tab:    service_tab::ServiceTab,
     log_tab:        log_tab::LogTab,
     file_log_tab:   file_log_tab::FileLogTab,
+    about_tab:      about_tab::AboutTab,
     show_service_install_dialog: bool,
     service_install_status: ServiceInstallStatus,
     service_install_receiver: Option<mpsc::Receiver<Result<(), String>>>,
@@ -173,6 +174,7 @@ impl WftpgApp {
             service_tab:    service_tab::ServiceTab::new(),
             log_tab:        log_tab::LogTab::new(),
             file_log_tab:   file_log_tab::FileLogTab::new(),
+            about_tab:      about_tab::AboutTab::new(),
             show_service_install_dialog: false,
             service_install_status: ServiceInstallStatus::None,
             service_install_receiver: None,
@@ -451,6 +453,7 @@ impl App for WftpgApp {
                             ("🖥", "系统服务", 3),
                             ("📋", "运行日志", 4),
                             ("📁", "文件日志", 5),
+                            ("ℹ", "关于",     6),
                         ];
                         
                         for (icon, label, idx) in &tabs {
@@ -503,6 +506,7 @@ impl App for WftpgApp {
                             3 => self.service_tab.ui(ui),
                             4 => self.log_tab.ui(ui),
                             5 => self.file_log_tab.ui(ui),
+                            6 => self.about_tab.ui(ui),
                             _ => self.server_tab.ui(ui),
                         }
                     });
@@ -546,45 +550,27 @@ fn setup_fonts(ctx: &egui::Context) {
 }
 
 fn load_icon() -> IconData {
-    let exe_dir = match std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())) {
-        Some(dir) => dir,
-        None => {
-            tracing::warn!("无法获取程序目录，使用默认图标");
-            return create_default_icon();
-        }
-    };
+    const ICON_BYTES: &[u8] = include_bytes!("../ui/wftpg.ico");
 
-    let icon_path = exe_dir.join("ui/wftpg.ico");
-    if !icon_path.exists() {
-        tracing::warn!("图标文件不存在: {:?}，使用默认图标", icon_path);
-        return create_default_icon();
-    }
-
-    match std::fs::read(&icon_path) {
-        Ok(data) => {
-            match ico::IconDir::read(std::io::Cursor::new(&data)) {
-                Ok(icon) => {
-                    for entry in icon.entries() {
-                        if let Ok(image) = entry.decode() {
-                            let rgba = image.rgba_data().to_vec();
-                            let width = entry.width();
-                            let height = entry.height();
-                            tracing::info!("成功加载图标: {}x{}", width, height);
-                            return IconData { rgba, width, height };
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("解析图标文件失败: {}", e);
+    match ico::IconDir::read(std::io::Cursor::new(ICON_BYTES)) {
+        Ok(icon) => {
+            for entry in icon.entries() {
+                if let Ok(image) = entry.decode() {
+                    let rgba = image.rgba_data().to_vec();
+                    let width = entry.width();
+                    let height = entry.height();
+                    tracing::info!("成功加载内嵌图标: {}x{}", width, height);
+                    return IconData { rgba, width, height };
                 }
             }
+            tracing::warn!("内嵌图标中没有可解码的图像");
+            create_default_icon()
         }
         Err(e) => {
-            tracing::error!("读取图标文件失败: {}", e);
+            tracing::error!("解析内嵌图标文件失败: {}", e);
+            create_default_icon()
         }
     }
-
-    create_default_icon()
 }
 
 fn create_default_icon() -> IconData {
