@@ -12,7 +12,6 @@ use std::collections::HashSet;
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::core::config::{Config, get_program_data_path};
-use crate::core::logger::TracingLogger;
 use crate::core::users::UserManager;
 use crate::core::quota::QuotaManager;
 use crate::core::rate_limiter::RateLimiter;
@@ -32,7 +31,6 @@ const MAX_BUFFER_SIZE: usize = 10 * 1024 * 1024;
 pub struct SftpServer {
     config: Arc<Mutex<Config>>,
     user_manager: Arc<Mutex<UserManager>>,
-    _logger: TracingLogger,
     quota_manager: Arc<QuotaManager>,
     running: Arc<Mutex<bool>>,
     shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
@@ -42,14 +40,12 @@ impl SftpServer {
     pub fn new(
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
-        _logger: TracingLogger,
     ) -> Self {
         let quota_manager = QuotaManager::new(&get_program_data_path());
 
         SftpServer {
             config,
             user_manager,
-            _logger,
             quota_manager: Arc::new(quota_manager),
             running: Arc::new(Mutex::new(false)),
             shutdown_tx: Arc::new(TokioMutex::new(None)),
@@ -75,6 +71,8 @@ impl SftpServer {
             return Err(anyhow::anyhow!("配置路径验证失败: {}", warnings.join("; ")));
         }
 
+        tracing::info!("SFTP server starting on {}:{}", bind_ip, sftp_port);
+
         let host_key = Self::load_or_generate_host_key(&host_key_path).await?;
 
         let mut methods = MethodSet::empty();
@@ -99,7 +97,6 @@ impl SftpServer {
         }
 
         let user_manager_clone = Arc::clone(&self.user_manager);
-        let logger_clone = self._logger.clone();
         let running_clone = Arc::clone(&self.running);
         let config_clone = Arc::clone(&self.config);
         let quota_manager_clone = Arc::clone(&self.quota_manager);
@@ -132,7 +129,6 @@ impl SftpServer {
                             Ok((socket, peer_addr)) => {
                                 let config = Arc::clone(&config);
                                 let user_manager = Arc::clone(&user_manager_clone);
-                                let logger = logger_clone.clone();
                                 let quota_manager = Arc::clone(&quota_manager_clone);
                                 let client_ip = peer_addr.ip().to_string();
 
@@ -156,7 +152,6 @@ impl SftpServer {
                                 tokio::spawn(async move {
                                     let handler = SftpHandler {
                                         user_manager,
-                                        _logger: logger,
                                         quota_manager,
                                         authenticated: false,
                                         username: None,
@@ -220,7 +215,6 @@ impl SftpServer {
 
         let mut rng = OsRng;
         let key = PrivateKey::random(&mut rng, keys::Algorithm::Ed25519)?;
-
         let openssh = key.to_openssh(keys::ssh_key::LineEnding::default())?;
         tokio::fs::write(&path, openssh.to_string()).await?;
 
@@ -235,7 +229,6 @@ impl SftpServer {
 
 struct SftpHandler {
     user_manager: Arc<Mutex<UserManager>>,
-    _logger: TracingLogger,
     quota_manager: Arc<QuotaManager>,
     authenticated: bool,
     username: Option<String>,
@@ -251,7 +244,6 @@ struct SftpState {
     cwd: String,
     username: Option<String>,
     user_manager: Arc<Mutex<UserManager>>,
-    _logger: TracingLogger,
     quota_manager: Arc<QuotaManager>,
     handles: HashMap<String, SftpFileHandle>,
     next_handle_id: u32,
@@ -462,7 +454,6 @@ impl russh::server::Handler for SftpHandler {
                     cwd: home_dir.clone(),
                     username,
                     user_manager: Arc::clone(&self.user_manager),
-                    _logger: self._logger.clone(),
                     quota_manager: Arc::clone(&self.quota_manager),
                     handles: HashMap::new(),
                     next_handle_id: 0,

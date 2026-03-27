@@ -68,7 +68,6 @@ impl AppState {
         self.server_manager.start_sftp(
             Arc::clone(&self.config),
             Arc::clone(&self.user_manager),
-            self.logger.clone(),
         )
     }
     

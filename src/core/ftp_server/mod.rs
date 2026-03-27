@@ -78,6 +78,7 @@ impl FtpServer {
         }
 
         let bind_addr = format!("{}:{}", bind_ip, ftp_port);
+        tracing::info!("FTP server starting on {}", bind_addr);
         
         let listener = {
             use socket2::{Domain, Protocol, Socket, Type, SockAddr};

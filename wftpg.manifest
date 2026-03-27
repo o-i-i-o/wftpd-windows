@@ -3,7 +3,7 @@
   <assemblyIdentity
     version="3.0.25.0"
     processorArchitecture="*"
-    name="WFTPG.wftp-gui"
+    name="WFTPG.wftpg"
     type="win32"
   />
   <description>WFTPG SFTP/FTP Management Tool</description>

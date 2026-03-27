@@ -5,7 +5,6 @@ use std::sync::mpsc;
 
 use crate::core::config::Config;
 use crate::core::users::UserManager;
-use crate::core::logger::TracingLogger;
 use crate::core::ftp_server::FtpServer;
 use crate::core::sftp_server::SftpServer;
 
@@ -173,7 +172,6 @@ impl ServerManager {
         &self,
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
-        logger: TracingLogger,
     ) -> anyhow::Result<()> {
         {
             let state = self.sftp_state.lock();
@@ -190,7 +188,6 @@ impl ServerManager {
         let server = SftpServer::new(
             config,
             user_manager,
-            logger,
         );
 
         runtime.block_on(server.start())?;
@@ -210,7 +207,6 @@ impl ServerManager {
         &self,
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
-        logger: TracingLogger,
     ) -> mpsc::Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         let sftp_state = Arc::clone(&self.sftp_state);
@@ -239,7 +235,6 @@ impl ServerManager {
             let server = SftpServer::new(
                 config,
                 user_manager,
-                logger,
             );
 
             if let Err(e) = runtime.block_on(server.start()) {

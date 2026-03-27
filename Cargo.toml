@@ -1,8 +1,8 @@
 [package]
 name = "wftpg"
-version = "3.1.32"
+version = "3.2.1"
 edition = "2024"
-authors = ["WFTPG Developer"]
+authors = ["boss@oi-io.cc"]
 description = "SFTP+FTP GUI Management Tool for Windows (Rust + egui)"
 build = "build.rs"
 
@@ -70,7 +70,7 @@ panic = "abort"
 opt-level = 3
 
 [[bin]]
-name = "wftp-gui"
+name = "wftpg"
 path = "src/gui_main.rs"
 
 [[bin]]

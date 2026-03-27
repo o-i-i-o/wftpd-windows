@@ -5,4 +5,4 @@
 IDI_ICON1 ICON "ui/wftpg.ico"
 
 // 应用程序清单 - 请求管理员权限
-1 RT_MANIFEST "wftp-gui.manifest"
+1 RT_MANIFEST "wftpg.manifest"
