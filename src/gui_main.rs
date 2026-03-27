@@ -137,7 +137,7 @@ struct WftpgApp {
 
 impl WftpgApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        cc.egui_ctx.set_style(styles::get_custom_style());
+        cc.egui_ctx.set_global_style(styles::get_custom_style());
         
         let (init_tx, init_rx) = mpsc::channel();
         let ctx_clone = cc.egui_ctx.clone();
@@ -395,14 +395,16 @@ impl WftpgApp {
 }
 
 impl App for WftpgApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut Frame) {
+        let ctx = ui.ctx().clone();
+        
         match self.init_state {
             InitState::Loading => {
-                self.check_init_result(ctx);
+                self.check_init_result(&ctx);
                 
                 CentralPanel::default()
                     .frame(self.cached_styles.loading_frame)
-                    .show(ctx, |ui| {
+                    .show_inside(ui, |ui| {
                         ui.vertical_centered(|ui| {
                             ui.add_space(ui.available_height() / 2.0 - 50.0);
                             ui.spinner();
@@ -415,7 +417,7 @@ impl App for WftpgApp {
             InitState::Error => {
                 CentralPanel::default()
                     .frame(self.cached_styles.error_frame)
-                    .show(ctx, |ui| {
+                    .show_inside(ui, |ui| {
                         ui.vertical_centered(|ui| {
                             ui.add_space(ui.available_height() / 2.0 - 80.0);
                             ui.label(RichText::new("⚠ 初始化失败").size(styles::FONT_SIZE_LG).strong().color(styles::DANGER_COLOR));
@@ -435,11 +437,11 @@ impl App for WftpgApp {
         }
         
         self.check_service_install_result();
-        self.show_service_dialog(ctx);
+        self.show_service_dialog(&ctx);
 
         CentralPanel::default()
             .frame(self.cached_styles.main_frame)
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 ui.add_space(12.0);
                 
                 self.cached_styles.tab_frame.show(ui, |ui| {

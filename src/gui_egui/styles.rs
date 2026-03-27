@@ -161,8 +161,8 @@ pub fn get_custom_style_with_scale(font_scale: FontScale) -> Style {
     
     style.spacing.item_spacing      = egui::vec2(14.0, 12.0);
     style.spacing.button_padding    = egui::vec2(18.0, 10.0);
-    style.spacing.window_margin     = egui::Margin::same(20);
-    style.spacing.menu_margin       = egui::Margin::same(12);
+    style.spacing.window_margin     = egui::Margin::same(24);
+    style.spacing.menu_margin       = egui::Margin::same(16);
     style.spacing.indent            = 24.0;
     style.spacing.icon_width        = 20.0;
     style.spacing.icon_width_inner  = 16.0;
@@ -194,7 +194,7 @@ pub fn card_frame() -> egui::Frame {
     egui::Frame::new()
         .fill(BG_CARD)
         .stroke(Stroke::new(1.0, BORDER_COLOR))
-        .inner_margin(egui::Margin::same(16))
+        .inner_margin(egui::Margin::same(20))
         .corner_radius(egui::CornerRadius::same(8))
 }
 

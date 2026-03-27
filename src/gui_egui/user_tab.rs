@@ -2,7 +2,6 @@ use egui::{Color32, RichText, Ui, Frame};
 use crate::core::users::{User, UserManager, Permissions};
 use crate::core::config::Config;
 use crate::gui_egui::styles;
-use egui_file_dialog::{FileDialog, DialogState};
 use egui_extras::TableBuilder;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -25,7 +24,6 @@ pub struct UserTab {
     form_error: Option<String>,
     status_message: Option<(String, bool)>,
     show_permissions: bool,
-    file_dialog: FileDialog,
 }
 
 impl Default for UserTab {
@@ -44,7 +42,6 @@ impl Default for UserTab {
             form_is_admin: false, form_permissions: Permissions::full(),
             form_error: None, status_message: None,
             show_permissions: false,
-            file_dialog: FileDialog::new().title("选择用户主目录"),
         }
     }
 }
@@ -92,16 +89,24 @@ impl UserTab {
         None
     }
 
+    fn pick_home_directory(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("选择用户主目录")
+            .pick_folder()
+        {
+            self.form_home_dir = path.to_string_lossy().to_string();
+        }
+    }
+
     fn show_modal(&mut self, ctx: &egui::Context) {
         if self.modal == ModalMode::None { return; }
-        if matches!(self.file_dialog.state(), DialogState::Open) { return; }
-        let screen = ctx.available_rect();
+        let screen = ctx.content_rect();
         if screen.width() <= 0.0 || screen.height() <= 0.0 { return; }
         egui::Area::new(egui::Id::new("modal_backdrop"))
             .fixed_pos(egui::pos2(0.0, 0.0))
             .order(egui::Order::Background)
             .show(ctx, |ui| {
-                let screen = ctx.available_rect();
+                let screen = ctx.content_rect();
                 ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(140));
             });
         let is_add = self.modal == ModalMode::AddUser;
@@ -113,7 +118,7 @@ impl UserTab {
             ModalMode::None => "",
         };
         let mw: f32 = if is_confirm { 320.0 } else { (screen.width() * 0.4).clamp(380.0, 550.0) };
-        let screen = ctx.available_rect();
+        let screen = ctx.content_rect();
         if screen.width() <= 0.0 || screen.height() <= 0.0 { return; }
         let center = egui::pos2(screen.center().x, screen.center().y);
         let mut close_modal = false;
@@ -147,7 +152,7 @@ impl UserTab {
                 } else {
                     let label_width = 80.0;
                     let input_width = mw - label_width - 80.0;
-                    
+
                     Frame::new()
                         .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
                         .inner_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 8 })
@@ -166,7 +171,7 @@ impl UserTab {
                                     ui.label(RichText::new(self.form_username.clone()).strong().size(styles::FONT_SIZE_MD).color(styles::TEXT_PRIMARY_COLOR));
                                 }
                             });
-                            
+
                             ui.horizontal(|ui| {
                                 ui.add_sized([label_width, 24.0], egui::Label::new(
                                     RichText::new(if is_add {"密码:"} else {"新密码:"}).size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR)));
@@ -176,7 +181,7 @@ impl UserTab {
                                         .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
                                 });
                             });
-                            
+
                             ui.horizontal(|ui| {
                                 ui.add_sized([label_width, 24.0], egui::Label::new(
                                     RichText::new("确认密码:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR)));
@@ -186,7 +191,7 @@ impl UserTab {
                                         .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
                                 });
                             });
-                            
+
                             ui.horizontal(|ui| {
                                 ui.add_sized([label_width, 24.0], egui::Label::new(
                                     RichText::new("主目录:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR)));
@@ -196,19 +201,16 @@ impl UserTab {
                                         .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
                                 });
                                 if ui.button("浏览...").clicked() {
-                                    self.file_dialog = FileDialog::new()
-                                        .title("选择用户主目录")
-                                        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
-                                    self.file_dialog.pick_directory();
+                                    self.pick_home_directory();
                                 }
                             });
-                            
+
                             ui.horizontal(|ui| {
                                 ui.add_sized([label_width, 24.0], egui::Label::new(
                                     RichText::new("管理员:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR)));
                                 ui.checkbox(&mut self.form_is_admin, "赋予管理员权限");
                             });
-                            
+
                             ui.horizontal(|ui| {
                                 ui.add_sized([label_width, 24.0], egui::Label::new(
                                     RichText::new("权限:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR)));
@@ -217,7 +219,7 @@ impl UserTab {
                                 }
                             });
                         });
-                    
+
                     if self.show_permissions {
                         Frame::new()
                             .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
@@ -236,7 +238,7 @@ impl UserTab {
                                 });
                             });
                     }
-                    
+
                     if let Some(ref err) = self.form_error.clone() {
                         ui.add_space(styles::SPACING_XS);
                         ui.label(RichText::new(err).color(styles::DANGER_COLOR).size(styles::FONT_SIZE_MD));
@@ -274,7 +276,7 @@ impl UserTab {
                                 self.status_message = Some((format!("用户已添加，但权限设置失败: {}", e), false));
                             }
                         }
-                        self.save(); 
+                        self.save();
                         self.modal = ModalMode::None;
                     }
                     Err(e) => {
@@ -285,7 +287,7 @@ impl UserTab {
             } else if let ModalMode::EditUser(ref uname) = self.modal.clone() {
                 let mut has_error = false;
                 let mut error_messages = Vec::new();
-                
+
                 match self.user_manager.update_home_dir(uname, self.form_home_dir.trim()) {
                     Ok(_) => {
                         tracing::info!("用户 {} 主目录更新成功", uname);
@@ -296,7 +298,7 @@ impl UserTab {
                         has_error = true;
                     }
                 }
-                
+
                 if !self.form_password.is_empty() {
                     match self.user_manager.update_password(uname, &self.form_password) {
                         Ok(_) => {
@@ -309,7 +311,7 @@ impl UserTab {
                         }
                     }
                 }
-                
+
                 match self.user_manager.update_permissions(uname, self.form_permissions) {
                     Ok(_) => {
                         tracing::info!("用户 {} 权限更新成功", uname);
@@ -320,7 +322,7 @@ impl UserTab {
                         has_error = true;
                     }
                 }
-                
+
                 match self.user_manager.set_user_admin(uname, self.form_is_admin) {
                     Ok(_) => {
                         tracing::info!("用户 {} 管理员状态更新成功", uname);
@@ -331,15 +333,15 @@ impl UserTab {
                         has_error = true;
                     }
                 }
-                
+
                 if has_error {
                     self.status_message = Some((format!("部分更新失败: {}", error_messages.join("; ")), false));
                 }
-                self.save(); 
+                self.save();
                 self.modal = ModalMode::None;
             }
         }
-        
+
         if let Some(name) = delete_target {
             match self.user_manager.remove_user(&name) {
                 Ok(_) => {
@@ -352,17 +354,12 @@ impl UserTab {
                 }
             }
         }
-        
+
         if close_modal && !do_submit { self.modal = ModalMode::None; self.form_error = None; }
     }
 
     pub fn ui(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
-
-        self.file_dialog.update(&ctx);
-        if let Some(path) = self.file_dialog.take_picked() {
-            self.form_home_dir = path.to_string_lossy().to_string();
-        }
 
         self.show_modal(&ctx);
 
@@ -413,9 +410,9 @@ impl UserTab {
         } else {
             styles::card_frame().show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                
+
                 let available_width = ui.available_width();
-                
+
                 let table = TableBuilder::new(ui)
                     .striped(true)
                     .resizable(true)
@@ -470,9 +467,9 @@ impl UserTab {
                                     ui.label(admin_rt);
                                 });
                                 row.col(|ui| {
-                                    let st_col = if user_clone.enabled { 
-                                        styles::SUCCESS_DARK 
-                                    } else { 
+                                    let st_col = if user_clone.enabled {
+                                        styles::SUCCESS_DARK
+                                    } else {
                                         styles::DANGER_DARK
                                     };
                                     let st_icon = if user_clone.enabled { "●" } else { "○" };
@@ -482,33 +479,33 @@ impl UserTab {
                                 row.col(|ui| {
                                     ui.horizontal(|ui| {
                                         ui.spacing_mut().item_spacing.x = 6.0;
-                                        
+
                                         let edit_btn = egui::Button::new(RichText::new("编辑").size(styles::FONT_SIZE_MD))
                                             .fill(styles::BG_SECONDARY)
                                             .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
                                             .corner_radius(egui::CornerRadius::same(4));
-                                        if ui.add(edit_btn).clicked() { 
-                                            to_edit = Some(user_clone.clone()); 
+                                        if ui.add(edit_btn).clicked() {
+                                            to_edit = Some(user_clone.clone());
                                         }
-                                        
+
                                         let toggle_btn = egui::Button::new(
                                             RichText::new(if user_clone.enabled {"禁用"} else {"启用"}).size(styles::FONT_SIZE_MD))
-                                            .fill(if user_clone.enabled { 
-                                                styles::DANGER_LIGHT 
-                                            } else { 
-                                                styles::SUCCESS_LIGHT 
+                                            .fill(if user_clone.enabled {
+                                                styles::DANGER_LIGHT
+                                            } else {
+                                                styles::SUCCESS_LIGHT
                                             })
                                             .stroke(egui::Stroke::new(1.0, if user_clone.enabled { styles::DANGER_COLOR } else { styles::SUCCESS_COLOR }))
                                             .corner_radius(egui::CornerRadius::same(4));
                                         if ui.add(toggle_btn).clicked() {
                                             to_toggle = Some((user_clone.username.clone(), !user_clone.enabled));
                                         }
-                                        
+
                                         let del = egui::Button::new(RichText::new("删除").size(styles::FONT_SIZE_MD).color(Color32::WHITE))
                                             .fill(styles::DANGER_DARK)
                                             .corner_radius(egui::CornerRadius::same(4));
-                                        if ui.add(del).clicked() { 
-                                            to_delete_confirm = Some(user_clone.username.clone()); 
+                                        if ui.add(del).clicked() {
+                                            to_delete_confirm = Some(user_clone.username.clone());
                                         }
                                     });
                                 });
@@ -529,7 +526,7 @@ impl UserTab {
                             });
                         }
                     });
- 
+
             });
         }
 

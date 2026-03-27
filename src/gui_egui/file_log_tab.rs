@@ -207,153 +207,152 @@ impl FileLogTab {
             ui.add_space(styles::SPACING_MD);
         }
 
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .stick_to_bottom(self.stick_to_bottom)
-            .show(ui, |ui| {
-                if self.loading && self.logs.is_empty() {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(50.0);
-                        ui.spinner();
-                        ui.add_space(styles::SPACING_MD);
-                        ui.label(RichText::new("正在加载文件日志...").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
+        styles::card_frame().show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+
+            if self.loading && self.logs.is_empty() {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(50.0);
+                    ui.spinner();
+                    ui.add_space(styles::SPACING_MD);
+                    ui.label(RichText::new("正在加载文件日志...").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
+                });
+                return;
+            }
+
+            if self.logs.is_empty() {
+                styles::empty_state(ui, "📭", "暂无文件操作记录", "用户进行文件操作时会在这里显示记录");
+                return;
+            }
+
+            let available_width = ui.available_width();
+
+            let table = TableBuilder::new(ui)
+                .striped(true)
+                .resizable(true)
+                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                .column(styles::table_column_percent(available_width, 0.12, 110.0))
+                .column(styles::table_column_percent(available_width, 0.08, 70.0))
+                .column(styles::table_column_percent(available_width, 0.10, 90.0))
+                .column(styles::table_column_percent(available_width, 0.06, 60.0))
+                .column(styles::table_column_percent(available_width, 0.10, 80.0))
+                .column(styles::table_column_percent(available_width, 0.08, 70.0))
+                .column(styles::table_column_remainder(250.0))
+                .min_scrolled_height(0.0)
+                .sense(egui::Sense::hover());
+
+            let display_logs = if self.logs.len() > LOG_THRESHOLD {
+                self.get_page_logs()
+            } else {
+                &self.logs
+            };
+
+            table
+                .header(styles::FONT_SIZE_MD, |mut header| {
+                    header.col(|ui| {
+                        ui.label(RichText::new("时间").strong().color(styles::TEXT_PRIMARY_COLOR));
                     });
-                    return;
-                }
-                
-                if self.logs.is_empty() {
-                    styles::empty_state(ui, "📭", "暂无文件操作记录", "用户进行文件操作时会在这里显示记录");
-                    return;
-                }
-
-                let available_width = ui.available_width();
-
-                let table = TableBuilder::new(ui)
-                    .striped(true)
-                    .resizable(true)
-                    .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                    .column(styles::table_column_percent(available_width, 0.12, 110.0))
-                    .column(styles::table_column_percent(available_width, 0.08, 70.0))
-                    .column(styles::table_column_percent(available_width, 0.10, 90.0))
-                    .column(styles::table_column_percent(available_width, 0.06, 60.0))
-                    .column(styles::table_column_percent(available_width, 0.10, 80.0))
-                    .column(styles::table_column_percent(available_width, 0.08, 70.0))
-                    .column(styles::table_column_remainder(250.0))
-                    .min_scrolled_height(0.0);
-
-                let display_logs = if self.logs.len() > LOG_THRESHOLD {
-                    self.get_page_logs()
-                } else {
-                    &self.logs
-                };
-
-                table
-                    .header(styles::FONT_SIZE_LG, |mut header| {
-                        header.col(|ui| {
-                            ui.strong("时间");
-                        });
-                        header.col(|ui| {
-                            ui.strong("用户");
-                        });
-                        header.col(|ui| {
-                            ui.strong("客户端");
-                        });
-                        header.col(|ui| {
-                            ui.strong("协议");
-                        });
-                        header.col(|ui| {
-                            ui.strong("操作");
-                        });
-                        header.col(|ui| {
-                            ui.strong("大小");
-                        });
-                        header.col(|ui| {
-                            ui.strong("文件路径");
-                        });
-                    })
-                    .body(|mut body| {
-                        for entry in display_logs {
-                            body.row(styles::FONT_SIZE_MD, |mut row| {
-                                row.col(|ui| {
-                                    ui.label(RichText::new(entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string())
-                                        .size(styles::FONT_SIZE_MD)
-                                        .color(styles::TEXT_SECONDARY_COLOR));
-                                });
-                                row.col(|ui| {
-                                    let username = entry.fields.username.as_deref().unwrap_or("-");
-                                    ui.label(RichText::new(username)
-                                        .size(styles::FONT_SIZE_MD)
-                                        .color(styles::TEXT_PRIMARY_COLOR));
-                                });
-                                row.col(|ui| {
-                                    let client_ip = entry.fields.client_ip.as_deref().unwrap_or("-");
-                                    ui.label(RichText::new(client_ip)
-                                        .size(styles::FONT_SIZE_MD)
-                                        .color(styles::TEXT_LABEL_COLOR));
-                                });
-                                row.col(|ui| {
-                                    let protocol = entry.fields.protocol.as_deref().unwrap_or("-");
-                                    let protocol_color = match protocol {
-                                        "FTP" => styles::PRIMARY_COLOR,
-                                        "SFTP" => styles::INFO_COLOR,
-                                        _ => styles::TEXT_MUTED_COLOR,
-                                    };
-                                    ui.label(RichText::new(protocol)
-                                        .size(styles::FONT_SIZE_MD)
-                                        .strong()
-                                        .color(protocol_color));
-                                });
-                                row.col(|ui| {
-                                    let operation = entry.fields.operation.as_deref().unwrap_or("-");
-                                    let success = entry.fields.success.unwrap_or(true);
-                                    let op_color = match operation {
-                                        "DELETE" | "RMDIR" => styles::DANGER_COLOR,
-                                        "UPLOAD" | "MKDIR" => styles::SUCCESS_COLOR,
-                                        "DOWNLOAD" => styles::INFO_COLOR,
-                                        "RENAME" | "COPY" | "MOVE" => styles::WARNING_COLOR,
-                                        "UPDATE" => styles::TEXT_MUTED_COLOR,
-                                        _ => styles::TEXT_LABEL_COLOR,
-                                    };
-                                    let status_icon = if success { "✓" } else { "✗" };
-                                    ui.label(RichText::new(format!("{} {}", status_icon, operation))
-                                        .size(styles::FONT_SIZE_MD)
-                                        .strong()
-                                        .color(op_color));
-                                });
-                                row.col(|ui| {
-                                    let size_str = entry.fields.file_size
-                                        .filter(|&s| s > 0)
-                                        .map(format_size)
-                                        .unwrap_or_else(|| "-".to_string());
-                                    ui.label(RichText::new(&size_str)
-                                        .size(styles::FONT_SIZE_MD)
-                                        .color(styles::TEXT_LABEL_COLOR));
-                                });
-                                row.col(|ui| {
-                                    let file_path = entry.fields.file_path.as_deref().unwrap_or("-");
-                                    ui.label(RichText::new(file_path)
-                                        .size(styles::FONT_SIZE_MD)
-                                        .color(styles::TEXT_PRIMARY_COLOR));
-                                });
-                            });
-                            body.row(2.0, |mut row| {
-                                let col_count = 7;
-                                for _ in 0..col_count {
-                                    row.col(|ui| {
-                                        let rect = ui.available_rect_before_wrap();
-                                        let painter = ui.painter();
-                                        painter.hline(
-                                            rect.left()..=rect.right(),
-                                            rect.center().y,
-                                            egui::Stroke::new(1.0, styles::BORDER_COLOR),
-                                        );
-                                    });
-                                }
-                            });
-                        }
+                    header.col(|ui| {
+                        ui.label(RichText::new("用户").strong().color(styles::TEXT_PRIMARY_COLOR));
                     });
-                ui.add_space(styles::SPACING_MD);
-            });
+                    header.col(|ui| {
+                        ui.label(RichText::new("客户端").strong().color(styles::TEXT_PRIMARY_COLOR));
+                    });
+                    header.col(|ui| {
+                        ui.label(RichText::new("协议").strong().color(styles::TEXT_PRIMARY_COLOR));
+                    });
+                    header.col(|ui| {
+                        ui.label(RichText::new("操作").strong().color(styles::TEXT_PRIMARY_COLOR));
+                    });
+                    header.col(|ui| {
+                        ui.label(RichText::new("大小").strong().color(styles::TEXT_PRIMARY_COLOR));
+                    });
+                    header.col(|ui| {
+                        ui.label(RichText::new("文件路径").strong().color(styles::TEXT_PRIMARY_COLOR));
+                    });
+                })
+                .body(|mut body| {
+                    for entry in display_logs {
+                        body.row(styles::FONT_SIZE_MD, |mut row| {
+                            row.col(|ui| {
+                                ui.label(RichText::new(entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string())
+                                    .size(styles::FONT_SIZE_MD)
+                                    .color(styles::TEXT_SECONDARY_COLOR));
+                            });
+                            row.col(|ui| {
+                                let username = entry.fields.username.as_deref().unwrap_or("-");
+                                ui.label(RichText::new(username)
+                                    .size(styles::FONT_SIZE_MD)
+                                    .color(styles::TEXT_PRIMARY_COLOR));
+                            });
+                            row.col(|ui| {
+                                let client_ip = entry.fields.client_ip.as_deref().unwrap_or("-");
+                                ui.label(RichText::new(client_ip)
+                                    .size(styles::FONT_SIZE_MD)
+                                    .color(styles::TEXT_LABEL_COLOR));
+                            });
+                            row.col(|ui| {
+                                let protocol = entry.fields.protocol.as_deref().unwrap_or("-");
+                                let protocol_color = match protocol {
+                                    "FTP" => styles::PRIMARY_COLOR,
+                                    "SFTP" => styles::INFO_COLOR,
+                                    _ => styles::TEXT_MUTED_COLOR,
+                                };
+                                ui.label(RichText::new(protocol)
+                                    .size(styles::FONT_SIZE_MD)
+                                    .strong()
+                                    .color(protocol_color));
+                            });
+                            row.col(|ui| {
+                                let operation = entry.fields.operation.as_deref().unwrap_or("-");
+                                let success = entry.fields.success.unwrap_or(true);
+                                let op_color = match operation {
+                                    "DELETE" | "RMDIR" => styles::DANGER_COLOR,
+                                    "UPLOAD" | "MKDIR" => styles::SUCCESS_COLOR,
+                                    "DOWNLOAD" => styles::INFO_COLOR,
+                                    "RENAME" | "COPY" | "MOVE" => styles::WARNING_COLOR,
+                                    "UPDATE" => styles::TEXT_MUTED_COLOR,
+                                    _ => styles::TEXT_LABEL_COLOR,
+                                };
+                                let status_icon = if success { "✓" } else { "✗" };
+                                ui.label(RichText::new(format!("{} {}", status_icon, operation))
+                                    .size(styles::FONT_SIZE_MD)
+                                    .strong()
+                                    .color(op_color));
+                            });
+                            row.col(|ui| {
+                                let size_str = entry.fields.file_size
+                                    .filter(|&s| s > 0)
+                                    .map(format_size)
+                                    .unwrap_or_else(|| "-".to_string());
+                                ui.label(RichText::new(&size_str)
+                                    .size(styles::FONT_SIZE_MD)
+                                    .color(styles::TEXT_LABEL_COLOR));
+                            });
+                            row.col(|ui| {
+                                let file_path = entry.fields.file_path.as_deref().unwrap_or("-");
+                                ui.label(RichText::new(file_path)
+                                    .size(styles::FONT_SIZE_MD)
+                                    .color(styles::TEXT_PRIMARY_COLOR));
+                            });
+                        });
+                        body.row(2.0, |mut row| {
+                            let col_count = 7;
+                            for _ in 0..col_count {
+                                row.col(|ui| {
+                                    let rect = ui.available_rect_before_wrap();
+                                    let painter = ui.painter();
+                                    painter.hline(
+                                        rect.left()..=rect.right(),
+                                        rect.center().y,
+                                        egui::Stroke::new(1.0, styles::BORDER_COLOR),
+                                    );
+                                });
+                            }
+                        });
+                    }
+                });
+        });
 
         if self.logs.len() > LOG_THRESHOLD {
             ui.add_space(styles::SPACING_SM);
