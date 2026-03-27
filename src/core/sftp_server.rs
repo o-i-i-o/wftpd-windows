@@ -1214,7 +1214,7 @@ impl SftpState {
 
     async fn handle_setstat(&mut self, data: &[u8]) -> Result<Vec<u8>> {
         let id = self.parse_u32(data, 1);
-        let path = self.parse_string(data, 5)?;
+        let (path, path_len) = self.parse_string_with_len(data, 5)?;
 
         if !self.check_permission(|p| p.can_write) {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
@@ -1228,28 +1228,159 @@ impl SftpState {
             }
         };
 
-        if full_path.exists() {
-            Ok(self.build_status_packet(id, 0, "OK", ""))
-        } else {
-            Ok(self.build_status_packet(id, 2, "No such file", ""))
+        if !full_path.exists() {
+            return Ok(self.build_status_packet(id, 2, "No such file", ""));
+        }
+
+        let attr_offset = 5 + 4 + path_len;
+        if attr_offset >= data.len() {
+            return Ok(self.build_status_packet(id, 0, "OK", ""));
+        }
+
+        match self.apply_file_attributes(&full_path, &data[attr_offset..]).await {
+            Ok(()) => {
+                tracing::debug!("SETSTAT applied to {:?}", full_path);
+                Ok(self.build_status_packet(id, 0, "OK", ""))
+            }
+            Err(e) => {
+                tracing::warn!("SETSTAT failed for {:?}: {}", full_path, e);
+                Ok(self.build_status_packet(id, 4, &format!("Failed to set attributes: {}", e), ""))
+            }
         }
     }
 
     async fn handle_fsetstat(&mut self, data: &[u8]) -> Result<Vec<u8>> {
         let id = self.parse_u32(data, 1);
-        let handle_str = self.parse_string(data, 5)?;
+        let (handle_str, handle_len) = self.parse_string_with_len(data, 5)?;
 
         if !self.check_permission(|p| p.can_write) {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
-        let handle = self.handles.get(&handle_str);
-        match handle {
-            Some(SftpFileHandle::File { .. }) => {
+        let path = match self.handles.get(&handle_str) {
+            Some(SftpFileHandle::File { path, .. }) => path.clone(),
+            Some(SftpFileHandle::Dir { path, .. }) => path.clone(),
+            _ => return Ok(self.build_status_packet(id, 4, "Invalid handle", "")),
+        };
+
+        let attr_offset = 5 + 4 + handle_len;
+        if attr_offset >= data.len() {
+            return Ok(self.build_status_packet(id, 0, "OK", ""));
+        }
+
+        match self.apply_file_attributes(&path, &data[attr_offset..]).await {
+            Ok(()) => {
+                tracing::debug!("FSETSTAT applied to {:?}", path);
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
-            _ => Ok(self.build_status_packet(id, 4, "Invalid handle", "")),
+            Err(e) => {
+                tracing::warn!("FSETSTAT failed for {:?}: {}", path, e);
+                Ok(self.build_status_packet(id, 4, &format!("Failed to set attributes: {}", e), ""))
+            }
         }
+    }
+
+    async fn apply_file_attributes(&self, path: &PathBuf, data: &[u8]) -> Result<()> {
+        if data.len() < 4 {
+            return Ok(());
+        }
+
+        let flags = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
+        let mut offset = 4;
+
+        if flags & 0x00000001 != 0 && offset + 8 <= data.len() {
+            let size = u64::from_be_bytes([
+                data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
+                data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7],
+            ]);
+            offset += 8;
+
+            let file = tokio::fs::OpenOptions::new().write(true).open(path).await?;
+            file.set_len(size).await?;
+            tracing::debug!("SETSTAT: set size to {} for {:?}", size, path);
+        }
+
+        if flags & 0x00000002 != 0 && offset + 4 <= data.len() {
+            let _uid = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
+            offset += 4;
+            tracing::debug!("SETSTAT: uid change requested for {:?} (ignored on Windows)", path);
+        }
+
+        if flags & 0x00000004 != 0 && offset + 4 <= data.len() {
+            let _gid = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
+            offset += 4;
+            tracing::debug!("SETSTAT: gid change requested for {:?} (ignored on Windows)", path);
+        }
+
+        if flags & 0x00000008 != 0 && offset + 4 <= data.len() {
+            let permissions = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
+            offset += 4;
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mode = permissions & 0o777;
+                let metadata = tokio::fs::metadata(path).await?;
+                let mut perm = metadata.permissions();
+                perm.set_mode(mode);
+                tokio::fs::set_permissions(path, perm).await?;
+                tracing::debug!("SETSTAT: set permissions to {:o} for {:?}", mode, path);
+            }
+            #[cfg(windows)]
+            {
+                tracing::debug!("SETSTAT: permissions change to {:o} for {:?} (ignored on Windows)", permissions, path);
+            }
+        }
+
+        if flags & 0x00000010 != 0 && offset + 4 <= data.len() {
+            let atime_sec = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]) as i64;
+            offset += 4;
+
+            if offset + 4 <= data.len() {
+                let _atime_nsec = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
+                offset += 4;
+            }
+
+            if flags & 0x00000020 != 0 && offset + 4 <= data.len() {
+                let mtime_sec = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]) as i64;
+                offset += 4;
+
+                if offset + 4 <= data.len() {
+                    let _mtime_nsec = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
+                }
+
+                #[cfg(windows)]
+                {
+                    use std::time::{SystemTime, Duration};
+                    let mtime = SystemTime::UNIX_EPOCH + Duration::from_secs(mtime_sec as u64);
+                    let atime = SystemTime::UNIX_EPOCH + Duration::from_secs(atime_sec as u64);
+                    let file = tokio::fs::File::open(path).await?;
+                    let std_file = file.into_std().await;
+                    let _metadata = std_file.metadata()?;
+                    let times = std::fs::FileTimes::new()
+                        .set_modified(mtime)
+                        .set_accessed(atime);
+                    std_file.set_times(times)?;
+                    tracing::debug!("SETSTAT: set mtime={:?}, atime={:?} for {:?}", mtime, atime, path);
+                }
+                #[cfg(not(windows))]
+                {
+                    use std::time::{SystemTime, Duration};
+                    use std::os::unix::fs::FileTimesExt;
+                    let mtime = SystemTime::UNIX_EPOCH + Duration::from_secs(mtime_sec as u64);
+                    let atime = SystemTime::UNIX_EPOCH + Duration::from_secs(atime_sec as u64);
+                    let file = tokio::fs::File::open(path).await?;
+                    let std_file = file.into_std().await;
+                    let times = std::fs::FileTimes::new()
+                        .set_modified(mtime)
+                        .set_accessed(atime);
+                    std_file.set_times(times)?;
+                    tracing::debug!("SETSTAT: set mtime={:?}, atime={:?} for {:?}", mtime, atime, path);
+                }
+            }
+        }
+
+        Ok(())
     }
 
     async fn handle_realpath(&mut self, data: &[u8]) -> Result<Vec<u8>> {
@@ -1676,14 +1807,123 @@ impl SftpState {
         let (_ext_name, ext_len) = self.parse_string_with_len(data, 5)?;
         let path_offset = 5 + 4 + ext_len;
         let path = self.parse_string(data, path_offset)?;
-        let _full_path = match self.resolve_path(&path) {
+        let full_path = match self.resolve_path(&path) {
             Ok(p) => p,
             Err(_) => {
                 return Ok(self.build_status_packet(id, 2, "Invalid path", ""));
             }
         };
 
-        Ok(self.build_status_packet(id, 8, "statvfs not supported on this platform", ""))
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStrExt;
+            use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+            let wide_path: Vec<u16> = full_path
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+
+            let mut free_bytes_available: u64 = 0;
+            let mut total_bytes: u64 = 0;
+            let mut total_free_bytes: u64 = 0;
+
+            unsafe {
+                if GetDiskFreeSpaceExW(
+                    windows::core::PCWSTR(wide_path.as_ptr()),
+                    Some(&mut free_bytes_available),
+                    Some(&mut total_bytes),
+                    Some(&mut total_free_bytes),
+                ).is_err()
+                {
+                    return Ok(self.build_status_packet(id, 4, "Failed to get disk space info", ""));
+                }
+            }
+
+            let block_size: u64 = 4096;
+            let total_blocks = total_bytes / block_size;
+            let free_blocks = total_free_bytes / block_size;
+            let available_blocks = free_bytes_available / block_size;
+            let total_inodes = total_blocks / 16;
+            let free_inodes = free_blocks / 16;
+            let avail_inodes = available_blocks / 16;
+            let fsid: u64 = 0;
+            let namemax: u64 = 255;
+
+            let mut payload = vec![201];
+            payload.extend_from_slice(&id.to_be_bytes());
+            payload.extend_from_slice(&total_blocks.to_be_bytes());
+            payload.extend_from_slice(&free_blocks.to_be_bytes());
+            payload.extend_from_slice(&available_blocks.to_be_bytes());
+            payload.extend_from_slice(&total_inodes.to_be_bytes());
+            payload.extend_from_slice(&free_inodes.to_be_bytes());
+            payload.extend_from_slice(&avail_inodes.to_be_bytes());
+            payload.extend_from_slice(&block_size.to_be_bytes());
+            payload.extend_from_slice(&fsid.to_be_bytes());
+            payload.extend_from_slice(&namemax.to_be_bytes());
+
+            tracing::debug!(
+                "statvfs: path={:?}, total={}MB, free={}MB, available={}MB",
+                full_path,
+                total_bytes / 1024 / 1024,
+                total_free_bytes / 1024 / 1024,
+                free_bytes_available / 1024 / 1024
+            );
+
+            Ok(self.build_packet(&payload))
+        }
+
+        #[cfg(not(windows))]
+        {
+            use std::ffi::CString;
+            use libc::statvfs;
+
+            let path_cstr = match CString::new(full_path.to_string_lossy().as_bytes()) {
+                Ok(s) => s,
+                Err(_) => return Ok(self.build_status_packet(id, 4, "Invalid path encoding", "")),
+            };
+
+            let mut vfs: statvfs = unsafe { mem::zeroed() };
+
+            unsafe {
+                if statvfs(path_cstr.as_ptr(), &mut vfs) != 0 {
+                    return Ok(self.build_status_packet(id, 4, "Failed to get filesystem info", ""));
+                }
+            }
+
+            let total_blocks = vfs.f_blocks;
+            let free_blocks = vfs.f_bfree;
+            let available_blocks = vfs.f_bavail;
+            let total_inodes = vfs.f_files;
+            let free_inodes = vfs.f_ffree;
+            let avail_inodes = vfs.f_favail;
+            let block_size = vfs.f_bsize as u64;
+            let fsid = vfs.f_fsid as u64;
+            let namemax = vfs.f_namemax as u64;
+
+            let mut payload = vec![201];
+            payload.extend_from_slice(&id.to_be_bytes());
+            payload.extend_from_slice(&total_blocks.to_be_bytes());
+            payload.extend_from_slice(&free_blocks.to_be_bytes());
+            payload.extend_from_slice(&available_blocks.to_be_bytes());
+            payload.extend_from_slice(&total_inodes.to_be_bytes());
+            payload.extend_from_slice(&free_inodes.to_be_bytes());
+            payload.extend_from_slice(&avail_inodes.to_be_bytes());
+            payload.extend_from_slice(&block_size.to_be_bytes());
+            payload.extend_from_slice(&fsid.to_be_bytes());
+            payload.extend_from_slice(&namemax.to_be_bytes());
+
+            tracing::debug!(
+                "statvfs: path={:?}, total={}MB, free={}MB, available={}MB",
+                full_path,
+                (total_blocks * block_size) / 1024 / 1024,
+                (free_blocks * block_size) / 1024 / 1024,
+                (available_blocks * block_size) / 1024 / 1024
+            );
+
+            Ok(self.build_packet(&payload))
+        }
     }
 
     async fn handle_md5sum(&self, id: u32, data: &[u8]) -> Result<Vec<u8>> {
