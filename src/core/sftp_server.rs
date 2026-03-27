@@ -206,22 +206,28 @@ impl SftpServer {
         if path.exists() {
             let key_data = tokio::fs::read_to_string(&path).await?;
             let key = PrivateKey::from_openssh(&key_data)?;
+            tracing::info!("已加载现有 SFTP 主机密钥: {}", path.display());
             return Ok(key);
         }
 
+        tracing::info!("SFTP 主机密钥不存在，正在生成新密钥: {}", path.display());
+
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
+            tracing::info!("已创建 SFTP 密钥目录: {}", parent.display());
         }
 
         let mut rng = OsRng;
         let key = PrivateKey::random(&mut rng, keys::Algorithm::Ed25519)?;
         let openssh = key.to_openssh(keys::ssh_key::LineEnding::default())?;
         tokio::fs::write(&path, openssh.to_string()).await?;
+        tracing::info!("已生成 SFTP 主机私钥: {}", path.display());
 
         let pub_path = path.with_extension("pub");
         let public_key = key.public_key();
         let pub_openssh = public_key.to_openssh()?;
         tokio::fs::write(&pub_path, pub_openssh.to_string()).await?;
+        tracing::info!("已生成 SFTP 主机公钥: {}", pub_path.display());
 
         Ok(key)
     }

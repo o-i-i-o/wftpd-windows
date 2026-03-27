@@ -389,7 +389,7 @@ pub fn safe_resolve_path(
     path: &str,
 ) -> Result<PathBuf, PathResolveError> {
     let input_desc = format!("cwd={}, home={}, path={}", cwd, home_dir, path);
-    
+
     let home = PathBuf::from(home_dir);
     let home_canon = home.canonicalize().map_err(|e| {
         tracing::error!(
@@ -410,15 +410,114 @@ pub fn safe_resolve_path(
             validate_symlink_chain(&resolved, &home_canon, &input_desc)
         }
         Err(PathResolveError::CanonicalizeFailed) => {
-            // 路径不存在，直接返回错误，不进行回退
-            tracing::warn!(
-                "safe_resolve_path: Path does not exist - resolved: {:?}, input: {:?}",
+            // 路径不存在，验证父目录是否存在且安全，然后返回解析后的路径
+            tracing::debug!(
+                "safe_resolve_path: Path does not exist, validating parent directory - resolved: {:?}, input: {:?}",
                 resolved,
+                input_desc
+            );
+            validate_parent_and_build_path(&resolved, &home_canon, &input_desc)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// 验证父目录是否存在且安全，然后构建完整路径
+fn validate_parent_and_build_path(
+    path: &Path,
+    home_canon: &Path,
+    input_desc: &str,
+) -> Result<PathBuf, PathResolveError> {
+    // 获取父目录
+    let parent = path.parent().ok_or_else(|| {
+        tracing::warn!(
+            "validate_parent: Path has no parent - path: {:?}, input: {:?}",
+            path,
+            input_desc
+        );
+        PathResolveError::InvalidPath
+    })?;
+
+    // 如果父目录就是主目录本身，直接返回
+    if paths_equal_ignore_case(parent, home_canon) {
+        if !path_starts_with_ignore_case(path, home_canon) {
+            tracing::warn!(
+                "validate_parent: Path outside home - path: {:?}, home: {:?}, input: {:?}",
+                path,
+                home_canon,
+                input_desc
+            );
+            return Err(PathResolveError::PathEscape);
+        }
+        return Ok(path.to_path_buf());
+    }
+
+    // 验证父目录是否存在且安全
+    match parent.canonicalize() {
+        Ok(canon_parent) => {
+            // 验证父目录是否在家目录下
+            if !path_starts_with_ignore_case(&canon_parent, home_canon) {
+                tracing::warn!(
+                    "validate_parent: Parent directory outside home - parent: {:?}, home: {:?}, input: {:?}",
+                    canon_parent,
+                    home_canon,
+                    input_desc
+                );
+                return Err(PathResolveError::PathEscape);
+            }
+
+            // 验证父目录是否是符号链接（禁止）
+            if let Ok(metadata) = parent.symlink_metadata()
+                && metadata.file_type().is_symlink()
+            {
+                tracing::warn!(
+                    "validate_parent: Parent is symlink - parent: {:?}, input: {:?}",
+                    parent,
+                    input_desc
+                );
+                return Err(PathResolveError::SymlinkNotAllowed);
+            }
+
+            // 构建完整路径：使用规范化的父目录 + 文件名
+            let file_name = path.file_name().ok_or_else(|| {
+                tracing::warn!(
+                    "validate_parent: Path has no file name - path: {:?}, input: {:?}",
+                    path,
+                    input_desc
+                );
+                PathResolveError::InvalidPath
+            })?;
+
+            let final_path = canon_parent.join(file_name);
+
+            // 最终验证路径是否在家目录下
+            if !path_starts_with_ignore_case(&final_path, home_canon) {
+                tracing::warn!(
+                    "validate_parent: Final path outside home - final: {:?}, home: {:?}, input: {:?}",
+                    final_path,
+                    home_canon,
+                    input_desc
+                );
+                return Err(PathResolveError::PathEscape);
+            }
+
+            tracing::debug!(
+                "validate_parent: Successfully built path for new file - final: {:?}, input: {:?}",
+                final_path,
+                input_desc
+            );
+
+            Ok(final_path)
+        }
+        Err(e) => {
+            tracing::warn!(
+                "validate_parent: Parent directory does not exist or cannot be canonicalized - parent: {:?}, error: {}, input: {:?}",
+                parent,
+                e,
                 input_desc
             );
             Err(PathResolveError::NotFound)
         }
-        Err(e) => Err(e),
     }
 }
 
