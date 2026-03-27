@@ -1,4 +1,4 @@
-﻿use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 const MAX_PATH_DEPTH: usize = 64;
 
@@ -401,12 +401,22 @@ pub fn safe_resolve_path(
     })?;
 
     let resolved = resolve_path_internal(cwd, &home_canon, path)?;
-    
-    match canonicalize_and_validate(&resolved, &home_canon, &input_desc, true) {
+
+    // 首先尝试验证路径，禁止符号链接
+    match canonicalize_and_validate(&resolved, &home_canon, &input_desc, false) {
         Ok(canon) => Ok(canon),
+        Err(PathResolveError::SymlinkNotAllowed) => {
+            // 路径包含符号链接，验证符号链接目标是否在主目录内
+            validate_symlink_chain(&resolved, &home_canon, &input_desc)
+        }
         Err(PathResolveError::CanonicalizeFailed) => {
-            let safe_path = build_safe_path(&home_canon, &resolved, &input_desc)?;
-            Ok(safe_path)
+            // 路径不存在，直接返回错误，不进行回退
+            tracing::warn!(
+                "safe_resolve_path: Path does not exist - resolved: {:?}, input: {:?}",
+                resolved,
+                input_desc
+            );
+            Err(PathResolveError::NotFound)
         }
         Err(e) => Err(e),
     }
@@ -430,7 +440,8 @@ pub fn resolve_directory_path(
     })?;
 
     let resolved = resolve_path_internal(cwd, &home_canon, path)?;
-    
+
+    // 目录操作严格禁止符号链接
     match canonicalize_and_validate(&resolved, &home_canon, &input_desc, false) {
         Ok(canon) => {
             if !canon.is_dir() {
@@ -444,20 +455,13 @@ pub fn resolve_directory_path(
             Ok(canon)
         }
         Err(PathResolveError::CanonicalizeFailed) => {
-            let safe_path = build_safe_path(&home_canon, &resolved, &input_desc)?;
-            
-            if let Ok(metadata) = safe_path.symlink_metadata()
-                && metadata.file_type().is_symlink()
-            {
-                tracing::warn!(
-                    "resolve_directory_path: Symlink detected in non-existent path - path: {:?}, input: {:?}",
-                    safe_path,
-                    input_desc
-                );
-                return Err(PathResolveError::SymlinkNotAllowed);
-            }
-            
-            Ok(safe_path)
+            // 路径不存在，直接返回错误，不进行回退
+            tracing::warn!(
+                "resolve_directory_path: Directory does not exist - resolved: {:?}, input: {:?}",
+                resolved,
+                input_desc
+            );
+            Err(PathResolveError::NotFound)
         }
         Err(e) => Err(e),
     }
@@ -477,7 +481,7 @@ pub fn safe_resolve_path_no_symlink(
     path: &str,
 ) -> Result<PathBuf, PathResolveError> {
     let input_desc = format!("cwd={}, home={}, path={}", cwd, home_dir, path);
-    
+
     let home = PathBuf::from(home_dir);
     let home_canon = home.canonicalize().map_err(|e| {
         tracing::error!(
@@ -489,24 +493,18 @@ pub fn safe_resolve_path_no_symlink(
     })?;
 
     let resolved = resolve_path_internal(cwd, &home_canon, path)?;
-    
+
+    // 严格禁止符号链接
     match canonicalize_and_validate(&resolved, &home_canon, &input_desc, false) {
         Ok(canon) => Ok(canon),
         Err(PathResolveError::CanonicalizeFailed) => {
-            let safe_path = build_safe_path(&home_canon, &resolved, &input_desc)?;
-            
-            if let Ok(metadata) = safe_path.symlink_metadata()
-                && metadata.file_type().is_symlink()
-            {
-                tracing::warn!(
-                    "safe_resolve_path_no_symlink: Symlink detected in non-existent path - path: {:?}, input: {:?}",
-                    safe_path,
-                    input_desc
-                );
-                return Err(PathResolveError::SymlinkNotAllowed);
-            }
-            
-            Ok(safe_path)
+            // 路径不存在，直接返回错误，不进行回退
+            tracing::warn!(
+                "safe_resolve_path_no_symlink: Path does not exist - resolved: {:?}, input: {:?}",
+                resolved,
+                input_desc
+            );
+            Err(PathResolveError::NotFound)
         }
         Err(e) => Err(e),
     }
@@ -535,6 +533,115 @@ pub fn validate_existing_path(
     }
     
     Ok(canon)
+}
+
+/// 验证符号链接链，确保所有符号链接目标都在主目录内
+fn validate_symlink_chain(
+    path: &Path,
+    home_canon: &Path,
+    input_desc: &str,
+) -> Result<PathBuf, PathResolveError> {
+    let mut current = PathBuf::new();
+    let mut components = path.components().peekable();
+    
+    while let Some(component) = components.next() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => {
+                current.push(component);
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                current.pop();
+            }
+            Component::Normal(name) => {
+                current.push(name);
+                
+                // 检查当前路径是否是符号链接
+                if let Ok(metadata) = current.symlink_metadata() {
+                    if metadata.file_type().is_symlink() {
+                        // 读取符号链接目标
+                        let link_target = match std::fs::read_link(&current) {
+                            Ok(target) => target,
+                            Err(e) => {
+                                tracing::warn!(
+                                    "validate_symlink_chain: Failed to read symlink - path: {:?}, error: {}, input: {:?}",
+                                    current,
+                                    e,
+                                    input_desc
+                                );
+                                return Err(PathResolveError::SymlinkNotAllowed);
+                            }
+                        };
+                        
+                        // 解析符号链接目标
+                        let resolved_target = if link_target.is_absolute() {
+                            link_target.clone()
+                        } else {
+                            let parent = current.parent().unwrap_or(Path::new("/"));
+                            parent.join(&link_target)
+                        };
+                        
+                        // 规范化符号链接目标
+                        let canon_target = match resolved_target.canonicalize() {
+                            Ok(canon) => canon,
+                            Err(_) => {
+                                // 目标不存在，使用安全路径构建
+                                let parent = current.parent().unwrap_or(Path::new("/"));
+                                let safe_target = build_safe_path(
+                                    home_canon,
+                                    &parent.join(&link_target),
+                                    input_desc,
+                                )?;
+                                safe_target
+                            }
+                        };
+                        
+                        // 验证符号链接目标是否在主目录内
+                        if !path_starts_with_ignore_case(&canon_target, home_canon) {
+                            tracing::warn!(
+                                "validate_symlink_chain: Symlink target outside home - link: {:?}, target: {:?}, home: {:?}, input: {:?}",
+                                current,
+                                canon_target,
+                                home_canon,
+                                input_desc
+                            );
+                            return Err(PathResolveError::SymlinkNotAllowed);
+                        }
+                        
+                        tracing::debug!(
+                            "validate_symlink_chain: Valid symlink - link: {:?}, target: {:?}",
+                            current,
+                            canon_target
+                        );
+                        
+                        // 继续验证符号链接目标内部的组件
+                        if !components.peek().is_none() {
+                            // 还有后续组件，需要继续验证
+                            current = canon_target;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 最终验证完整路径
+    let final_path = match path.canonicalize() {
+        Ok(canon) => canon,
+        Err(_) => current,
+    };
+    
+    if !path_starts_with_ignore_case(&final_path, home_canon) {
+        tracing::warn!(
+            "validate_symlink_chain: Final path outside home - path: {:?}, home: {:?}, input: {:?}",
+            final_path,
+            home_canon,
+            input_desc
+        );
+        return Err(PathResolveError::PathEscape);
+    }
+    
+    Ok(final_path)
 }
 
 #[cfg(test)]
