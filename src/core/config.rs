@@ -24,21 +24,19 @@ pub struct FtpConfig {
     pub bind_ip: String,
     #[serde(default = "default_ftp_port")]
     pub port: u16,
-    pub passive_ports: (u16, u16),
     pub welcome_message: String,
-    pub allow_anonymous: bool,
-    #[serde(default)]
-    pub anonymous_home: Option<String>,
-    #[serde(default)]
-    pub max_speed_kbps: u64,
     #[serde(default = "default_encoding")]
     pub encoding: String,
     #[serde(default = "default_transfer_mode")]
     pub default_transfer_mode: String,
     #[serde(default = "default_passive_mode")]
     pub default_passive_mode: bool,
+    pub allow_anonymous: bool,
     #[serde(default)]
-    pub ftps: FtpsConfig,
+    pub anonymous_home: Option<String>,
+    pub passive_ports: (u16, u16),
+    #[serde(default)]
+    pub max_speed_kbps: u64,
     #[serde(default)]
     pub passive_ip_override: Option<String>,
     #[serde(default)]
@@ -49,6 +47,8 @@ pub struct FtpConfig {
     pub idle_timeout: u64,
     #[serde(default)]
     pub hide_version_info: bool,
+    #[serde(default)]
+    pub ftps: FtpsConfig,
 }
 
 fn default_ftp_port() -> u16 {
@@ -70,13 +70,13 @@ pub struct FtpsConfig {
     #[serde(default)]
     pub require_ssl: bool,
     #[serde(default)]
-    pub cert_path: Option<String>,
-    #[serde(default)]
-    pub key_path: Option<String>,
-    #[serde(default)]
     pub implicit_ssl: bool,
     #[serde(default = "default_ftps_port")]
     pub implicit_ssl_port: u16,
+    #[serde(default)]
+    pub cert_path: Option<String>,
+    #[serde(default)]
+    pub key_path: Option<String>,
 }
 
 fn default_ftps_port() -> u16 {
@@ -133,8 +133,6 @@ fn default_log_level() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
-    pub allowed_ips: Vec<String>,
-    pub denied_ips: Vec<String>,
     #[serde(default = "default_max_login_attempts")]
     pub max_login_attempts: u32,
     #[serde(default = "default_ban_duration")]
@@ -143,6 +141,8 @@ pub struct SecurityConfig {
     pub max_connections: usize,
     #[serde(default = "default_max_connections_per_ip")]
     pub max_connections_per_ip: usize,
+    pub allowed_ips: Vec<String>,
+    pub denied_ips: Vec<String>,
 }
 
 fn default_max_login_attempts() -> u32 {
