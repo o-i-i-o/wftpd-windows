@@ -421,6 +421,51 @@ impl ServerTab {
                     .color(styles::TEXT_MUTED_COLOR)
                     .italics());
             });
+
+            ui.add_space(styles::SPACING_SM);
+
+            ui.label(RichText::new("连接超时设置")
+                .size(styles::FONT_SIZE_MD)
+                .color(styles::TEXT_SECONDARY_COLOR)
+                .strong());
+            ui.add_space(styles::SPACING_SM);
+
+            styles::form_row_with_suffix(ui, "连接超时", label_width, |ui| {
+                let mut val_str = config.ftp.connection_timeout.to_string();
+                styles::input_frame().show(ui, |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut val_str)
+                        .desired_width(80.0)
+                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
+                });
+                if let Ok(v) = val_str.parse::<u64>() {
+                    config.ftp.connection_timeout = v;
+                }
+            }, "秒");
+
+            styles::form_row_with_suffix(ui, "空闲超时", label_width, |ui| {
+                let mut val_str = config.ftp.idle_timeout.to_string();
+                styles::input_frame().show(ui, |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut val_str)
+                        .desired_width(80.0)
+                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
+                });
+                if let Ok(v) = val_str.parse::<u64>() {
+                    config.ftp.idle_timeout = v;
+                }
+            }, "秒 (0 表示不限制)");
+
+            ui.add_space(styles::SPACING_SM);
+
+            styles::form_row(ui, "隐藏版本信息", label_width, |ui| {
+                ui.checkbox(&mut config.ftp.hide_version_info, "");
+            });
+            ui.horizontal(|ui| {
+                ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                ui.label(RichText::new("在欢迎消息和服务器响应中隐藏版本号，增强安全性")
+                    .size(styles::FONT_SIZE_SM)
+                    .color(styles::TEXT_MUTED_COLOR)
+                    .italics());
+            });
         });
 
         ui.add_space(styles::SPACING_MD);
@@ -810,85 +855,6 @@ impl ServerTab {
                         ui.label(RichText::new("• 文件操作日志：file-ops-YYYY-MM-DD.log").size(styles::FONT_SIZE_SM).color(styles::TEXT_LABEL_COLOR));
                     });
                 });
-        });
-
-        ui.add_space(styles::SPACING_MD);
-
-        styles::card_frame().show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "⚙", "通用设置");
-
-            let available_width = ui.available_width();
-            let label_width = (available_width * 0.15).clamp(100.0, 160.0);
-
-            styles::form_row(ui, "最大连接数", label_width, |ui| {
-                let mut val_str = config.server.max_connections.to_string();
-                styles::input_frame().show(ui, |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut val_str)
-                        .desired_width(80.0)
-                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
-                });
-                if let Ok(v) = val_str.parse::<usize>() {
-                    config.server.max_connections = v;
-                }
-            });
-
-            styles::form_row(ui, "单 IP 最大连接数", label_width, |ui| {
-                let mut val_str = config.server.max_connections_per_ip.to_string();
-                styles::input_frame().show(ui, |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut val_str)
-                        .desired_width(80.0)
-                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
-                });
-                if let Ok(v) = val_str.parse::<usize>() {
-                    config.server.max_connections_per_ip = v;
-                }
-            });
-
-            ui.horizontal(|ui| {
-                ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                ui.label(RichText::new("防止单个 IP 占用过多连接资源")
-                    .size(styles::FONT_SIZE_SM)
-                    .color(styles::TEXT_MUTED_COLOR)
-                    .italics());
-            });
-
-            styles::form_row_with_suffix(ui, "连接超时", label_width, |ui| {
-                let mut val_str = config.ftp.connection_timeout.to_string();
-                styles::input_frame().show(ui, |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut val_str)
-                        .desired_width(80.0)
-                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
-                });
-                if let Ok(v) = val_str.parse::<u64>() {
-                    config.ftp.connection_timeout = v;
-                }
-            }, "秒");
-
-            styles::form_row_with_suffix(ui, "空闲超时", label_width, |ui| {
-                let mut val_str = config.ftp.idle_timeout.to_string();
-                styles::input_frame().show(ui, |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut val_str)
-                        .desired_width(80.0)
-                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
-                });
-                if let Ok(v) = val_str.parse::<u64>() {
-                    config.ftp.idle_timeout = v;
-                }
-            }, "秒 (0 表示不限制)");
-
-            ui.add_space(styles::SPACING_SM);
-
-            styles::form_row(ui, "隐藏版本信息", label_width, |ui| {
-                ui.checkbox(&mut config.ftp.hide_version_info, "");
-            });
-            ui.horizontal(|ui| {
-                ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                ui.label(RichText::new("在欢迎消息和服务器响应中隐藏版本号，增强安全性")
-                    .size(styles::FONT_SIZE_SM)
-                    .color(styles::TEXT_MUTED_COLOR)
-                    .italics());
-            });
         });
 
         self.config = Some(config);

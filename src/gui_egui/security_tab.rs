@@ -103,12 +103,16 @@ pub struct SecurityTab {
     config: Config,
     max_login_attempts_buf: String,
     ban_duration_buf: String,
+    max_connections_buf: String,
+    max_connections_per_ip_buf: String,
     allowed_ips_text: String,
     denied_ips_text: String,
     status_message: Option<(String, bool)>,
     validation_errors: Vec<ValidationError>,
     max_login_attempts_error: Option<String>,
     ban_duration_error: Option<String>,
+    max_connections_error: Option<String>,
+    max_connections_per_ip_error: Option<String>,
     save_sender: mpsc::Sender<SaveResult>,
     save_receiver: Option<mpsc::Receiver<SaveResult>>,
     is_saving: bool,
@@ -120,6 +124,8 @@ impl Default for SecurityTab {
         let config = Config::load(&Config::get_config_path()).unwrap_or_default();
         let max_login_attempts_buf = config.security.max_login_attempts.to_string();
         let ban_duration_buf = config.security.ban_duration.to_string();
+        let max_connections_buf = config.security.max_connections.to_string();
+        let max_connections_per_ip_buf = config.security.max_connections_per_ip.to_string();
         let allowed_ips_text = config.security.allowed_ips.join("\n");
         let denied_ips_text = config.security.denied_ips.join("\n");
         
@@ -129,12 +135,16 @@ impl Default for SecurityTab {
             config,
             max_login_attempts_buf,
             ban_duration_buf,
+            max_connections_buf,
+            max_connections_per_ip_buf,
             allowed_ips_text,
             denied_ips_text,
             status_message: None,
             validation_errors: Vec::new(),
             max_login_attempts_error: None,
             ban_duration_error: None,
+            max_connections_error: None,
+            max_connections_per_ip_error: None,
             save_sender: tx,
             save_receiver: Some(rx),
             is_saving: false,
@@ -152,6 +162,8 @@ impl SecurityTab {
         self.validation_errors.clear();
         self.max_login_attempts_error = None;
         self.ban_duration_error = None;
+        self.max_connections_error = None;
+        self.max_connections_per_ip_error = None;
         
         let mut valid = true;
         
@@ -167,6 +179,26 @@ impl SecurityTab {
         
         if self.ban_duration_buf.parse::<u64>().is_err() {
             self.ban_duration_error = Some("请输入有效的数字".to_string());
+            valid = false;
+        }
+        
+        if let Ok(v) = self.max_connections_buf.parse::<usize>() {
+            if v == 0 {
+                self.max_connections_error = Some("最大连接数必须大于 0".to_string());
+                valid = false;
+            }
+        } else {
+            self.max_connections_error = Some("请输入有效的数字".to_string());
+            valid = false;
+        }
+        
+        if let Ok(v) = self.max_connections_per_ip_buf.parse::<usize>() {
+            if v == 0 {
+                self.max_connections_per_ip_error = Some("单 IP 最大连接数必须大于 0".to_string());
+                valid = false;
+            }
+        } else {
+            self.max_connections_per_ip_error = Some("请输入有效的数字".to_string());
             valid = false;
         }
         
@@ -188,6 +220,12 @@ impl SecurityTab {
         }
         if let Ok(v) = self.ban_duration_buf.parse::<u64>() {
             self.config.security.ban_duration = v;
+        }
+        if let Ok(v) = self.max_connections_buf.parse::<usize>() {
+            self.config.security.max_connections = v;
+        }
+        if let Ok(v) = self.max_connections_per_ip_buf.parse::<usize>() {
+            self.config.security.max_connections_per_ip = v;
         }
         
         self.config.security.allowed_ips = self
@@ -350,6 +388,66 @@ impl SecurityTab {
             }, "秒");
             
             if let Some(err) = &self.ban_duration_error {
+                ui.horizontal(|ui| {
+                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                    ui.label(RichText::new(format!("⚠ {}", err))
+                        .size(styles::FONT_SIZE_SM)
+                        .color(styles::DANGER_COLOR));
+                });
+            }
+
+            ui.add_space(styles::SPACING_SM);
+
+            styles::form_row(ui, "最大连接数", label_width, |ui| {
+                let response = styles::input_frame().show(ui, |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut self.max_connections_buf)
+                        .desired_width(100.0)
+                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)))
+                });
+                
+                if response.response.lost_focus() {
+                    if let Ok(v) = self.max_connections_buf.parse::<usize>() {
+                        if v == 0 {
+                            self.max_connections_error = Some("必须大于 0".to_string());
+                        } else {
+                            self.max_connections_error = None;
+                        }
+                    } else {
+                        self.max_connections_error = Some("请输入有效数字".to_string());
+                    }
+                }
+            });
+            
+            if let Some(err) = &self.max_connections_error {
+                ui.horizontal(|ui| {
+                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                    ui.label(RichText::new(format!("⚠ {}", err))
+                        .size(styles::FONT_SIZE_SM)
+                        .color(styles::DANGER_COLOR));
+                });
+            }
+
+            styles::form_row(ui, "单 IP 最大连接数", label_width, |ui| {
+                let response = styles::input_frame().show(ui, |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut self.max_connections_per_ip_buf)
+                        .desired_width(100.0)
+                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)))
+                });
+                
+                if response.response.lost_focus() {
+                    if let Ok(v) = self.max_connections_per_ip_buf.parse::<usize>() {
+                        if v == 0 {
+                            self.max_connections_per_ip_error = Some("必须大于 0".to_string());
+                        } else {
+                            self.max_connections_per_ip_error = None;
+                        }
+                    } else {
+                        self.max_connections_per_ip_error = Some("请输入有效数字".to_string());
+                    }
+                }
+            });
+            
+            if let Some(err) = &self.max_connections_per_ip_error {
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
                     ui.label(RichText::new(format!("⚠ {}", err))

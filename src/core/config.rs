@@ -15,18 +15,6 @@ pub struct Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
-    #[serde(default = "default_max_connections")]
-    pub max_connections: usize,
-    #[serde(default = "default_max_connections_per_ip")]
-    pub max_connections_per_ip: usize,
-}
-
-fn default_max_connections() -> usize {
-    100
-}
-
-fn default_max_connections_per_ip() -> usize {
-    10
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,8 +135,30 @@ fn default_log_level() -> String {
 pub struct SecurityConfig {
     pub allowed_ips: Vec<String>,
     pub denied_ips: Vec<String>,
+    #[serde(default = "default_max_login_attempts")]
     pub max_login_attempts: u32,
+    #[serde(default = "default_ban_duration")]
     pub ban_duration: u64,
+    #[serde(default = "default_max_connections")]
+    pub max_connections: usize,
+    #[serde(default = "default_max_connections_per_ip")]
+    pub max_connections_per_ip: usize,
+}
+
+fn default_max_login_attempts() -> u32 {
+    5
+}
+
+fn default_ban_duration() -> u64 {
+    300
+}
+
+fn default_max_connections() -> usize {
+    100
+}
+
+fn default_max_connections_per_ip() -> usize {
+    10
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,10 +191,7 @@ impl Default for Config {
         let key_path = base_path.join("certs\\server.key").to_string_lossy().to_string();
         
         Config {
-            server: ServerConfig {
-                max_connections: 100,
-                max_connections_per_ip: 10,
-            },
+            server: ServerConfig {},
             ftp: FtpConfig {
                 enabled: true,
                 bind_ip: "0.0.0.0".to_string(),
@@ -228,6 +235,8 @@ impl Default for Config {
                 denied_ips: vec![],
                 max_login_attempts: 5,
                 ban_duration: 300,
+                max_connections: 100,
+                max_connections_per_ip: 10,
             },
             logging: LoggingConfig {
                 log_dir,
