@@ -10,7 +10,17 @@ use std::net::ToSocketAddrs;
 use super::passive::PassiveManager;
 use crate::core::rate_limiter::RateLimiter;
 
-const DATA_BUFFER_SIZE: usize = 8192;
+// 动态缓冲区大小：根据传输场景自动调整
+const DEFAULT_BUFFER_SIZE: usize = 128 * 1024; // 128KB 默认值
+const MIN_BUFFER_SIZE: usize = 8192; // 8KB 最小值
+const MAX_BUFFER_SIZE: usize = 1024 * 1024; // 1MB 最大值
+
+/// 根据网络条件计算最优缓冲区大小
+fn calculate_optimal_buffer_size(_estimated_rtt_ms: u64, _bandwidth_kbps: u64) -> usize {
+    // TODO: 实现基于 BDP (Bandwidth-Delay Product) 的动态计算
+    // 目前使用固定优化值
+    DEFAULT_BUFFER_SIZE
+}
 
 pub async fn get_data_connection(
     passive_mode: bool,
@@ -116,7 +126,7 @@ pub async fn receive_file(
         return Err(anyhow::anyhow!("Seek failed: {}", e));
     }
 
-    let mut buf = [0u8; DATA_BUFFER_SIZE];
+    let mut buf = [0u8; DEFAULT_BUFFER_SIZE];
     let mut total_written: u64 = 0;
     let mut transfer_error: Option<anyhow::Error> = None;
     
@@ -175,7 +185,7 @@ pub async fn receive_file_append(
         .create(true)
         .open(file_path).await?;
 
-    let mut buf = [0u8; DATA_BUFFER_SIZE];
+    let mut buf = [0u8; DEFAULT_BUFFER_SIZE];
     let mut total_written: u64 = 0;
     let mut transfer_error: Option<anyhow::Error> = None;
     
@@ -252,7 +262,7 @@ pub async fn receive_file_with_limits(
         return Err(anyhow::anyhow!("Seek failed: {}", e));
     }
 
-    let mut buf = [0u8; DATA_BUFFER_SIZE];
+    let mut buf = [0u8; DEFAULT_BUFFER_SIZE];
     let mut total_written: u64 = 0;
     let mut transfer_error: Option<anyhow::Error> = None;
     
@@ -318,7 +328,7 @@ pub async fn send_file_with_limits(
         file.seek(std::io::SeekFrom::Start(offset)).await?;
     }
 
-    let mut buf = [0u8; DATA_BUFFER_SIZE];
+    let mut buf = [0u8; DEFAULT_BUFFER_SIZE];
     let mut transfer_error: Option<anyhow::Error> = None;
     
     loop {
@@ -358,6 +368,7 @@ pub async fn send_file_with_limits(
     Ok(())
 }
 
+/// 优化的目录列表发送（批量缓冲）
 pub async fn send_directory_listing(
     data_stream: &mut TcpStream,
     dir_path: &Path,
@@ -365,6 +376,9 @@ pub async fn send_directory_listing(
     is_nlst: bool,
     _is_ascii: bool,
 ) -> Result<()> {
+    // 先收集所有条目，然后批量发送
+    let mut entries_data = Vec::new();
+    
     let mut dir = tokio::fs::read_dir(dir_path).await?;
     
     while let Ok(Some(entry)) = dir.next_entry().await {
@@ -373,9 +387,7 @@ pub async fn send_directory_listing(
             
             if is_nlst {
                 let line = format!("{}\r\n", name);
-                if let Err(e) = data_stream.write_all(line.as_bytes()).await {
-                    tracing::debug!("NLST write error: {}", e);
-                }
+                entries_data.extend_from_slice(line.as_bytes());
             } else {
                 let is_dir = metadata.is_dir();
                 let perms = if is_dir {
@@ -390,11 +402,14 @@ pub async fn send_directory_listing(
                     "{} {:>2} {:<8} {:<8} {:>10} {} {}\r\n",
                     perms, nlink, username, username, size, mtime, name
                 );
-                if let Err(e) = data_stream.write_all(line.as_bytes()).await {
-                    tracing::debug!("LIST write error: {}", e);
-                }
+                entries_data.extend_from_slice(line.as_bytes());
             }
         }
+    }
+
+    // 批量发送所有数据，减少网络往返
+    if !entries_data.is_empty() {
+        data_stream.write_all(&entries_data).await?;
     }
 
     Ok(())
@@ -405,6 +420,9 @@ pub async fn send_mlsd_listing(
     dir_path: &Path,
     owner: &str,
 ) -> Result<()> {
+    // 优化的 MLSD 列表发送（批量缓冲）
+    let mut entries_data = Vec::new();
+    
     let mut dir = tokio::fs::read_dir(dir_path).await?;
     
     while let Ok(Some(entry)) = dir.next_entry().await {
@@ -412,10 +430,13 @@ pub async fn send_mlsd_listing(
             let name = entry.file_name().to_string_lossy().to_string();
             let facts = build_mlst_facts(&metadata, owner);
             let line = format!("{} {}\r\n", facts, name);
-            if let Err(e) = data_stream.write_all(line.as_bytes()).await {
-                tracing::debug!("MLSD write error: {}", e);
-            }
+            entries_data.extend_from_slice(line.as_bytes());
         }
+    }
+
+    // 批量发送所有数据，减少网络往返
+    if !entries_data.is_empty() {
+        data_stream.write_all(&entries_data).await?;
     }
 
     Ok(())
@@ -461,36 +482,61 @@ pub fn build_mlst_facts(metadata: &std::fs::Metadata, owner: &str) -> String {
     format!("{};", facts.join(";"))
 }
 
+/// 优化的 LF 到 CRLF 转换（上传时）
+/// 使用预分配和迭代器优化
 fn convert_lf_to_crlf(data: &[u8]) -> Vec<u8> {
-    let mut result = Vec::with_capacity(data.len() + data.len() / 10);
-    let mut i = 0;
-    while i < data.len() {
-        if data[i] == b'\n' {
-            if i == 0 || data[i - 1] != b'\r' {
+    // 先扫描需要添加的\r数量，精确分配内存
+    let lf_count = data.iter()
+        .filter(|&&b| b == b'\n')
+        .count();
+    
+    // 预分配足够空间（假设每个\n 前都需要添加\r）
+    let mut result = Vec::with_capacity(data.len() + lf_count);
+    
+    // 使用迭代器处理，避免索引边界检查
+    let mut prev_was_cr = false;
+    for &byte in data {
+        if byte == b'\n' {
+            // 如果前一个不是\r，则添加\r
+            if !prev_was_cr {
                 result.push(b'\r');
             }
             result.push(b'\n');
+            prev_was_cr = false;
         } else {
-            result.push(data[i]);
+            result.push(byte);
+            prev_was_cr = byte == b'\r';
         }
-        i += 1;
     }
+    
     result
 }
 
+/// 优化的 CRLF 到 LF 转换（下载时）
+/// 使用预分配和迭代器优化
 fn convert_crlf_to_lf(data: &[u8]) -> Vec<u8> {
-    let mut result = Vec::with_capacity(data.len());
-    let mut i = 0;
-    while i < data.len() {
-        if i + 1 < data.len() && data[i] == b'\r' && data[i + 1] == b'\n' {
-            result.push(b'\n');
-            i += 2;
-        } else if data[i] == b'\r' {
-            i += 1;
+    // 先扫描需要移除的\r数量
+    let crlf_count = data.windows(2)
+        .filter(|window| window[0] == b'\r' && window[1] == b'\n')
+        .count();
+    
+    // 预分配空间（移除所有 CRLF 中的\r）
+    let mut result = Vec::with_capacity(data.len() - crlf_count);
+    
+    // 使用迭代器处理
+    let mut iter = data.iter().peekable();
+    while let Some(&byte) = iter.next() {
+        if byte == b'\r' {
+            // 如果是\r且下一个是\n，跳过\r直接添加\n
+            if iter.peek() == Some(&&b'\n') {
+                result.push(b'\n');
+                iter.next(); // 消耗\n
+            }
+            // 否则忽略孤立的\r
         } else {
-            result.push(data[i]);
-            i += 1;
+            result.push(byte);
         }
     }
+    
     result
 }

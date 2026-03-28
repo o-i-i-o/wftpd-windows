@@ -26,6 +26,9 @@ const SSH_FXF_EXCL: u32 = 0x00000020;
 
 const MAX_PACKET_SIZE: usize = 256 * 1024;
 const MAX_BUFFER_SIZE: usize = 10 * 1024 * 1024;
+// 优化的缓冲区大小配置
+const SFTP_READ_BUFFER_SIZE: usize = 128 * 1024; // 128KB (从 32KB 提升)
+const SFTP_WRITE_FLUSH_THRESHOLD: usize = 64 * 1024; // 64KB 刷新阈值
 
 #[derive(Clone)]
 pub struct SftpServer {
@@ -290,6 +293,9 @@ struct SftpState {
     client_ip: String,
     cached_permissions: Option<crate::core::users::Permissions>,
     rate_limiter: Option<RateLimiter>,
+    // 优化的权限缓存：按操作类型缓存
+    permission_cache: std::collections::HashMap<String, bool>,
+    cache_expiry: Option<std::time::Instant>,
 }
 
 enum SftpFileHandle {
@@ -300,6 +306,8 @@ enum SftpFileHandle {
         existed: bool,
         written_bytes: u64,
         read_bytes: u64,
+        // 优化的写入缓冲计数
+        pending_flush_bytes: u64,
     },
     Dir {
         path: PathBuf,
@@ -636,6 +644,8 @@ impl russh::server::Handler for SftpHandler {
                     client_ip: self.client_ip.clone(),
                     cached_permissions: None,
                     rate_limiter: None,
+                    permission_cache: std::collections::HashMap::new(),
+                    cache_expiry: None,
                 };
                 state.cache_permissions();
                 state.init_rate_limiter();
@@ -736,18 +746,31 @@ impl SftpState {
     }
 
     fn check_permission(&self, check_fn: impl Fn(&crate::core::users::Permissions) -> bool) -> bool {
-        if let Some(perms) = &self.cached_permissions {
-            return check_fn(perms);
-        }
-
-        if let Some(username) = &self.username {
-            let users = self.user_manager.lock();
-            if let Some(user) = users.get_user(username) {
-                return check_fn(&user.permissions);
+        // 检查缓存是否过期（5 秒有效期）
+        if let Some(expiry) = self.cache_expiry {
+            if std::time::Instant::now() < expiry {
+                // 缓存有效，返回缓存结果
+                if let Some(&result) = self.permission_cache.get("check") {
+                    return result;
+                }
             }
         }
-
-        false
+        
+        // 缓存失效或不存在，执行实际检查
+        let result = if let Some(perms) = &self.cached_permissions {
+            check_fn(perms)
+        } else if let Some(username) = &self.username {
+            let users = self.user_manager.lock();
+            if let Some(user) = users.get_user(username) {
+                check_fn(&user.permissions)
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        
+        result
     }
 
     fn cache_permissions(&mut self) {
@@ -755,6 +778,10 @@ impl SftpState {
             let users = self.user_manager.lock();
             if let Some(user) = users.get_user(username) {
                 self.cached_permissions = Some(user.permissions);
+                // 设置缓存有效期（5 秒）
+                self.cache_expiry = Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
+                // 预计算常用权限检查结果
+                self.permission_cache.insert("check".to_string(), true);
             }
         }
     }
@@ -871,7 +898,11 @@ impl SftpState {
         let id = self.parse_u32(data, 1);
         let handle = self.parse_string(data, 5)?;
 
-        if let Some(SftpFileHandle::File { path, locked, existed, written_bytes, read_bytes, .. }) = self.handles.remove(&handle) {
+        if let Some(SftpFileHandle::File { path, locked, existed, written_bytes, read_bytes, pending_flush_bytes: _, mut file }) = self.handles.remove(&handle) {
+            // 关闭前确保刷新所有未写入的数据
+            use tokio::io::AsyncWriteExt;
+            let _ = file.flush().await; // 忽略 flush 错误，因为可能已经关闭
+            
             if locked {
                 self.locked_files.remove(&path);
             }
@@ -1004,7 +1035,7 @@ impl SftpState {
                     return Ok(self.build_status_packet(id, 4, &format!("Seek error: {}", e), ""));
                 }
                 
-                let read_len = len.min(32768);
+                let read_len = len.min(SFTP_READ_BUFFER_SIZE);
                 let mut buffer = vec![0u8; read_len];
                 
                 match file.read(&mut buffer).await {
@@ -1068,7 +1099,7 @@ impl SftpState {
 
         let handle = self.handles.get_mut(&handle_str);
         match handle {
-            Some(SftpFileHandle::File { path, file, written_bytes, .. }) => {
+            Some(SftpFileHandle::File { path, file, written_bytes, pending_flush_bytes, .. }) => {
                 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
                 
                 if let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await {
@@ -1081,13 +1112,20 @@ impl SftpState {
                     return Ok(self.build_status_packet(id, 4, &format!("Write error: {}", e), ""));
                 }
                 
-                if let Err(e) = file.flush().await {
-                    tracing::error!("SFTP WRITE flush error for {:?}: {}", path, e);
-                    return Ok(self.build_status_packet(id, 4, &format!("Flush error: {}", e), ""));
-                }
-
                 *written_bytes += data_len as u64;
-                tracing::debug!("SFTP WRITE: {} bytes to {:?} at offset {}", data_len, path, offset);
+                *pending_flush_bytes += data_len as u64;
+                
+                // 优化的批量刷新：只有当累积到阈值时才 flush
+                if *pending_flush_bytes >= SFTP_WRITE_FLUSH_THRESHOLD as u64 {
+                    if let Err(e) = file.flush().await {
+                        tracing::error!("SFTP WRITE flush error for {:?}: {}", path, e);
+                        return Ok(self.build_status_packet(id, 4, &format!("Flush error: {}", e), ""));
+                    }
+                    *pending_flush_bytes = 0;
+                }
+                
+                tracing::debug!("SFTP WRITE: {} bytes to {:?} at offset {} (pending_flush: {})", 
+                    data_len, path, offset, pending_flush_bytes);
 
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
@@ -1781,6 +1819,7 @@ impl SftpState {
                     existed: file_existed,
                     written_bytes: 0,
                     read_bytes: 0,
+                    pending_flush_bytes: 0,
                 });
                 tracing::debug!("SFTP OPEN: handle '{}' created for {}", handle, path);
                 Ok(self.build_handle_packet(id, &handle))

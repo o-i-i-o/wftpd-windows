@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use std::net::ToSocketAddrs;
 
 use crate::core::config::Config;
 use crate::core::users::UserManager;
@@ -24,9 +23,10 @@ fn is_domain_name(s: &str) -> bool {
     s.chars().any(|c| c.is_ascii_alphabetic()) && !s.chars().all(|c| c.is_ascii_digit() || c == '.')
 }
 
-/// 尝试将域名解析为 IP 地址
-fn resolve_domain_to_ip(domain: &str) -> Option<String> {
-    match (domain, 21).to_socket_addrs() {
+/// 尝试将域名解析为 IP 地址（异步版本）
+async fn resolve_domain_to_ip(domain: &str) -> Option<String> {
+    use tokio::net::lookup_host;
+    match lookup_host((domain, 21)).await {
         Ok(mut addrs) => addrs.next().map(|addr| addr.ip().to_string()),
         Err(_) => None,
     }
@@ -1033,8 +1033,8 @@ async fn handle_command(
                 } else {
                     // 非空字符串，检查是否是域名或 IP
                     Some(if is_domain_name(masq_addr.as_str()) {
-                        // 如果是域名，尝试解析
-                        resolve_domain_to_ip(masq_addr).unwrap_or_else(|| masq_addr.clone())
+                        // 如果是域名，异步解析
+                        resolve_domain_to_ip(masq_addr).await.unwrap_or_else(|| masq_addr.clone())
                     } else {
                         // 直接是 IP 地址
                         masq_addr.clone()
