@@ -58,7 +58,7 @@ impl SftpServer {
             let warnings = cfg.validate_paths();
             (
                 cfg.sftp.bind_ip.clone(),
-                cfg.server.sftp_port,
+                cfg.sftp.port,
                 cfg.sftp.host_key_path.clone(),
                 warnings,
             )

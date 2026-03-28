@@ -62,7 +62,7 @@ impl FtpServer {
             let warnings = cfg.validate_paths();
             (
                 cfg.ftp.bind_ip.clone(),
-                cfg.server.ftp_port,
+                cfg.ftp.port,
                 warnings,
                 cfg.ftp.ftps.enabled,
                 cfg.ftp.ftps.implicit_ssl,

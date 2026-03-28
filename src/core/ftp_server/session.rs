@@ -262,7 +262,7 @@ pub async fn handle_session(
     loop {
         let conn_timeout = {
             let cfg = config.lock();
-            cfg.server.connection_timeout
+            cfg.ftp.connection_timeout
         };
 
         let timeout_result = tokio::time::timeout(
@@ -355,7 +355,7 @@ pub async fn handle_session_tls(
     loop {
         let conn_timeout = {
             let cfg = config.lock();
-            cfg.server.connection_timeout
+            cfg.ftp.connection_timeout
         };
 
         let timeout_result = tokio::time::timeout(

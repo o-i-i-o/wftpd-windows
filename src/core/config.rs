@@ -15,16 +15,14 @@ pub struct Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
-    pub bind_ip: String,
-    pub ftp_port: u16,
-    pub sftp_port: u16,
+    #[serde(default = "default_max_connections")]
     pub max_connections: usize,
     #[serde(default = "default_max_connections_per_ip")]
     pub max_connections_per_ip: usize,
-    pub connection_timeout: u64,
-    pub idle_timeout: u64,
-    #[serde(default)]
-    pub hide_version_info: bool,
+}
+
+fn default_max_connections() -> usize {
+    100
 }
 
 fn default_max_connections_per_ip() -> usize {
@@ -36,6 +34,8 @@ pub struct FtpConfig {
     pub enabled: bool,
     #[serde(default = "default_bind_ip")]
     pub bind_ip: String,
+    #[serde(default = "default_ftp_port")]
+    pub port: u16,
     pub passive_ports: (u16, u16),
     pub welcome_message: String,
     pub allow_anonymous: bool,
@@ -55,6 +55,24 @@ pub struct FtpConfig {
     pub passive_ip_override: Option<String>,
     #[serde(default)]
     pub masquerade_address: Option<String>,
+    #[serde(default = "default_connection_timeout")]
+    pub connection_timeout: u64,
+    #[serde(default = "default_idle_timeout")]
+    pub idle_timeout: u64,
+    #[serde(default)]
+    pub hide_version_info: bool,
+}
+
+fn default_ftp_port() -> u16 {
+    21
+}
+
+fn default_connection_timeout() -> u64 {
+    300
+}
+
+fn default_idle_timeout() -> u64 {
+    600
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -98,6 +116,8 @@ pub struct SftpConfig {
     pub enabled: bool,
     #[serde(default = "default_bind_ip")]
     pub bind_ip: String,
+    #[serde(default = "default_sftp_port")]
+    pub port: u16,
     pub host_key_path: String,
     pub max_auth_attempts: u32,
     pub auth_timeout: u64,
@@ -109,6 +129,10 @@ pub struct SftpConfig {
     pub allow_tcp_forwarding: bool,
     #[serde(default)]
     pub allow_x11_forwarding: bool,
+}
+
+fn default_sftp_port() -> u16 {
+    2222
 }
 
 fn default_max_sessions_per_user() -> u32 {
@@ -140,38 +164,35 @@ pub fn get_program_data_path() -> PathBuf {
     PathBuf::from(&program_data).join("wftpg")
 }
 
-fn get_default_paths() -> (String, String, String) {
+fn get_default_paths() -> (String, String) {
     let base_path = get_program_data_path();
     
     let log_dir = base_path.join("logs").to_string_lossy().to_string();
     let host_key_path = base_path.join("ssh\\ssh_host_rsa_key").to_string_lossy().to_string();
-    let anonymous_home = base_path.join("anonymous").to_string_lossy().to_string();
     
-    (log_dir, host_key_path, anonymous_home)
+    (log_dir, host_key_path)
 }
 
 impl Default for Config {
     fn default() -> Self {
-        let (log_dir, host_key_path, anonymous_home) = get_default_paths();
+        let (log_dir, host_key_path) = get_default_paths();
+        let base_path = get_program_data_path();
+        let cert_path = base_path.join("certs\\server.crt").to_string_lossy().to_string();
+        let key_path = base_path.join("certs\\server.key").to_string_lossy().to_string();
         
         Config {
             server: ServerConfig {
-                bind_ip: "0.0.0.0".to_string(),
-                ftp_port: 21,
-                sftp_port: 2222,
                 max_connections: 100,
                 max_connections_per_ip: 10,
-                connection_timeout: 300,
-                idle_timeout: 600,
-                hide_version_info: false,
             },
             ftp: FtpConfig {
                 enabled: true,
                 bind_ip: "0.0.0.0".to_string(),
+                port: 21,
                 passive_ports: (50000, 50100),
                 welcome_message: "Welcome to WFTPG FTP Server".to_string(),
                 allow_anonymous: false,
-                anonymous_home: Some(anonymous_home),
+                anonymous_home: Some("".to_string()),
                 max_speed_kbps: 0,
                 encoding: "UTF-8".to_string(),
                 default_transfer_mode: "binary".to_string(),
@@ -179,17 +200,21 @@ impl Default for Config {
                 ftps: FtpsConfig {
                     enabled: false,
                     require_ssl: false,
-                    cert_path: None,
-                    key_path: None,
+                    cert_path: Some(cert_path),
+                    key_path: Some(key_path),
                     implicit_ssl: false,
                     implicit_ssl_port: 990,
                 },
                 passive_ip_override: None,
                 masquerade_address: None,
+                connection_timeout: 300,
+                idle_timeout: 600,
+                hide_version_info: false,
             },
             sftp: SftpConfig {
                 enabled: true,
                 bind_ip: "0.0.0.0".to_string(),
+                port: 2222,
                 host_key_path,
                 max_auth_attempts: 3,
                 auth_timeout: 60,

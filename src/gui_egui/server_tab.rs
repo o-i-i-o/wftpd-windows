@@ -240,21 +240,21 @@ impl ServerTab {
 
             styles::form_row(ui, "绑定 IP", label_width, |ui| {
                 styles::input_frame().show(ui, |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut config.server.bind_ip)
+                    ui.add(egui::TextEdit::singleline(&mut config.ftp.bind_ip)
                         .desired_width(ui.available_width())
                         .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
                 });
             });
 
             styles::form_row(ui, "FTP 端口", label_width, |ui| {
-                let mut port_str = config.server.ftp_port.to_string();
+                let mut port_str = config.ftp.port.to_string();
                 styles::input_frame().show(ui, |ui| {
                     ui.add(egui::TextEdit::singleline(&mut port_str)
                         .desired_width(80.0)
                         .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
                 });
                 if let Ok(p) = port_str.parse::<u16>() {
-                    config.server.ftp_port = p;
+                    config.ftp.port = p;
                 }
             });
 
@@ -587,14 +587,14 @@ impl ServerTab {
             });
 
             styles::form_row_with_suffix(ui, "SFTP 端口", label_width, |ui| {
-                let mut port_str = config.server.sftp_port.to_string();
+                let mut port_str = config.sftp.port.to_string();
                 styles::input_frame().show(ui, |ui| {
                     ui.add(egui::TextEdit::singleline(&mut port_str)
                         .desired_width(80.0)
                         .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
                 });
                 if let Ok(p) = port_str.parse::<u16>() {
-                    config.server.sftp_port = p;
+                    config.sftp.port = p;
                 }
             }, "(建议 2222)");
 
@@ -854,33 +854,33 @@ impl ServerTab {
             });
 
             styles::form_row_with_suffix(ui, "连接超时", label_width, |ui| {
-                let mut val_str = config.server.connection_timeout.to_string();
+                let mut val_str = config.ftp.connection_timeout.to_string();
                 styles::input_frame().show(ui, |ui| {
                     ui.add(egui::TextEdit::singleline(&mut val_str)
                         .desired_width(80.0)
                         .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
                 });
                 if let Ok(v) = val_str.parse::<u64>() {
-                    config.server.connection_timeout = v;
+                    config.ftp.connection_timeout = v;
                 }
             }, "秒");
 
             styles::form_row_with_suffix(ui, "空闲超时", label_width, |ui| {
-                let mut val_str = config.server.idle_timeout.to_string();
+                let mut val_str = config.ftp.idle_timeout.to_string();
                 styles::input_frame().show(ui, |ui| {
                     ui.add(egui::TextEdit::singleline(&mut val_str)
                         .desired_width(80.0)
                         .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
                 });
                 if let Ok(v) = val_str.parse::<u64>() {
-                    config.server.idle_timeout = v;
+                    config.ftp.idle_timeout = v;
                 }
             }, "秒 (0 表示不限制)");
 
             ui.add_space(styles::SPACING_SM);
 
             styles::form_row(ui, "隐藏版本信息", label_width, |ui| {
-                ui.checkbox(&mut config.server.hide_version_info, "");
+                ui.checkbox(&mut config.ftp.hide_version_info, "");
             });
             ui.horizontal(|ui| {
                 ui.add_sized([label_width, 24.0], egui::Label::new(""));
