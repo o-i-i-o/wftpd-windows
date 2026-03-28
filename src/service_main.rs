@@ -10,19 +10,18 @@ extern crate windows_service;
 use wftpg::AppState;
 use wftpg::core::ipc::{IpcServer, ReloadCommand, ReloadResponse};
 use wftpg::core::windows_ipc::PIPE_NAME;
+use std::ffi::OsString;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::ffi::OsString;
 use std::time::Duration;
 use windows_service::{
     define_windows_service,
     service::{
-        ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceType,
         ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
+        ServiceType,
     },
     service_control_handler::{self, ServiceControlHandlerResult},
-    service_manager::{ServiceManager, ServiceManagerAccess},
     service_dispatcher,
 };
 
@@ -54,8 +53,6 @@ fn handle_command(state: &AppState, cmd: &ReloadCommand) -> ReloadResponse {
 }
 
 const SERVICE_NAME: &str = "wftpd";
-const SERVICE_DISPLAY_NAME: &str = "WFTPD SFTP/FTP Server";
-const SERVICE_DESCRIPTION: &str = "SFTP and FTP server daemon with GUI management";
 
 define_windows_service!(ffi_service_main, my_service_main);
 
@@ -172,81 +169,8 @@ fn run_main_loop_with_shutdown(state: &Arc<AppState>, ipc_server: &IpcServer, ru
     }
 }
 
-fn install_service() -> anyhow::Result<()> {
-    let current_exe = std::env::current_exe()?;
-    let exe_dir = current_exe
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("无法获取当前程序目录"))?;
-
-    let wftpd_exe = exe_dir.join("wftpd.exe");
-    if !wftpd_exe.exists() {
-        return Err(anyhow::anyhow!(
-            "在当前目录未找到 wftpd.exe，请确保 wftpd.exe 与 wftp-gui.exe 在同一目录"
-        ));
-    }
-
-    tracing::info!("Using wftpd.exe at {}", wftpd_exe.display());
-
-    let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
-    let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
-
-    let service_info = ServiceInfo {
-        name: OsString::from(SERVICE_NAME),
-        display_name: OsString::from(SERVICE_DISPLAY_NAME),
-        service_type: ServiceType::OWN_PROCESS,
-        start_type: ServiceStartType::AutoStart,
-        error_control: ServiceErrorControl::Normal,
-        executable_path: wftpd_exe,
-        launch_arguments: vec![],
-        dependencies: vec![],
-        account_name: None,
-        account_password: None,
-    };
-
-    let service = service_manager.create_service(&service_info, ServiceAccess::CHANGE_CONFIG)?;
-    if let Err(e) = service.set_description(SERVICE_DESCRIPTION) {
-        tracing::warn!("设置服务描述失败（可忽略）: {e:?}");
-    }
-
-    tracing::info!("Service installed successfully");
-    Ok(())
-}
-
-fn uninstall_service() -> anyhow::Result<()> {
-    let manager_access = ServiceManagerAccess::CONNECT;
-    let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
-
-    let service = service_manager.open_service(SERVICE_NAME, ServiceAccess::STOP | ServiceAccess::DELETE)?;
-    service.stop()?;
-    service.delete()?;
-
-    tracing::info!("Service uninstalled successfully");
-    Ok(())
-}
-
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-
-    if args.len() > 1 {
-        match args[1].as_str() {
-            "--install" => {
-                if let Err(e) = install_service() {
-                    tracing::error!("Failed to install service: {e}");
-                    std::process::exit(1);
-                }
-                return;
-            }
-            "--uninstall" => {
-                if let Err(e) = uninstall_service() {
-                    tracing::error!("Failed to uninstall service: {e}");
-                    std::process::exit(1);
-                }
-                return;
-            }
-            _ => {}
-        }
-    }
-
+    // 直接启动服务（不支持命令行安装/卸载）
     if let Err(_e) = service_dispatcher::start(SERVICE_NAME, ffi_service_main) {
         run_console_application();
     }
