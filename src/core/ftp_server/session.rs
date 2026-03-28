@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use std::net::ToSocketAddrs;
 
 use crate::core::config::Config;
 use crate::core::users::UserManager;
@@ -16,6 +17,20 @@ use super::transfer;
 use super::tls::{TlsConfig, AsyncTlsTcpStream};
 
 const MAX_COMMAND_LENGTH: usize = 8192;
+
+/// 判断是否为域名（简单的启发式判断）
+fn is_domain_name(s: &str) -> bool {
+    // 如果包含字母且不是纯 IP 地址格式，则认为是域名
+    s.chars().any(|c| c.is_ascii_alphabetic()) && !s.chars().all(|c| c.is_ascii_digit() || c == '.')
+}
+
+/// 尝试将域名解析为 IP 地址
+fn resolve_domain_to_ip(domain: &str) -> Option<String> {
+    match (domain, 21).to_socket_addrs() {
+        Ok(mut addrs) => addrs.next().map(|addr| addr.ip().to_string()),
+        Err(_) => None,
+    }
+}
 
 pub enum ControlStream {
     Plain(Option<TcpStream>),
@@ -942,9 +957,9 @@ async fn handle_command(
         }
 
         PASV => {
-            let ((port_min, port_max), bind_ip, passive_ip_override) = {
+            let ((port_min, port_max), bind_ip, passive_ip_override, masquerade_address) = {
                 let cfg = config.lock();
-                (cfg.ftp.passive_ports, cfg.ftp.bind_ip.clone(), cfg.ftp.passive_ip_override.clone())
+                (cfg.ftp.passive_ports, cfg.ftp.bind_ip.clone(), cfg.ftp.passive_ip_override.clone(), cfg.ftp.masquerade_address.clone())
             };
 
             let passive_port = match state.passive_manager.try_bind_port(port_min, port_max, &bind_ip).await {
@@ -958,11 +973,25 @@ async fn handle_command(
             state.passive_mode = true;
             state.data_port = Some(passive_port);
 
-            let response_ip = if let Some(ref override_ip) = passive_ip_override {
+            // 优先级：masquerade_address > passive_ip_override > bind_ip/client_ip
+            let response_ip = if let Some(ref masq_addr) = masquerade_address {
+                // 如果配置了伪装地址（域名或 IP），优先使用
+                // 尝试解析域名获取 IP 地址
+                if is_domain_name(masq_addr.as_str()) {
+                    // 如果是域名，尝试解析
+                    resolve_domain_to_ip(masq_addr).unwrap_or_else(|| masq_addr.clone())
+                } else {
+                    // 直接是 IP 地址
+                    masq_addr.clone()
+                }
+            } else if let Some(ref override_ip) = passive_ip_override {
+                // 其次使用被动模式 IP 覆盖
                 override_ip.clone()
             } else if bind_ip == "0.0.0.0" || bind_ip.is_empty() {
+                // 如果绑定的是 0.0.0.0，使用客户端 IP
                 client_ip.to_string()
             } else {
+                // 否则使用绑定的 IP
                 bind_ip.clone()
             };
 

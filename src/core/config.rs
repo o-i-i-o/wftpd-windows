@@ -32,14 +32,14 @@ pub struct FtpConfig {
     #[serde(default = "default_passive_mode")]
     pub default_passive_mode: bool,
     pub allow_anonymous: bool,
-    #[serde(default)]
+    #[serde(default = "default_anonymous_home")]
     pub anonymous_home: Option<String>,
     pub passive_ports: (u16, u16),
     #[serde(default)]
     pub max_speed_kbps: u64,
-    #[serde(default)]
+    #[serde(default = "default_passive_ip_override")]
     pub passive_ip_override: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_masquerade_address")]
     pub masquerade_address: Option<String>,
     #[serde(default = "default_connection_timeout")]
     pub connection_timeout: u64,
@@ -97,6 +97,18 @@ fn default_transfer_mode() -> String {
 
 fn default_passive_mode() -> bool {
     true
+}
+
+fn default_anonymous_home() -> Option<String> {
+    Some("".to_string())
+}
+
+fn default_passive_ip_override() -> Option<String> {
+    Some("".to_string())
+}
+
+fn default_masquerade_address() -> Option<String> {
+    Some("".to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -212,8 +224,8 @@ impl Default for Config {
                     implicit_ssl: false,
                     implicit_ssl_port: 990,
                 },
-                passive_ip_override: None,
-                masquerade_address: None,
+                passive_ip_override: Some("".to_string()),
+                masquerade_address: Some("".to_string()),
                 connection_timeout: 300,
                 idle_timeout: 600,
                 hide_version_info: false,
