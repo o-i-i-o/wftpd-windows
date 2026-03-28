@@ -1511,6 +1511,7 @@ impl SftpState {
 
     fn build_attrs(&self, is_dir: bool, size: u64) -> Vec<u8> {
         let mut attrs = Vec::new();
+        // SSH_FILEXFER_ATTR_SIZE | SSH_FILEXFER_ATTR_UIDGID | SSH_FILEXFER_ATTR_PERMISSIONS | SSH_FILEXFER_ATTR_ACMODTIME
         let flags: u32 = 0x00000001 | 0x00000002 | 0x00000004 | 0x00000008;
         attrs.extend_from_slice(&flags.to_be_bytes());
         attrs.extend_from_slice(&size.to_be_bytes());
@@ -1518,7 +1519,12 @@ impl SftpState {
         let gid: u32 = 1000;
         attrs.extend_from_slice(&uid.to_be_bytes());
         attrs.extend_from_slice(&gid.to_be_bytes());
-        let permissions = if is_dir { 0o755u32 } else { 0o644u32 };
+        // SFTP permissions 格式：高 16 位包含文件类型 (S_IFDIR = 0o40000, S_IFREG = 0o10000)
+        let permissions = if is_dir {
+            0o40755u32  // S_IFDIR | 0755
+        } else {
+            0o100644u32  // S_IFREG | 0644
+        };
         attrs.extend_from_slice(&permissions.to_be_bytes());
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

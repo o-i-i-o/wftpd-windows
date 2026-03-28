@@ -1022,26 +1022,42 @@ async fn handle_command(
             state.data_port = Some(passive_port);
 
             // 优先级：masquerade_address > passive_ip_override > bind_ip/client_ip
+            // 注意：需要检查空字符串，因为配置文件中可能设置为 ""
             let response_ip = if let Some(ref masq_addr) = masquerade_address {
-                // 如果配置了伪装地址（域名或 IP），优先使用
-                // 尝试解析域名获取 IP 地址
-                if is_domain_name(masq_addr.as_str()) {
-                    // 如果是域名，尝试解析
-                    resolve_domain_to_ip(masq_addr).unwrap_or_else(|| masq_addr.clone())
+                if masq_addr.is_empty() {
+                    // 空字符串视为未配置
+                    None
                 } else {
-                    // 直接是 IP 地址
-                    masq_addr.clone()
+                    // 非空字符串，检查是否是域名或 IP
+                    Some(if is_domain_name(masq_addr.as_str()) {
+                        // 如果是域名，尝试解析
+                        resolve_domain_to_ip(masq_addr).unwrap_or_else(|| masq_addr.clone())
+                    } else {
+                        // 直接是 IP 地址
+                        masq_addr.clone()
+                    })
                 }
-            } else if let Some(ref override_ip) = passive_ip_override {
-                // 其次使用被动模式 IP 覆盖
-                override_ip.clone()
-            } else if bind_ip == "0.0.0.0" || bind_ip.is_empty() {
-                // 如果绑定的是 0.0.0.0，使用客户端 IP
-                client_ip.to_string()
             } else {
-                // 否则使用绑定的 IP
-                bind_ip.clone()
-            };
+                None
+            }.or_else(|| {
+                // 如果 masquerade_address 未配置，检查 passive_ip_override
+                if let Some(ref override_ip) = passive_ip_override {
+                    if override_ip.is_empty() {
+                        None
+                    } else {
+                        Some(override_ip.clone())
+                    }
+                } else {
+                    None
+                }
+            }).unwrap_or_else(|| {
+                // 如果都未配置，使用 bind_ip 或 client_ip
+                if bind_ip == "0.0.0.0" || bind_ip.is_empty() {
+                    client_ip.to_string()
+                } else {
+                    bind_ip.clone()
+                }
+            });
 
             let ip_parts: Vec<&str> = response_ip.split('.').collect();
             if ip_parts.len() != 4 {

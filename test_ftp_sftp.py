@@ -688,8 +688,8 @@ class SFTPTester:
             # 计算本地文件 MD5
             local_md5 = calculate_md5(local_file)
             
-            # 上传文件
-            remote_file = self.test_dir + '/' + unique_filename
+            # 上传文件 - 使用相对路径（因为可能在 test_dir 内）
+            remote_file = unique_filename
             self.sftp.put(local_file, remote_file)
             
             # 验证文件存在
@@ -717,7 +717,7 @@ class SFTPTester:
         test_name = "GET 下载文件（MD5 校验）"
         try:
             # 使用之前上传的文件
-            remote_file = self.test_dir + '/' + self.unique_prefix + 'upload.txt'
+            remote_file = self.unique_prefix + 'upload.txt'
             unique_filename = self.unique_prefix + 'upload.txt.download'
             local_file = os.path.join(tempfile.gettempdir(), unique_filename)
             self.temp_files.append(local_file)
@@ -748,7 +748,7 @@ class SFTPTester:
         """测试列出目录"""
         test_name = "LIST 列出目录"
         try:
-            files = self.sftp.listdir(self.test_dir)
+            files = self.sftp.listdir('.')
             if len(files) >= 0:  # 允许空目录
                 self.result.add_pass(test_name)
             else:
@@ -760,7 +760,7 @@ class SFTPTester:
         """测试获取文件属性"""
         test_name = "STAT 获取属性"
         try:
-            remote_file = self.test_dir + '/test_upload.txt'
+            remote_file = self.unique_prefix + 'upload.txt'
             stat_info = self.sftp.stat(remote_file)
             
             if stat_info and hasattr(stat_info, 'st_size'):
@@ -774,7 +774,7 @@ class SFTPTester:
         """测试修改文件权限"""
         test_name = "CHMOD 修改权限"
         try:
-            remote_file = self.test_dir + '/test_upload.txt'
+            remote_file = self.unique_prefix + 'upload.txt'
             
             # 获取当前权限
             stat_info = self.sftp.stat(remote_file)
@@ -802,8 +802,8 @@ class SFTPTester:
         """测试重命名文件"""
         test_name = "RENAME 重命名"
         try:
-            old_name = self.test_dir + '/test_upload.txt'
-            new_name = self.test_dir + '/test_renamed.txt'
+            old_name = self.unique_prefix + 'upload.txt'
+            new_name = self.unique_prefix + 'renamed.txt'
             
             # 检查文件是否存在，不存在则重新上传
             try:
@@ -845,8 +845,8 @@ class SFTPTester:
         try:
             # 尝试多个可能的文件名
             possible_files = [
-                self.test_dir + '/test_upload.txt',
-                self.test_dir + '/test_renamed.txt'
+                self.unique_prefix + 'upload.txt',
+                self.unique_prefix + 'renamed.txt'
             ]
             
             remote_file = None
@@ -860,7 +860,7 @@ class SFTPTester:
             
             if remote_file is None:
                 # 如果没有找到文件，重新上传一个用于测试
-                remote_file = self.test_dir + '/test_delete.txt'
+                remote_file = 'test_delete.txt'
                 local_file = os.path.join(tempfile.gettempdir(), 'test_remove_upload.txt')
                 with open(local_file, 'w', encoding='utf-8') as f:
                     f.write('remove test content')
@@ -899,10 +899,10 @@ class SFTPTester:
         test_name = "LSTAT 链接属性"
         try:
             # 对于普通文件，lstat 应该返回与 stat 相同的结果
-            remote_file = self.test_dir + '/test_upload.txt'
+            remote_file = 'test_lstat.txt'
             
             # 重新创建文件（因为之前可能删除了）
-            local_file = os.path.join(tempfile.gettempdir(), 'test_lstat.txt')
+            local_file = os.path.join(tempfile.gettempdir(), remote_file)
             with open(local_file, 'w', encoding='utf-8') as f:
                 f.write('test')
             self.temp_files.append(local_file)
@@ -920,8 +920,8 @@ class SFTPTester:
         """测试创建符号链接（如果支持）"""
         test_name = "SYMLINK 符号链接"
         try:
-            target = self.test_dir + '/test_upload.txt'
-            link = self.test_dir + '/test_link'
+            target = 'test_symlink_target.txt'
+            link = 'test_link'
             
             # 检查目标文件是否存在，不存在则重新上传
             try:
@@ -960,8 +960,8 @@ class SFTPTester:
         """测试读取符号链接（如果支持）"""
         test_name = "READLINK 读取链接"
         try:
-            target = self.test_dir + '/test_upload.txt'
-            link = self.test_dir + '/test_link2'
+            target = 'test_readlink_target.txt'
+            link = 'test_link2'
             
             # 检查目标文件是否存在，不存在则重新上传
             try:
@@ -1041,7 +1041,7 @@ class SFTPTester:
 
 
 class WFTPDManager:
-    """WFTPD 服务管理器"""
+    """WFTPD 服务管理器（仅用于检测端口）"""
     
     def __init__(self):
         self.process = None
@@ -1064,56 +1064,28 @@ class WFTPDManager:
         
         return False
     
-    def start_service(self):
-        """启动 wftpd 服务（带端口检测）"""
-        if not self.wftpd_path:
-            if not self.find_wftpd():
-                print("错误：找不到 wftpd.exe")
-                return False
-        
-        # 先检测端口是否已被占用
+    def check_service_running(self):
+        """检查服务是否已在运行"""
         ftp_port_in_use = is_port_in_use(SERVER_HOST, FTP_PORT)
         sftp_port_in_use = is_port_in_use(SERVER_HOST, SFTP_PORT)
         
         if ftp_port_in_use and sftp_port_in_use:
-            print(f"[信息] FTP ({FTP_PORT}) 和 SFTP ({SFTP_PORT}) 端口已在运行，跳过启动服务")
+            print(f"[PASS] FTP ({FTP_PORT}) 和 SFTP ({SFTP_PORT}) 端口均已就绪")
             return True
         elif ftp_port_in_use or sftp_port_in_use:
             print(f"[警告] 部分端口被占用 - FTP: {'是' if ftp_port_in_use else '否'}, SFTP: {'是' if sftp_port_in_use else '否'}")
             print("[提示] 可能存在端口冲突，请检查是否有其他实例在运行")
-        
-        print(f"启动 wftpd: {self.wftpd_path}")
-        
-        try:
-            # 作为控制台应用启动（非服务模式）
-            self.process = subprocess.Popen(
-                [self.wftpd_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
-            
-            # 等待服务启动（检测端口）
-            print("等待服务启动...")
-            ftp_ready = wait_for_port('127.0.0.1', FTP_PORT, timeout=PORT_WAIT_TIMEOUT)
-            sftp_ready = wait_for_port('127.0.0.1', SFTP_PORT, timeout=PORT_WAIT_TIMEOUT)
-            
-            if not ftp_ready or not sftp_ready:
-                stdout, stderr = self.process.communicate()
-                error_msg = stderr.decode('gbk', errors='ignore') if stderr else "未知错误"
-                print(f"wftpd 启动失败 - FTP 就绪：{ftp_ready}, SFTP 就绪：{sftp_ready}")
-                print(f"错误信息：{error_msg}")
-                return False
-            
-            print(f"wftpd 服务已启动（FTP:{FTP_PORT} 和 SFTP:{SFTP_PORT} 端口均已就绪）")
-            return True
-            
-        except Exception as e:
-            print(f"启动 wftpd 失败：{e}")
+            return False
+        else:
+            print(f"[错误] FTP ({FTP_PORT}) 和 SFTP ({SFTP_PORT}) 端口均未就绪")
+            print("\n请先手动启动 WFTPD 服务：")
+            print("1. 以管理员身份运行：target/release/wftpd.exe")
+            print("2. 或者运行 GUI 程序启动服务")
+            print("3. 启动完成后重新运行此测试脚本")
             return False
     
     def stop_service(self):
-        """停止 wftpd 服务"""
+        """停止 wftpd 服务（如果是由本脚本启动的）"""
         if self.process:
             try:
                 self.process.terminate()
@@ -1171,17 +1143,16 @@ def main():
     wftpd_manager = WFTPDManager()
     
     try:
-        # 启动 wftpd 服务
+        # 检查服务是否已在运行
         print("\n" + "="*60)
-        print("步骤 1: 启动 WFTPD 服务")
+        print("步骤 1: 检查 WFTPD 服务状态")
         print("="*60)
         
-        if not wftpd_manager.start_service():
-            print("无法启动 WFTPD 服务，请手动启动或检查配置")
-            print("继续尝试测试（假设服务已在运行）...")
+        service_running = wftpd_manager.check_service_running()
         
-        # 等待服务完全启动
-        time.sleep(SERVICE_START_DELAY)
+        if not service_running:
+            print("\n测试无法继续，请先启动 WFTPD 服务")
+            sys.exit(1)
         
         # FTP 测试
         print("\n" + "="*60)
@@ -1234,7 +1205,7 @@ def main():
         if ftp_result.errors or sftp_result.errors:
             print("\n--- 错误详情 ---")
             for error in ftp_result.errors + sftp_result.errors:
-                print(f"  ✗ {error['test']}: {error['reason']}")
+                print(f"  [FAIL] {error['test']}: {error['reason']}")
         
         # 保存测试结果到 JSON 文件
         total_result["end_time"] = datetime.now().isoformat()
