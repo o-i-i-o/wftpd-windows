@@ -202,8 +202,9 @@ impl AboutTab {
                     "1. 本软件需要管理员权限运行，用于管理 Windows 服务",
                     "2. 配置文件存储在 C:\\ProgramData\\wftpg\\ 目录",
                     "3. 修改配置后请保存，后台服务会自动重新加载",
-                    "4. 端口变更需要重启服务才能生效",
+                    "4. 端口变更、FTP/SFTP主配置变动需要重启wftpd服务才能生效",
                     "5. 请确保防火墙允许 FTP/SFTP 端口通信",
+                    "6. FTP不支持管理符号链接，Windows上的符号链接请使用 SFTP",
                 ];
 
                 for notice in &notices {
