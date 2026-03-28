@@ -113,12 +113,6 @@ impl AppState {
         *current_users = users;
         Ok(())
     }
-    
-    pub fn shutdown(&self) {
-        tracing::info!("正在关闭所有服务...");
-        self.server_manager.stop_all();
-        tracing::info!("所有服务已关闭");
-    }
 }
 
 impl Default for AppState {
