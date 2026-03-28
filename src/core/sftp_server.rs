@@ -89,15 +89,7 @@ impl SftpServer {
             ..Default::default()
         };
         
-        // 记录 SSH 转发配置（在 Handler 中实际使用）
-        {
-            let cfg = self.config.lock();
-            tracing::info!(
-                "SSH forwarding configuration: tcp_forwarding={}, x11_forwarding={}",
-                cfg.sftp.allow_tcp_forwarding,
-                cfg.sftp.allow_x11_forwarding
-            );
-        }
+        // SSH 转发功能已禁用（SFTP 不需要这些功能）
         
         let config = Arc::new(ssh_config);
 
@@ -483,31 +475,17 @@ impl russh::server::Handler for SftpHandler {
     async fn channel_open_direct_tcpip(
         &mut self,
         channel: Channel<Msg>,
-        host_to_connect: &str,
-        port_to_connect: u32,
-        originator_address: &str,
-        originator_port: u32,
+        _host_to_connect: &str,
+        _port_to_connect: u32,
+        _originator_address: &str,
+        _originator_port: u32,
         session: &mut server::Session,
     ) -> Result<bool, Self::Error> {
-        // 检查是否允许 TCP 转发（默认禁止）
-        let allow_tcp_forwarding = false;
-        
-        if !allow_tcp_forwarding {
-            tracing::warn!(
-                client_ip = %self.client_ip,
-                action = "TCP_FORWARD_DENIED",
-                "TCP forwarding denied: {}:{} -> {}:{}",
-                originator_address, originator_port, host_to_connect, port_to_connect
-            );
-            let _ = session.channel_failure(channel.id());
-            return Ok(false);
-        }
-        
+        // TCP 转发已禁用（SFTP 不需要此功能）
         tracing::warn!(
             client_ip = %self.client_ip,
-            action = "TCP_FORWARD_UNSUPPORTED",
-            "TCP forwarding is not supported: {}:{} -> {}:{}",
-            originator_address, originator_port, host_to_connect, port_to_connect
+            action = "TCP_FORWARD_DISABLED",
+            "TCP forwarding is disabled for SFTP"
         );
         let _ = session.channel_failure(channel.id());
         Ok(false)
@@ -516,54 +494,33 @@ impl russh::server::Handler for SftpHandler {
     async fn channel_open_forwarded_tcpip(
         &mut self,
         channel: Channel<Msg>,
-        host_to_connect: &str,
-        port_to_connect: u32,
-        originator_address: &str,
-        originator_port: u32,
+        _host_to_connect: &str,
+        _port_to_connect: u32,
+        _originator_address: &str,
+        _originator_port: u32,
         session: &mut server::Session,
     ) -> Result<bool, Self::Error> {
-        // 检查是否允许 TCP 转发
-        let allow_tcp_forwarding = false;
-        
-        if !allow_tcp_forwarding {
-            tracing::warn!(
-                client_ip = %self.client_ip,
-                action = "TCP_FORWARD_DENIED",
-                "Forwarded TCP connection denied: {}:{} -> {}:{}",
-                originator_address, originator_port, host_to_connect, port_to_connect
-            );
-            let _ = session.channel_failure(channel.id());
-            return Ok(false);
-        }
-        
+        // TCP 转发已禁用（SFTP 不需要此功能）
+        tracing::warn!(
+            client_ip = %self.client_ip,
+            action = "FORWARDED_TCP_DISABLED",
+            "Forwarded TCP connection is disabled for SFTP"
+        );
         let _ = session.channel_failure(channel.id());
         Ok(false)
     }
 
     async fn tcpip_forward(
         &mut self,
-        address: &str,
-        port: &mut u32,
+        _address: &str,
+        _port: &mut u32,
         _session: &mut server::Session,
     ) -> Result<bool, Self::Error> {
-        // 检查是否允许 TCP 端口转发
-        let allow_tcp_forwarding = false;
-        
-        if !allow_tcp_forwarding {
-            tracing::warn!(
-                client_ip = %self.client_ip,
-                action = "TCP_FORWARD_REQUEST_DENIED",
-                "TCP port forward request denied: {}:{}",
-                address, port
-            );
-            return Ok(false);
-        }
-        
+        // TCP 端口转发已禁用（SFTP 不需要此功能）
         tracing::warn!(
             client_ip = %self.client_ip,
-            action = "TCP_FORWARD_UNSUPPORTED",
-            "TCP port forwarding is not supported: {}:{}",
-            address, port
+            action = "TCP_PORT_FORWARD_DISABLED",
+            "TCP port forwarding is disabled for SFTP"
         );
         Ok(false)
     }
@@ -587,30 +544,17 @@ impl russh::server::Handler for SftpHandler {
     async fn x11_request(
         &mut self,
         channel: ChannelId,
-        single_connection: bool,
+        _single_connection: bool,
         _auth_protocol: &str,
         _auth_cookie: &str,
-        screen_number: u32,
+        _screen_number: u32,
         session: &mut server::Session,
     ) -> Result<(), Self::Error> {
-        // 检查是否允许 X11 转发
-        let allow_x11_forwarding = false;
-        
-        if !allow_x11_forwarding {
-            tracing::warn!(
-                client_ip = %self.client_ip,
-                action = "X11_FORWARD_DENIED",
-                "X11 forwarding request denied (single={}, screen={})",
-                single_connection, screen_number
-            );
-            let _ = session.channel_failure(channel);
-            return Ok(());
-        }
-        
+        // X11 转发已禁用（SFTP 不需要此功能）
         tracing::warn!(
             client_ip = %self.client_ip,
-            action = "X11_FORWARD_UNSUPPORTED",
-            "X11 forwarding is not supported"
+            action = "X11_FORWARD_DISABLED",
+            "X11 forwarding is disabled for SFTP"
         );
         let _ = session.channel_failure(channel);
         Ok(())
@@ -747,17 +691,16 @@ impl SftpState {
 
     fn check_permission(&self, check_fn: impl Fn(&crate::core::users::Permissions) -> bool) -> bool {
         // 检查缓存是否过期（5 秒有效期）
-        if let Some(expiry) = self.cache_expiry {
-            if std::time::Instant::now() < expiry {
-                // 缓存有效，返回缓存结果
-                if let Some(&result) = self.permission_cache.get("check") {
-                    return result;
-                }
+        if let Some(expiry) = self.cache_expiry
+            && std::time::Instant::now() < expiry {
+            // 缓存有效，返回缓存结果
+            if let Some(&result) = self.permission_cache.get("check") {
+                return result;
             }
         }
         
         // 缓存失效或不存在，执行实际检查
-        let result = if let Some(perms) = &self.cached_permissions {
+        if let Some(perms) = &self.cached_permissions {
             check_fn(perms)
         } else if let Some(username) = &self.username {
             let users = self.user_manager.lock();
@@ -768,9 +711,7 @@ impl SftpState {
             }
         } else {
             false
-        };
-        
-        result
+        }
     }
 
     fn cache_permissions(&mut self) {

@@ -184,7 +184,6 @@ impl ServerTab {
             None => return,
         };
 
-        let mut save_clicked = false;
         let is_saving = self.is_saving;
         let status_message = self.status_message.clone();
 
@@ -202,7 +201,13 @@ impl ServerTab {
                 };
 
                 if ui.add(save_btn).clicked() && !is_saving {
-                    save_clicked = true;
+                    // 直接在这里调用保存，避免状态混乱
+                    self.config = Some(config.clone());
+                    self.save_config_async(ui.ctx());
+                    config = match self.config.take() {
+                        Some(c) => c,
+                        None => return,
+                    };
                 }
 
                 if let Some((msg, success)) = &status_message {
@@ -215,15 +220,6 @@ impl ServerTab {
                 }
             });
         });
-
-        if save_clicked {
-            self.config = Some(config);
-            self.save_config_async(ui.ctx());
-            config = match self.config.take() {
-                Some(c) => c,
-                None => return,
-            };
-        }
 
         ui.add_space(styles::SPACING_MD);
 
@@ -728,28 +724,6 @@ impl ServerTab {
             ui.horizontal(|ui| {
                 ui.add_sized([label_width, 24.0], egui::Label::new(""));
                 ui.label(RichText::new("限制单个用户同时连接的会话数量")
-                    .size(styles::FONT_SIZE_SM)
-                    .color(styles::TEXT_MUTED_COLOR)
-                    .italics());
-            });
-
-            styles::form_row(ui, "允许 TCP 转发", label_width, |ui| {
-                ui.checkbox(&mut config.sftp.allow_tcp_forwarding, "");
-            });
-            ui.horizontal(|ui| {
-                ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                ui.label(RichText::new("启用后允许 SSH 端口转发 (建议禁用)")
-                    .size(styles::FONT_SIZE_SM)
-                    .color(styles::TEXT_MUTED_COLOR)
-                    .italics());
-            });
-
-            styles::form_row(ui, "允许 X11 转发", label_width, |ui| {
-                ui.checkbox(&mut config.sftp.allow_x11_forwarding, "");
-            });
-            ui.horizontal(|ui| {
-                ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                ui.label(RichText::new("启用后允许 X11 图形转发 (建议禁用)")
                     .size(styles::FONT_SIZE_SM)
                     .color(styles::TEXT_MUTED_COLOR)
                     .italics());

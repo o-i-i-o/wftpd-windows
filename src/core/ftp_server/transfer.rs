@@ -12,15 +12,6 @@ use crate::core::rate_limiter::RateLimiter;
 
 // 动态缓冲区大小：根据传输场景自动调整
 const DEFAULT_BUFFER_SIZE: usize = 128 * 1024; // 128KB 默认值
-const MIN_BUFFER_SIZE: usize = 8192; // 8KB 最小值
-const MAX_BUFFER_SIZE: usize = 1024 * 1024; // 1MB 最大值
-
-/// 根据网络条件计算最优缓冲区大小
-fn calculate_optimal_buffer_size(_estimated_rtt_ms: u64, _bandwidth_kbps: u64) -> usize {
-    // TODO: 实现基于 BDP (Bandwidth-Delay Product) 的动态计算
-    // 目前使用固定优化值
-    DEFAULT_BUFFER_SIZE
-}
 
 pub async fn get_data_connection(
     passive_mode: bool,

@@ -225,8 +225,8 @@ impl ServiceTab {
         // 检查异步操作结果
         self.check_operation_result();
         
-        // 定期刷新状态
-        if self.last_check.elapsed().as_secs() >= 2 {
+        // 定期刷新状态（从 2 秒改为 5 秒，减少不必要的系统调用）
+        if self.last_check.elapsed().as_secs() >= 5 {
             self.refresh_status();
         }
 

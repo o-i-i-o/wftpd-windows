@@ -1,6 +1,4 @@
-use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const BUCKET_CAPACITY: u64 = 64 * 1024;
@@ -10,13 +8,7 @@ const REFILL_INTERVAL_MS: u64 = 100;
 pub struct RateLimiter {
     // 使用原子操作存储 tokens，减少锁竞争
     tokens: AtomicU64,
-    last_refill: AtomicU64, // 毫秒时间戳
     bytes_per_second: u64,
-}
-
-struct RateLimiterState {
-    tokens: u64,
-    last_refill: Instant,
 }
 
 impl RateLimiter {
@@ -27,11 +19,8 @@ impl RateLimiter {
             speed_limit_kbps * 1024
         };
         
-        let now_ms = Instant::now().duration_since(Instant::now()).as_millis() as u64;
-        
         RateLimiter {
             tokens: AtomicU64::new(BUCKET_CAPACITY),
-            last_refill: AtomicU64::new(now_ms),
             bytes_per_second,
         }
     }

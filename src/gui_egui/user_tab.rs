@@ -109,7 +109,9 @@ impl UserTab {
                 let screen = ctx.content_rect();
                 ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(140));
             });
-        let is_add = self.modal == ModalMode::AddUser;
+        
+        // 使用引用避免不必要的 clone
+        let is_add = matches!(&self.modal, ModalMode::AddUser);
         let is_confirm = matches!(&self.modal, ModalMode::ConfirmDelete(_));
         let title = match &self.modal {
             ModalMode::AddUser => "添加用户",
@@ -118,8 +120,6 @@ impl UserTab {
             ModalMode::None => "",
         };
         let mw: f32 = if is_confirm { 320.0 } else { (screen.width() * 0.4).clamp(380.0, 550.0) };
-        let screen = ctx.content_rect();
-        if screen.width() <= 0.0 || screen.height() <= 0.0 { return; }
         let center = egui::pos2(screen.center().x, screen.center().y);
         let mut close_modal = false;
         let mut do_submit = false;
@@ -131,7 +131,8 @@ impl UserTab {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 if is_confirm {
-                    if let ModalMode::ConfirmDelete(ref name) = self.modal.clone() {
+                    // 使用引用获取用户名，避免 clone
+                    if let ModalMode::ConfirmDelete(ref name) = self.modal {
                         ui.vertical_centered(|ui| {
                             ui.add_space(styles::SPACING_SM);
                             ui.label(RichText::new(format!("确定要删除用户 \"{}\" 吗？", name)).size(styles::FONT_SIZE_MD));
@@ -284,7 +285,7 @@ impl UserTab {
                         self.form_error = Some(format!("添加失败: {}", e));
                     }
                 }
-            } else if let ModalMode::EditUser(ref uname) = self.modal.clone() {
+            } else if let ModalMode::EditUser(ref uname) = self.modal {
                 let mut has_error = false;
                 let mut error_messages = Vec::new();
 

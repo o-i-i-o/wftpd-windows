@@ -113,7 +113,7 @@ pub struct SecurityTab {
     ban_duration_error: Option<String>,
     max_connections_error: Option<String>,
     max_connections_per_ip_error: Option<String>,
-    save_sender: mpsc::Sender<SaveResult>,
+    save_sender: Option<mpsc::Sender<SaveResult>>,
     save_receiver: Option<mpsc::Receiver<SaveResult>>,
     is_saving: bool,
     last_save_time: Option<Instant>,
@@ -145,7 +145,7 @@ impl Default for SecurityTab {
             ban_duration_error: None,
             max_connections_error: None,
             max_connections_per_ip_error: None,
-            save_sender: tx,
+            save_sender: Some(tx),
             save_receiver: Some(rx),
             is_saving: false,
             last_save_time: None,
@@ -246,19 +246,33 @@ impl SecurityTab {
         if self.is_saving {
             return;
         }
-        
+            
+        // 检查前一次保存是否完成，如果还在进行中则不处理
+        if let Some(ref rx) = self.save_receiver
+            && rx.try_recv().is_err()
+        {
+            // 前一次操作还未完成，忽略本次请求
+            tracing::warn!("前一次保存操作尚未完成，忽略本次保存请求");
+            return;
+        }
+            
         if !self.validate_all() {
             self.status_message = Some(("输入验证失败，请检查红色标记的字段".to_string(), false));
             return;
         }
-        
+            
         self.apply_buffers_to_config();
-        
+            
         self.is_saving = true;
         let config = self.config.clone();
-        let tx = self.save_sender.clone();
+            
+        // 重新创建通道，避免堆积
+        let (tx, rx) = mpsc::channel();
+        self.save_sender = Some(tx.clone());
+        self.save_receiver = Some(rx);
+            
         let ctx_clone = ctx.clone();
-        
+            
         std::thread::spawn(move || {
             let result = match config.save(&Config::get_config_path()) {
                 Ok(_) => {
@@ -268,11 +282,11 @@ impl SecurityTab {
                                 if response.success {
                                     SaveResult::Success("安全配置已保存，后端服务已重新加载配置".to_string())
                                 } else {
-                                    SaveResult::Success(format!("配置已保存，但后端重新加载失败: {}", response.message))
+                                    SaveResult::Success(format!("配置已保存，但后端重新加载失败：{}", response.message))
                                 }
                             }
                             Err(e) => {
-                                SaveResult::Success(format!("配置已保存，但通知后端失败: {}。请手动重启服务。", e))
+                                SaveResult::Success(format!("配置已保存，但通知后端失败：{}。请手动重启服务。", e))
                             }
                         }
                     } else {

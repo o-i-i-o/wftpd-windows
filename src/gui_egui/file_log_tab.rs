@@ -202,10 +202,13 @@ impl FileLogTab {
         });
 
         if self.auto_refresh {
-            ui.ctx().request_repaint_after(Duration::from_secs(5));
-            if !self.loading {
+            // 只在距离上次刷新超过 5 秒时才真正刷新
+            if self.last_refresh_time.is_none_or(|t| t.elapsed() >= Duration::from_secs(5))
+                && !self.loading
+            {
                 self.request_refresh();
             }
+            ui.ctx().request_repaint_after(Duration::from_secs(5));
         }
 
         if let Some(err) = &self.last_error {

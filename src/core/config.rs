@@ -193,10 +193,6 @@ pub struct SftpConfig {
     pub log_level: String,
     #[serde(default = "default_max_sessions_per_user")]
     pub max_sessions_per_user: u32,
-    #[serde(default)]
-    pub allow_tcp_forwarding: bool,
-    #[serde(default)]
-    pub allow_x11_forwarding: bool,
 }
 
 fn default_sftp_port() -> u16 {
@@ -307,8 +303,6 @@ impl Default for Config {
                 auth_timeout: 60,
                 log_level: "info".to_string(),
                 max_sessions_per_user: 5,
-                allow_tcp_forwarding: false,
-                allow_x11_forwarding: false,
             },
             security: SecurityConfig {
                 allowed_ips: vec!["0.0.0.0/0".to_string()],
