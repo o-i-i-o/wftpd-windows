@@ -68,7 +68,7 @@ impl SftpServer {
             for warning in &warnings {
                 tracing::error!("配置验证失败: {}", warning);
             }
-            return Err(anyhow::anyhow!("配置路径验证失败: {}", warnings.join("; ")));
+            return Err(anyhow::anyhow!("配置路径验证失败：{}", warnings.join("; ")));
         }
 
         tracing::info!("SFTP server starting on {}:{}", bind_ip, sftp_port);

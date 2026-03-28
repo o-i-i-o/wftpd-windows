@@ -67,8 +67,6 @@ impl ServerManager {
             state.runtime = Some(runtime);
         }
 
-        tracing::info!("FTP server started successfully");
-
         Ok(())
     }
 
@@ -117,8 +115,6 @@ impl ServerManager {
                 state.server = Some(server);
                 state.runtime = Some(runtime);
             }
-
-            tracing::info!("FTP server started successfully");
 
             let _ = tx.send(Ok(()));
         });
@@ -198,8 +194,6 @@ impl ServerManager {
             state.runtime = Some(runtime);
         }
 
-        tracing::info!("SFTP server started successfully");
-
         Ok(())
     }
 
@@ -248,8 +242,6 @@ impl ServerManager {
                 state.server = Some(server);
                 state.runtime = Some(runtime);
             }
-
-            tracing::info!("SFTP server started successfully");
 
             let _ = tx.send(Ok(()));
         });

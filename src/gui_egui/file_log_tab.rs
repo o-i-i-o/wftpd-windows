@@ -65,18 +65,24 @@ impl FileLogTab {
         let mut all_logs = Vec::new();
         
         if let Ok(entries) = fs::read_dir(&log_dir) {
+            // 收集所有 file-ops*.log 文件
             let mut log_files: Vec<_> = entries
                 .filter_map(|e| e.ok())
                 .filter(|e| {
-                    e.file_name().to_string_lossy().starts_with("file-ops") 
-                    && e.file_name().to_string_lossy().ends_with(".log")
+                    let name = e.file_name().to_string_lossy().to_string();
+                    // 匹配 file-ops.YYYY-MM-DD.log 格式（注意是点号分隔，也兼容短横线）
+                    (name.starts_with("file-ops.") || name.starts_with("file-ops-")) && name.ends_with(".log")
                 })
                 .collect();
             
+            // 按修改时间排序，最新的在前
             log_files.sort_by(|a, b| {
-                b.file_name().cmp(&a.file_name())
+                let a_time = a.metadata().and_then(|m| m.modified()).ok();
+                let b_time = b.metadata().and_then(|m| m.modified()).ok();
+                b_time.cmp(&a_time)
             });
             
+            // 只读取最新的一个文件，除非不够再读旧的
             for entry in log_files {
                 if all_logs.len() >= count {
                     break;
