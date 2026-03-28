@@ -17,7 +17,7 @@ pub enum FtpCommand {
     MODE(Option<String>),
     STRU(Option<String>),
     ALLO,
-    OPTS(Option<String>),
+    OPTS(Option<String>, Option<String>),  // (option, value)
     REST(Option<String>),
     PASV,
     EPSV,
@@ -74,7 +74,17 @@ impl FtpCommand {
             "MODE" => FtpCommand::MODE(arg.map(|s| s.to_string())),
             "STRU" => FtpCommand::STRU(arg.map(|s| s.to_string())),
             "ALLO" => FtpCommand::ALLO,
-            "OPTS" => FtpCommand::OPTS(arg.map(|s| s.to_string())),
+            "OPTS" => {
+                // Parse OPTS command with optional value (e.g., "OPTS UTF8 ON")
+                if let Some(arg_str) = arg {
+                    let parts: Vec<&str> = arg_str.splitn(2, ' ').collect();
+                    let opt = parts.first().map(|s| s.to_string());
+                    let val = parts.get(1).map(|s| s.to_string());
+                    FtpCommand::OPTS(opt, val)
+                } else {
+                    FtpCommand::OPTS(None, None)
+                }
+            },
             "REST" => FtpCommand::REST(arg.map(|s| s.to_string())),
             "PASV" => FtpCommand::PASV,
             "EPSV" => FtpCommand::EPSV,

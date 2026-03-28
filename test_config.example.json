@@ -1,0 +1,23 @@
+{
+  "ftp": {
+    "host": "127.0.0.1",
+    "port": 21,
+    "username": "123",
+    "password": "123456",
+    "timeout": 10,
+    "passive_mode": true
+  },
+  "sftp": {
+    "host": "127.0.0.1",
+    "port": 2222,
+    "username": "123",
+    "password": "123456",
+    "timeout": 10
+  },
+  "test_settings": {
+    "create_test_files": true,
+    "cleanup_after_test": true,
+    "save_results": true,
+    "result_file": "test_result.json"
+  }
+}

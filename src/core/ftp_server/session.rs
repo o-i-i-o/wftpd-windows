@@ -76,6 +76,7 @@ pub struct SessionState {
     pub cwd: String,
     pub home_dir: String,
     pub transfer_mode: String,
+    pub encoding: String,
     pub passive_mode: bool,
     pub rest_offset: u64,
     pub rename_from: Option<String>,
@@ -113,6 +114,7 @@ impl SessionState {
             cwd: String::new(),
             home_dir: String::new(),
             transfer_mode: "binary".to_string(),
+            encoding: "UTF-8".to_string(),
             passive_mode: true,
             rest_offset: 0,
             rename_from: None,
@@ -218,6 +220,7 @@ struct SessionConfig {
     anonymous_home: Option<String>,
     default_transfer_mode: String,
     default_passive_mode: bool,
+    encoding: String,
     ip_allowed: bool,
     tls_config: TlsConfig,
     require_ssl: bool,
@@ -237,6 +240,7 @@ impl SessionConfig {
             anonymous_home: config.ftp.anonymous_home.clone(),
             default_transfer_mode: config.ftp.default_transfer_mode.clone(),
             default_passive_mode: config.ftp.default_passive_mode,
+            encoding: config.ftp.encoding.clone(),
             ip_allowed: config.is_ip_allowed(client_ip),
             tls_config,
             require_ssl: config.ftp.ftps.require_ssl,
@@ -270,15 +274,26 @@ pub async fn handle_session(
     let mut state = SessionState::new(&client_ip);
     state.transfer_mode = session_config.default_transfer_mode;
     state.passive_mode = session_config.default_passive_mode;
+    state.encoding = session_config.encoding;
 
     let mut cmd_buffer: Vec<u8> = Vec::with_capacity(MAX_COMMAND_LENGTH);
     let mut read_buffer = [0u8; 4096];
+    let mut last_activity = std::time::Instant::now();
 
     loop {
-        let conn_timeout = {
+        let (conn_timeout, idle_timeout) = {
             let cfg = config.lock();
-            cfg.ftp.connection_timeout
+            (cfg.ftp.connection_timeout, cfg.ftp.idle_timeout)
         };
+
+        // 检查空闲超时
+        if idle_timeout > 0 {
+            let idle_duration = last_activity.elapsed();
+            if idle_duration > std::time::Duration::from_secs(idle_timeout) {
+                control_stream.write_response(b"421 Idle timeout - closing connection\r\n", "idle timeout").await;
+                break;
+            }
+        }
 
         let timeout_result = tokio::time::timeout(
             std::time::Duration::from_secs(conn_timeout),
@@ -288,6 +303,8 @@ pub async fn handle_session(
         match timeout_result {
             Ok(Ok(0)) => break,
             Ok(Ok(n)) => {
+                // 更新最后活动时间
+                last_activity = std::time::Instant::now();
                 cmd_buffer.extend_from_slice(&read_buffer[..n]);
                 
                 if cmd_buffer.len() > MAX_COMMAND_LENGTH {
@@ -362,16 +379,27 @@ pub async fn handle_session_tls(
     let mut state = SessionState::new(&client_ip);
     state.transfer_mode = session_config.default_transfer_mode;
     state.passive_mode = session_config.default_passive_mode;
+    state.encoding = session_config.encoding;
     state.tls_enabled = true;
 
     let mut cmd_buffer: Vec<u8> = Vec::with_capacity(MAX_COMMAND_LENGTH);
     let mut read_buffer = [0u8; 4096];
+    let mut last_activity = std::time::Instant::now();
 
     loop {
-        let conn_timeout = {
+        let (conn_timeout, idle_timeout) = {
             let cfg = config.lock();
-            cfg.ftp.connection_timeout
+            (cfg.ftp.connection_timeout, cfg.ftp.idle_timeout)
         };
+
+        // 检查空闲超时
+        if idle_timeout > 0 {
+            let idle_duration = last_activity.elapsed();
+            if idle_duration > std::time::Duration::from_secs(idle_timeout) {
+                control_stream.write_response(b"421 Idle timeout - closing connection\r\n", "idle timeout").await;
+                break;
+            }
+        }
 
         let timeout_result = tokio::time::timeout(
             std::time::Duration::from_secs(conn_timeout),
@@ -381,6 +409,8 @@ pub async fn handle_session_tls(
         match timeout_result {
             Ok(Ok(0)) => break,
             Ok(Ok(n)) => {
+                // 更新最后活动时间
+                last_activity = std::time::Instant::now();
                 cmd_buffer.extend_from_slice(&read_buffer[..n]);
                 
                 if cmd_buffer.len() > MAX_COMMAND_LENGTH {
@@ -738,11 +768,28 @@ async fn handle_command(
         }
 
         SYST => {
-            control_stream.write_response(b"215 UNIX Type: L8\r\n", "FTP response").await;
+            let hide_version = {
+                let cfg = config.lock();
+                cfg.ftp.hide_version_info
+            };
+            if hide_version {
+                control_stream.write_response(b"215 Type: L8\r\n", "FTP response").await;
+            } else {
+                control_stream.write_response(b"215 UNIX Type: L8\r\n", "FTP response").await;
+            }
         }
 
         FEAT => {
-            let mut features = "211-Features:\r\n SIZE\r\n MDTM\r\n REST STREAM\r\n PASV\r\n EPSV\r\n EPRT\r\n PORT\r\n MLST\r\n MLSD\r\n MODE S\r\n STRU F\r\n UTF8\r\n TVFS\r\n".to_string();
+            let hide_version = {
+                let cfg = config.lock();
+                cfg.ftp.hide_version_info
+            };
+            // 基础功能列表（不包含可能泄露版本信息的特性）
+            let mut features = if hide_version {
+                "211-Features:\r\n SIZE\r\n MDTM\r\n REST STREAM\r\n PASV\r\n EPSV\r\n EPRT\r\n MLST\r\n MLSD\r\n MODE S\r\n STRU F\r\n TVFS\r\n".to_string()
+            } else {
+                "211-Features:\r\n SIZE\r\n MDTM\r\n REST STREAM\r\n PASV\r\n EPSV\r\n EPRT\r\n PORT\r\n MLST\r\n MLSD\r\n MODE S\r\n STRU F\r\n UTF8\r\n TVFS\r\n".to_string()
+            };
             if tls_config.is_tls_available() {
                 features.push_str(" AUTH TLS\r\n PBSZ\r\n PROT\r\n CCC\r\n");
                 // RFC 2228 Security Extensions
@@ -893,6 +940,22 @@ async fn handle_command(
             }
         }
 
+        OPTS(opt_cmd, _opt_value) => {
+            if let Some(cmd) = opt_cmd {
+                match cmd.to_uppercase().as_str() {
+                    "UTF8" => {
+                        // RFC 2640 - UTF-8 encoding option
+                        state.encoding = "UTF-8".to_string();
+                        control_stream.write_response(b"200 OPTS UTF8 command successful - UTF8 encoding on\r\n", "FTP response").await;
+                    }
+                    _ => {
+                        control_stream.write_response(b"501 Unsupported OPTS option\r\n", "FTP response").await;
+                    }
+                }
+            } else {
+                control_stream.write_response(b"501 Syntax error in OPTS command\r\n", "FTP response").await;
+            }
+        }
         STRU(structure) => {
             if let Some(structure) = structure {
                 match structure.to_uppercase().as_str() {
@@ -919,21 +982,6 @@ async fn handle_command(
 
         ALLO => {
             control_stream.write_response(b"200 ALLO command successful\r\n", "FTP response").await;
-        }
-
-        OPTS(opts_arg) => {
-            if let Some(opts_arg) = opts_arg {
-                let opts_upper = opts_arg.to_uppercase();
-                if opts_upper.starts_with("UTF8") || opts_upper.starts_with("UTF-8") {
-                    control_stream.write_response(b"200 UTF8 enabled\r\n", "FTP response").await;
-                } else if opts_upper.starts_with("MODE") {
-                    control_stream.write_response(b"200 Mode set\r\n", "FTP response").await;
-                } else {
-                    control_stream.write_response(b"200 Options set\r\n", "FTP response").await;
-                }
-            } else {
-                control_stream.write_response(b"200 Options set\r\n", "FTP response").await;
-            }
         }
 
         REST(offset_str) => {
@@ -1518,9 +1566,18 @@ async fn handle_command(
                 let (can_read, speed_limit_kbps) = {
                     let users = user_manager.lock();
                     let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
+                    let global_speed_limit = {
+                        let cfg = config.lock();
+                        if cfg.ftp.max_speed_kbps > 0 {
+                            Some(cfg.ftp.max_speed_kbps)
+                        } else {
+                            None
+                        }
+                    };
                     (
                         user.is_none_or(|u| u.permissions.can_read),
-                        user.and_then(|u| u.permissions.speed_limit_kbps)
+                        // 优先使用用户级别的限制，如果没有则使用全局限制
+                        user.and_then(|u| u.permissions.speed_limit_kbps).or(global_speed_limit)
                     )
                 };
 
@@ -1600,10 +1657,19 @@ async fn handle_command(
                 let (can_write, quota_mb, speed_limit_kbps) = {
                     let users = user_manager.lock();
                     let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
+                    let global_speed_limit = {
+                        let cfg = config.lock();
+                        if cfg.ftp.max_speed_kbps > 0 {
+                            Some(cfg.ftp.max_speed_kbps)
+                        } else {
+                            None
+                        }
+                    };
                     (
                         user.is_some_and(|u| u.permissions.can_write),
                         user.and_then(|u| u.permissions.quota_mb),
-                        user.and_then(|u| u.permissions.speed_limit_kbps),
+                        // 优先使用用户级别的限制，如果没有则使用全局限制
+                        user.and_then(|u| u.permissions.speed_limit_kbps).or(global_speed_limit),
                     )
                 };
 
