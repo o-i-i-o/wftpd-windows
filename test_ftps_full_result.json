@@ -1,0 +1,12 @@
+{
+  "start_time": "2026-03-29T02:43:07.418258",
+  "end_time": "2026-03-29T02:43:07.484698",
+  "ftps_implicit": {
+    "total": 11,
+    "passed": 11,
+    "failed": 0,
+    "success_rate": "100.00%",
+    "duration_seconds": 0.07,
+    "errors": []
+  }
+}

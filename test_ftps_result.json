@@ -1,0 +1,17 @@
+{
+  "start_time": "2026-03-29T02:26:05.617589",
+  "end_time": "2026-03-29T02:26:15.691250",
+  "ftps": {
+    "total": 1,
+    "passed": 0,
+    "failed": 1,
+    "success_rate": "0.00%",
+    "duration_seconds": 10.07,
+    "errors": [
+      {
+        "test": "FTPS 连接",
+        "reason": "无法连接到 FTPS 服务器"
+      }
+    ]
+  }
+}

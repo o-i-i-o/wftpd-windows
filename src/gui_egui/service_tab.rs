@@ -1,6 +1,24 @@
 use egui::{Color32, RichText, Ui};
 use crate::core::server_manager::ServerManager;
 use crate::gui_egui::styles;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum OperationState {
+    Idle,
+    Installing,
+    Starting,
+    Stopping,
+    Restarting,
+    Uninstalling,
+}
+
+#[derive(Debug, Clone)]
+enum OperationResult {
+    Success(String),
+    Error(String),
+}
 
 pub struct ServiceTab {
     manager: ServerManager,
@@ -9,6 +27,9 @@ pub struct ServiceTab {
     is_installed: bool,
     is_running: bool,
     confirming_uninstall: bool,
+    operation_state: OperationState,
+    operation_receiver: Option<mpsc::Receiver<OperationResult>>,
+    operation_start_time: Option<Instant>,
 }
 
 impl Default for ServiceTab {
@@ -23,6 +44,9 @@ impl Default for ServiceTab {
             is_installed,
             is_running,
             confirming_uninstall: false,
+            operation_state: OperationState::Idle,
+            operation_receiver: None,
+            operation_start_time: None,
         }
     }
 }
@@ -45,11 +69,165 @@ impl ServiceTab {
         self.status_message = Some((msg, false));
     }
 
+    /// 检查异步操作结果
+    fn check_operation_result(&mut self) {
+        if self.operation_state == OperationState::Idle {
+            return;
+        }
+
+        // 检查超时（30 秒）
+        if let Some(start_time) = self.operation_start_time {
+            if start_time.elapsed() >= Duration::from_secs(30) {
+                self.operation_state = OperationState::Idle;
+                self.operation_receiver = None;
+                self.operation_start_time = None;
+                self.set_err("操作超时，请稍后重试".to_string());
+                return;
+            }
+        }
+
+        // 检查操作完成
+        if let Some(rx) = &self.operation_receiver {
+            if let Ok(result) = rx.try_recv() {
+                match result {
+                    OperationResult::Success(msg) => {
+                        self.set_ok(&msg);
+                    }
+                    OperationResult::Error(msg) => {
+                        self.set_err(msg);
+                    }
+                }
+                self.operation_state = OperationState::Idle;
+                self.operation_receiver = None;
+                self.operation_start_time = None;
+            }
+        }
+    }
+
+    /// 异步安装服务
+    fn install_service_async(&mut self, ctx: &egui::Context) {
+        self.operation_state = OperationState::Installing;
+        self.operation_start_time = Some(Instant::now());
+        
+        let (tx, rx) = mpsc::channel();
+        self.operation_receiver = Some(rx);
+        
+        let ctx_clone = ctx.clone();
+        std::thread::spawn(move || {
+            let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let manager = ServerManager::new();
+                manager.install_service()
+            })) {
+                Ok(Ok(_)) => OperationResult::Success("服务安装成功，开机将自动启动".to_string()),
+                Ok(Err(e)) => OperationResult::Error(format!("安装失败：{}（需要管理员权限）", e)),
+                Err(_) => OperationResult::Error("安装过程中发生未知错误".to_string()),
+            };
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
+    }
+
+    /// 异步启动服务
+    fn start_service_async(&mut self, ctx: &egui::Context) {
+        self.operation_state = OperationState::Starting;
+        self.operation_start_time = Some(Instant::now());
+        
+        let (tx, rx) = mpsc::channel();
+        self.operation_receiver = Some(rx);
+        
+        let ctx_clone = ctx.clone();
+        std::thread::spawn(move || {
+            let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let manager = ServerManager::new();
+                manager.start_service()
+            })) {
+                Ok(Ok(_)) => OperationResult::Success("服务已启动".to_string()),
+                Ok(Err(e)) => OperationResult::Error(format!("启动失败：{}", e)),
+                Err(_) => OperationResult::Error("启动过程中发生未知错误".to_string()),
+            };
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
+    }
+
+    /// 异步停止服务
+    fn stop_service_async(&mut self, ctx: &egui::Context) {
+        self.operation_state = OperationState::Stopping;
+        self.operation_start_time = Some(Instant::now());
+        
+        let (tx, rx) = mpsc::channel();
+        self.operation_receiver = Some(rx);
+        
+        let ctx_clone = ctx.clone();
+        std::thread::spawn(move || {
+            let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let manager = ServerManager::new();
+                manager.stop_service()
+            })) {
+                Ok(Ok(_)) => OperationResult::Success("服务已停止".to_string()),
+                Ok(Err(e)) => OperationResult::Error(format!("停止失败：{}", e)),
+                Err(_) => OperationResult::Error("停止过程中发生未知错误".to_string()),
+            };
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
+    }
+
+    /// 异步重启服务
+    fn restart_service_async(&mut self, ctx: &egui::Context) {
+        self.operation_state = OperationState::Restarting;
+        self.operation_start_time = Some(Instant::now());
+        
+        let (tx, rx) = mpsc::channel();
+        self.operation_receiver = Some(rx);
+        
+        let ctx_clone = ctx.clone();
+        std::thread::spawn(move || {
+            let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let manager = ServerManager::new();
+                manager.restart_service()
+            })) {
+                Ok(Ok(_)) => OperationResult::Success("服务已重启".to_string()),
+                Ok(Err(e)) => OperationResult::Error(format!("重启失败：{}", e)),
+                Err(_) => OperationResult::Error("重启过程中发生未知错误".to_string()),
+            };
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
+    }
+
+    /// 异步卸载服务
+    fn uninstall_service_async(&mut self, ctx: &egui::Context) {
+        self.operation_state = OperationState::Uninstalling;
+        self.operation_start_time = Some(Instant::now());
+        
+        let (tx, rx) = mpsc::channel();
+        self.operation_receiver = Some(rx);
+        
+        let ctx_clone = ctx.clone();
+        std::thread::spawn(move || {
+            let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let manager = ServerManager::new();
+                manager.uninstall_service()
+            })) {
+                Ok(Ok(_)) => OperationResult::Success("服务已卸载".to_string()),
+                Ok(Err(e)) => OperationResult::Error(format!("卸载失败：{}", e)),
+                Err(_) => OperationResult::Error("卸载过程中发生未知错误".to_string()),
+            };
+            let _ = tx.send(result);
+            ctx_clone.request_repaint();
+        });
+    }
+
     fn section_header(&self, ui: &mut Ui, icon: &str, title: &str) {
         styles::section_header(ui, icon, title);
     }
 
     pub fn ui(&mut self, ui: &mut Ui) {
+        // 检查异步操作结果
+        self.check_operation_result();
+        
+        // 定期刷新状态
         if self.last_check.elapsed().as_secs() >= 2 {
             self.refresh_status();
         }
@@ -119,52 +297,64 @@ impl ServiceTab {
                 ui.separator();
 
                 if !self.is_installed {
+                    let btn_text = match self.operation_state {
+                        OperationState::Installing => "📦 安装中...",
+                        _ => "📦 安装服务",
+                    };
                     let btn = egui::Button::new(
-                        RichText::new("📦 安装服务").color(Color32::WHITE).size(styles::FONT_SIZE_MD)
+                        RichText::new(btn_text).color(Color32::WHITE).size(styles::FONT_SIZE_MD)
                     ).fill(styles::INFO_COLOR)
                      .corner_radius(egui::CornerRadius::same(6));
-                    if ui.add(btn).clicked() {
-                        match self.manager.install_service() {
-                            Ok(_) => self.set_ok("服务安装成功，开机将自动启动"),
-                            Err(e) => self.set_err(format!("安装失败：{}（需要管理员权限）", e)),
-                        }
+                    
+                    let btn_response = ui.add_enabled(self.operation_state == OperationState::Idle, btn);
+                    if btn_response.clicked() {
+                        self.install_service_async(ui.ctx());
                     }
                 } else {
                     if !self.is_running {
+                        let btn_text = match self.operation_state {
+                            OperationState::Starting => "▶ 启动中...",
+                            _ => "▶ 启动服务",
+                        };
                         let btn = egui::Button::new(
-                            RichText::new("▶ 启动服务").color(Color32::WHITE).size(styles::FONT_SIZE_MD)
+                            RichText::new(btn_text).color(Color32::WHITE).size(styles::FONT_SIZE_MD)
                         ).fill(styles::SUCCESS_DARK)
                          .corner_radius(egui::CornerRadius::same(6));
-                        if ui.add(btn).clicked() {
-                            match self.manager.start_service() {
-                                Ok(_) => self.set_ok("服务已启动"),
-                                Err(e) => self.set_err(format!("启动失败：{}", e)),
-                            }
+                        
+                        let btn_response = ui.add_enabled(self.operation_state == OperationState::Idle, btn);
+                        if btn_response.clicked() {
+                            self.start_service_async(ui.ctx());
                         }
                     } else {
+                        let btn_text = match self.operation_state {
+                            OperationState::Stopping => "⏹ 停止中...",
+                            _ => "⏹ 停止服务",
+                        };
                         let btn = egui::Button::new(
-                            RichText::new("⏹ 停止服务").color(Color32::WHITE).size(styles::FONT_SIZE_MD)
+                            RichText::new(btn_text).color(Color32::WHITE).size(styles::FONT_SIZE_MD)
                         ).fill(Color32::from_rgb(230, 126, 34))
                          .corner_radius(egui::CornerRadius::same(6));
-                        if ui.add(btn).clicked() {
-                            match self.manager.stop_service() {
-                                Ok(_) => self.set_ok("服务已停止"),
-                                Err(e) => self.set_err(format!("停止失败：{}", e)),
-                            }
+                        
+                        let btn_response = ui.add_enabled(self.operation_state == OperationState::Idle, btn);
+                        if btn_response.clicked() {
+                            self.stop_service_async(ui.ctx());
                         }
 
                         ui.separator();
 
                         // 重启服务按钮
+                        let btn_text = match self.operation_state {
+                            OperationState::Restarting => "🔄 重启中...",
+                            _ => "🔄 重启服务",
+                        };
                         let restart_btn = egui::Button::new(
-                            RichText::new("🔄 重启服务").color(Color32::WHITE).size(styles::FONT_SIZE_MD)
+                            RichText::new(btn_text).color(Color32::WHITE).size(styles::FONT_SIZE_MD)
                         ).fill(styles::INFO_COLOR)
                          .corner_radius(egui::CornerRadius::same(6));
-                        if ui.add(restart_btn).clicked() {
-                            match self.manager.restart_service() {
-                                Ok(_) => self.set_ok("服务已重启"),
-                                Err(e) => self.set_err(format!("重启失败：{}", e)),
-                            }
+                        
+                        let restart_btn_response = ui.add_enabled(self.operation_state == OperationState::Idle, restart_btn);
+                        if restart_btn_response.clicked() {
+                            self.restart_service_async(ui.ctx());
                         }
                     }
 
@@ -172,26 +362,34 @@ impl ServiceTab {
 
                     if self.confirming_uninstall {
                         ui.label(RichText::new("确认卸载？").size(styles::FONT_SIZE_MD).color(styles::DANGER_DARK));
-                        let yes = egui::Button::new(
+                        
+                        let can_operate = self.operation_state == OperationState::Idle;
+                        
+                        let yes_btn = egui::Button::new(
                             RichText::new("确认").color(Color32::WHITE).size(styles::FONT_SIZE_MD)
                         ).fill(styles::DANGER_DARK)
                          .corner_radius(egui::CornerRadius::same(6));
-                        if ui.add(yes).clicked() {
+                        
+                        let yes_response = ui.add_enabled(can_operate, yes_btn);
+                        if yes_response.clicked() {
                             self.confirming_uninstall = false;
-                            match self.manager.uninstall_service() {
-                                Ok(_) => self.set_ok("服务已卸载"),
-                                Err(e) => self.set_err(format!("卸载失败：{}", e)),
-                            }
+                            self.uninstall_service_async(ui.ctx());
                         }
                         if ui.button("取消").clicked() {
                             self.confirming_uninstall = false;
                         }
                     } else {
+                        let uninstall_btn_text = match self.operation_state {
+                            OperationState::Uninstalling => "🗑 卸载中...",
+                            _ => "🗑 卸载服务",
+                        };
                         let uninstall_btn = egui::Button::new(
-                            RichText::new("🗑 卸载服务").size(styles::FONT_SIZE_MD).color(styles::DANGER_DARK)
+                            RichText::new(uninstall_btn_text).size(styles::FONT_SIZE_MD).color(styles::DANGER_DARK)
                         ).fill(styles::DANGER_LIGHT)
                          .corner_radius(egui::CornerRadius::same(6));
-                        if ui.add(uninstall_btn).clicked() {
+                        
+                        let uninstall_btn_response = ui.add_enabled(self.operation_state == OperationState::Idle, uninstall_btn);
+                        if uninstall_btn_response.clicked() {
                             self.confirming_uninstall = true;
                         }
                     }

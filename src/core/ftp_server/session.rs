@@ -243,7 +243,8 @@ impl SessionConfig {
             encoding: config.ftp.encoding.clone(),
             ip_allowed: config.is_ip_allowed(client_ip),
             tls_config,
-            require_ssl: config.ftp.ftps.require_ssl,
+            // 只有当 FTPS 启用时才强制要求 SSL
+            require_ssl: config.ftp.ftps.enabled && config.ftp.ftps.require_ssl,
         }
     }
 }
@@ -430,7 +431,7 @@ pub async fn handle_session_tls(
                     
                     let cmd = {
                         let parts: Vec<&str> = line_str.splitn(2, ' ').collect();
-                        let cmd_str = parts[0].to_uppercase();
+                        let cmd_str = parts[0].trim().to_uppercase();
                         let arg = parts.get(1).map(|s| s.trim());
                         FtpCommand::parse(&cmd_str, arg)
                     };
@@ -445,7 +446,8 @@ pub async fn handle_session_tls(
                                 cfg.ftp.ftps.key_path.as_deref(),
                                 cfg.ftp.ftps.require_ssl
                             ),
-                            cfg.ftp.ftps.require_ssl
+                            // 只有当 FTPS 启用时才强制要求 SSL
+                            cfg.ftp.ftps.enabled && cfg.ftp.ftps.require_ssl
                         )
                     };
                     
@@ -640,6 +642,7 @@ async fn handle_command(
         }
 
         USER(username) => {
+            // 只有在 FTPS 启用时才检查 SSL 要求
             if require_ssl && !state.tls_enabled {
                 control_stream.write_response(b"530 SSL required for login\r\n", "FTP response").await;
                 return Ok(true);
