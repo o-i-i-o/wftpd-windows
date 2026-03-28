@@ -3,5 +3,5 @@ fn main() {
     
     println!("cargo:rerun-if-changed=icon.rc");
     println!("cargo:rerun-if-changed=ui/wftpg.ico");
-    println!("cargo:rerun-if-changed=wftp-gui.manifest");
+    println!("cargo:rerun-if-changed=wftpg.manifest");
 }
