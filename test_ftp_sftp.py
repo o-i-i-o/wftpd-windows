@@ -21,6 +21,28 @@ import stat
 import json
 
 
+# ==================== 集中配置区域 ====================
+# 服务器配置
+SERVER_HOST = '127.0.0.1'      # 服务器 IP 地址
+FTP_PORT = 2121                   # FTP 端口
+SFTP_PORT = 2222                # SFTP 端口
+
+# 用户认证配置
+TEST_USERNAME = '123'          # 测试用户名
+TEST_PASSWORD = '123456'       # 测试密码
+
+# 测试配置
+CONNECTION_TIMEOUT = 10         # 连接超时时间（秒）
+PORT_WAIT_TIMEOUT = 30          # 等待端口就绪超时时间（秒）
+SERVICE_START_DELAY = 3         # 服务启动后等待时间（秒）
+BETWEEN_TESTS_DELAY = 2         # FTP 和 SFTP 测试之间的延迟（秒）
+
+# 日志与输出
+ENABLE_VERBOSE_LOG = False      # 是否启用详细日志
+OUTPUT_JSON_RESULT = True       # 是否输出 JSON 结果文件
+# =================================================
+
+
 def generate_unique_filename(prefix='', suffix='.txt'):
     """生成唯一的文件名（时间戳 + 随机字符串）"""
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -92,7 +114,7 @@ class TestResult:
 class FTPTester:
     """FTP 功能测试"""
     
-    def __init__(self, host='127.0.0.1', port=21, username='123', password='123456'):
+    def __init__(self, host=SERVER_HOST, port=FTP_PORT, username=TEST_USERNAME, password=TEST_PASSWORD):
         self.host = host
         self.port = port
         self.username = username
@@ -109,7 +131,7 @@ class FTPTester:
         """建立 FTP 连接"""
         try:
             self.ftp = FTP()
-            self.ftp.connect(self.host, self.port, timeout=10)
+            self.ftp.connect(self.host, self.port, timeout=CONNECTION_TIMEOUT)
             self.ftp.login(self.username, self.password)
             self.ftp.set_pasv(True)
             print("FTP 连接成功")
@@ -534,7 +556,7 @@ class FTPTester:
 class SFTPTester:
     """SFTP 功能测试"""
     
-    def __init__(self, host='127.0.0.1', port=2222, username='123', password='123456'):
+    def __init__(self, host=SERVER_HOST, port=SFTP_PORT, username=TEST_USERNAME, password=TEST_PASSWORD):
         self.host = host
         self.port = port
         self.username = username
@@ -557,7 +579,7 @@ class SFTPTester:
                 port=self.port,
                 username=self.username,
                 password=self.password,
-                timeout=10
+                timeout=CONNECTION_TIMEOUT
             )
             self.sftp = self.ssh.open_sftp()
             print("SFTP 连接成功")
@@ -1073,8 +1095,8 @@ class WFTPDManager:
             
             # 等待服务启动（检测端口）
             print("等待服务启动...")
-            ftp_ready = wait_for_port('127.0.0.1', 21, timeout=30)
-            sftp_ready = wait_for_port('127.0.0.1', 2222, timeout=30)
+            ftp_ready = wait_for_port('127.0.0.1', FTP_PORT, timeout=PORT_WAIT_TIMEOUT)
+            sftp_ready = wait_for_port('127.0.0.1', SFTP_PORT, timeout=PORT_WAIT_TIMEOUT)
             
             if not ftp_ready or not sftp_ready:
                 stdout, stderr = self.process.communicate()
@@ -1159,26 +1181,26 @@ def main():
             print("继续尝试测试（假设服务已在运行）...")
         
         # 等待服务完全启动
-        time.sleep(3)
+        time.sleep(SERVICE_START_DELAY)
         
         # FTP 测试
         print("\n" + "="*60)
         print("步骤 2: FTP 功能测试")
         print("="*60)
         
-        ftp_tester = FTPTester(host='127.0.0.1', port=21, username='123', password='123456')
+        ftp_tester = FTPTester(host=SERVER_HOST, port=FTP_PORT, username=TEST_USERNAME, password=TEST_PASSWORD)
         ftp_result = ftp_tester.run_all_tests()
         total_result["ftp"] = ftp_result.get_summary()
         
         # 等待一下再进行 SFTP 测试
-        time.sleep(2)
+        time.sleep(BETWEEN_TESTS_DELAY)
         
         # SFTP 测试
         print("\n" + "="*60)
         print("步骤 3: SFTP 功能测试")
         print("="*60)
         
-        sftp_tester = SFTPTester(host='127.0.0.1', port=2222, username='123', password='123456')
+        sftp_tester = SFTPTester(host=SERVER_HOST, port=SFTP_PORT, username=TEST_USERNAME, password=TEST_PASSWORD)
         sftp_result = sftp_tester.run_all_tests()
         total_result["sftp"] = sftp_result.get_summary()
         
@@ -1223,11 +1245,12 @@ def main():
             "success_rate": f"{success_rate:.2f}%"
         }
         
-        result_file = os.path.join(os.path.dirname(__file__), 'test_result.json')
-        with open(result_file, 'w', encoding='utf-8') as f:
-            json.dump(total_result, f, ensure_ascii=False, indent=2)
-        
-        print(f"\n测试结果已保存到：{result_file}")
+        if OUTPUT_JSON_RESULT:
+            result_file = os.path.join(os.path.dirname(__file__), 'test_result.json')
+            with open(result_file, 'w', encoding='utf-8') as f:
+                json.dump(total_result, f, ensure_ascii=False, indent=2)
+            
+            print(f"\n测试结果已保存到：{result_file}")
         
     except KeyboardInterrupt:
         print("\n\n测试被用户中断")
