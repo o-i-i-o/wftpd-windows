@@ -144,21 +144,29 @@ fn run_service() -> windows_service::Result<()> {
     Ok(())
 }
 
+/// 运行主循环（支持优雅关闭）
 fn run_main_loop_with_shutdown(state: &Arc<AppState>, ipc_server: &IpcServer, running: &Arc<AtomicBool>) {
     while running.load(Ordering::SeqCst) {
         match ipc_server.accept_timeout(Duration::from_millis(100)) {
-            Ok(Some((stream, cmd))) => {
+            Ok(Some(mut connection)) => {
                 let state_clone = Arc::clone(state);
                 thread::spawn(move || {
-                    let response = handle_command(&state_clone, &cmd);
-                    if let Err(e) = IpcServer::send_response(&stream, &response) {
-                        tracing::error!("Failed to send response: {e}");
+                    match connection.receive_command() {
+                        Ok(cmd) => {
+                            let response = handle_command(&state_clone, &cmd);
+                            if let Err(e) = connection.send_response(&response) {
+                                tracing::error!("发送 IPC 响应失败：{e}");
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("接收 IPC 命令失败：{e}");
+                        }
                     }
                 });
             }
             Ok(None) => {}
             Err(e) => {
-                tracing::error!("Failed to accept IPC connection: {e}");
+                tracing::error!("接受 IPC 连接失败：{e}");
             }
         }
     }
@@ -305,20 +313,28 @@ fn get_enabled_services(state: &Arc<AppState>) -> (bool, bool) {
     }
 }
 
+/// 运行主循环（不支持关闭）
 fn run_main_loop(state: &Arc<AppState>, ipc_server: &IpcServer) {
     loop {
         match ipc_server.accept() {
-            Ok((stream, cmd)) => {
+            Ok(mut connection) => {
                 let state_clone = Arc::clone(state);
                 thread::spawn(move || {
-                    let response = handle_command(&state_clone, &cmd);
-                    if let Err(e) = IpcServer::send_response(&stream, &response) {
-                        tracing::error!("Failed to send response: {e}");
+                    match connection.receive_command() {
+                        Ok(cmd) => {
+                            let response = handle_command(&state_clone, &cmd);
+                            if let Err(e) = connection.send_response(&response) {
+                                tracing::error!("发送 IPC 响应失败：{e}");
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("接收 IPC 命令失败：{e}");
+                        }
                     }
                 });
             }
             Err(e) => {
-                tracing::error!("Failed to accept IPC connection: {e}");
+                tracing::error!("接受 IPC 连接失败：{e}");
             }
         }
     }
