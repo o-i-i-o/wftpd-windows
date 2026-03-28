@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub server: ServerConfig,
     pub ftp: FtpConfig,
@@ -13,8 +14,75 @@ pub struct Config {
     pub logging: LoggingConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl Clone for Config {
+    fn clone(&self) -> Self {
+        Config {
+            server: ServerConfig::new(),
+            ftp: self.ftp.clone(),
+            sftp: self.sftp.clone(),
+            security: self.security.clone(),
+            logging: self.logging.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ServerConfig {
+    #[serde(skip)]
+    pub global_connection_count: AtomicUsize,
+    #[serde(skip)]
+    pub connection_count_per_ip: parking_lot::Mutex<std::collections::HashMap<String, usize>>,
+}
+
+impl ServerConfig {
+    pub fn new() -> Self {
+        ServerConfig {
+            global_connection_count: AtomicUsize::new(0),
+            connection_count_per_ip: parking_lot::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+    
+    pub fn increment_global(&self) -> usize {
+        self.global_connection_count.fetch_add(1, Ordering::SeqCst)
+    }
+    
+    pub fn decrement_global(&self) {
+        self.global_connection_count.fetch_sub(1, Ordering::SeqCst);
+    }
+    
+    pub fn get_global_count(&self) -> usize {
+        self.global_connection_count.load(Ordering::SeqCst)
+    }
+    
+    pub fn increment_ip(&self, ip: &str) -> usize {
+        let mut map = self.connection_count_per_ip.lock();
+        let count = map.entry(ip.to_string()).or_insert(0);
+        *count += 1;
+        *count
+    }
+    
+    pub fn decrement_ip(&self, ip: &str) {
+        let mut map = self.connection_count_per_ip.lock();
+        if let Some(count) = map.get_mut(ip) {
+            if *count > 0 {
+                *count -= 1;
+            }
+            if *count == 0 {
+                map.remove(ip);
+            }
+        }
+    }
+    
+    pub fn get_ip_count(&self, ip: &str) -> usize {
+        let map = self.connection_count_per_ip.lock();
+        *map.get(ip).unwrap_or(&0)
+    }
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -203,7 +271,7 @@ impl Default for Config {
         let key_path = base_path.join("certs\\server.key").to_string_lossy().to_string();
         
         Config {
-            server: ServerConfig {},
+            server: ServerConfig::new(),
             ftp: FtpConfig {
                 enabled: true,
                 bind_ip: "0.0.0.0".to_string(),
@@ -387,6 +455,54 @@ impl Config {
         self.security.allowed_ips.iter().any(|cidr| {
             ip_matches_cidr(ip, cidr).unwrap_or(false)
         })
+    }
+    
+    pub fn check_connection_limits(&self, client_ip: &str) -> bool {
+        let global_count = self.server.get_global_count();
+        let ip_count = self.server.get_ip_count(client_ip);
+        
+        if global_count >= self.security.max_connections {
+            tracing::warn!(
+                "Connection limit reached: {} global connections (max: {})",
+                global_count,
+                self.security.max_connections
+            );
+            return false;
+        }
+        
+        if ip_count >= self.security.max_connections_per_ip {
+            tracing::warn!(
+                "Per-IP connection limit reached for {}: {} connections (max: {})",
+                client_ip,
+                ip_count,
+                self.security.max_connections_per_ip
+            );
+            return false;
+        }
+        
+        true
+    }
+    
+    pub fn register_connection(&self, client_ip: &str) {
+        self.server.increment_global();
+        self.server.increment_ip(client_ip);
+        tracing::debug!(
+            "Connection registered: {} (global: {}, per-IP: {})",
+            client_ip,
+            self.server.get_global_count(),
+            self.server.get_ip_count(client_ip)
+        );
+    }
+    
+    pub fn unregister_connection(&self, client_ip: &str) {
+        self.server.decrement_global();
+        self.server.decrement_ip(client_ip);
+        tracing::debug!(
+            "Connection unregistered: {} (global: {}, per-IP: {})",
+            client_ip,
+            self.server.get_global_count(),
+            self.server.get_ip_count(client_ip)
+        );
     }
 }
 

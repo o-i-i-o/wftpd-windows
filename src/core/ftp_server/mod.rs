@@ -150,26 +150,61 @@ impl FtpServer {
                     accept_result = listener.accept() => {
                         match accept_result {
                             Ok((socket, peer_addr)) => {
-                                let config = Arc::clone(&config);
+                                let client_ip = peer_addr.ip().to_string();
+                                let config_arc = Arc::clone(&config);
+                                
+                                // 检查连接数限制
+                                let ip_allowed = {
+                                    let cfg = config_arc.lock();
+                                    cfg.check_connection_limits(&client_ip)
+                                };
+                                
+                                if !ip_allowed {
+                                    tracing::warn!(
+                                        "Connection rejected from {}: connection limit exceeded",
+                                        client_ip
+                                    );
+                                    use tokio::io::AsyncWriteExt;
+                                    let mut socket = socket;
+                                    let _ = socket.write_all(
+                                        b"421 Too many connections - please try again later\r\n"
+                                    ).await;
+                                    continue;
+                                }
+                                
+                                // 注册连接
+                                {
+                                    let cfg = config_arc.lock();
+                                    cfg.register_connection(&client_ip);
+                                }
+
                                 let user_manager = Arc::clone(&user_manager);
                                 let quota_manager = Arc::clone(&quota_manager);
-                                let client_ip = peer_addr.ip().to_string();
+                                let client_ip_clone = client_ip.clone();
 
                                 tracing::info!(
                                     client_ip = %client_ip,
                                     action = "CONNECT",
+                                    protocol = "FTP",
                                     "Client connected from {}", client_ip
                                 );
 
+                                let config_for_spawn = Arc::clone(&config_arc);
                                 tokio::spawn(async move {
                                     if let Err(e) = session::handle_session(
                                         socket,
-                                        config,
+                                        config_for_spawn,
                                         user_manager,
                                         quota_manager,
                                         client_ip,
                                     ).await {
                                         tracing::debug!("FTP session error: {}", e);
+                                    }
+                                    
+                                    // 连接结束时注销
+                                    {
+                                        let cfg = config_arc.lock();
+                                        cfg.unregister_connection(&client_ip_clone);
                                     }
                                 });
                             }

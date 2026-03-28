@@ -78,12 +78,25 @@ impl SftpServer {
         let mut methods = MethodSet::empty();
         methods.push(MethodKind::Password);
         methods.push(MethodKind::PublicKey);
-        let config = russh::server::Config {
+        
+        // 创建 SSH 服务器配置
+        let ssh_config = russh::server::Config {
             keys: vec![host_key],
             methods,
             ..Default::default()
         };
-        let config = Arc::new(config);
+        
+        // 记录 SSH 转发配置（在 Handler 中实际使用）
+        {
+            let cfg = self.config.lock();
+            tracing::info!(
+                "SSH forwarding configuration: tcp_forwarding={}, x11_forwarding={}",
+                cfg.sftp.allow_tcp_forwarding,
+                cfg.sftp.allow_x11_forwarding
+            );
+        }
+        
+        let config = Arc::new(ssh_config);
 
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
         {
@@ -127,19 +140,30 @@ impl SftpServer {
                     accept_result = listener.accept() => {
                         match accept_result {
                             Ok((socket, peer_addr)) => {
-                                let config = Arc::clone(&config);
+                                let ssh_config = Arc::clone(&config);
                                 let user_manager = Arc::clone(&user_manager_clone);
                                 let quota_manager = Arc::clone(&quota_manager_clone);
                                 let client_ip = peer_addr.ip().to_string();
-
+                                
+                                // 检查连接数限制
+                                let config_for_check = Arc::clone(&config_clone);
                                 let ip_allowed = {
-                                    let cfg = config_clone.lock();
-                                    cfg.is_ip_allowed(&client_ip)
+                                    let cfg = config_for_check.lock();
+                                    cfg.check_connection_limits(&client_ip)
                                 };
 
                                 if !ip_allowed {
-                                    tracing::warn!("Connection rejected from {} by IP filter", client_ip);
+                                    tracing::warn!(
+                                        "Connection rejected from {}: connection limit exceeded",
+                                        client_ip
+                                    );
                                     continue;
+                                }
+                                
+                                // 注册连接
+                                {
+                                    let cfg = config_for_check.lock();
+                                    cfg.register_connection(&client_ip);
                                 }
 
                                 tracing::info!(
@@ -149,6 +173,7 @@ impl SftpServer {
                                     "Client connected from {}", client_ip
                                 );
 
+                                let client_ip_clone = client_ip.clone();
                                 tokio::spawn(async move {
                                     let handler = SftpHandler {
                                         user_manager,
@@ -162,8 +187,14 @@ impl SftpServer {
                                         users_path: get_program_data_path().join("users.json"),
                                     };
 
-                                    if let Err(e) = russh::server::run_stream(config, socket, handler).await {
+                                    if let Err(e) = russh::server::run_stream(ssh_config, socket, handler).await {
                                         tracing::error!("SSH connection error from {}: {}", peer_addr, e);
+                                    }
+                                    
+                                    // 连接结束时注销
+                                    {
+                                        let cfg = config_for_check.lock();
+                                        cfg.unregister_connection(&client_ip_clone);
                                     }
                                 });
                             }
@@ -439,6 +470,142 @@ impl russh::server::Handler for SftpHandler {
         _session: &mut server::Session,
     ) -> Result<bool, Self::Error> {
         Ok(self.authenticated)
+    }
+
+    async fn channel_open_direct_tcpip(
+        &mut self,
+        channel: Channel<Msg>,
+        host_to_connect: &str,
+        port_to_connect: u32,
+        originator_address: &str,
+        originator_port: u32,
+        session: &mut server::Session,
+    ) -> Result<bool, Self::Error> {
+        // 检查是否允许 TCP 转发（默认禁止）
+        let allow_tcp_forwarding = false;
+        
+        if !allow_tcp_forwarding {
+            tracing::warn!(
+                client_ip = %self.client_ip,
+                action = "TCP_FORWARD_DENIED",
+                "TCP forwarding denied: {}:{} -> {}:{}",
+                originator_address, originator_port, host_to_connect, port_to_connect
+            );
+            let _ = session.channel_failure(channel.id());
+            return Ok(false);
+        }
+        
+        tracing::warn!(
+            client_ip = %self.client_ip,
+            action = "TCP_FORWARD_UNSUPPORTED",
+            "TCP forwarding is not supported: {}:{} -> {}:{}",
+            originator_address, originator_port, host_to_connect, port_to_connect
+        );
+        let _ = session.channel_failure(channel.id());
+        Ok(false)
+    }
+
+    async fn channel_open_forwarded_tcpip(
+        &mut self,
+        channel: Channel<Msg>,
+        host_to_connect: &str,
+        port_to_connect: u32,
+        originator_address: &str,
+        originator_port: u32,
+        session: &mut server::Session,
+    ) -> Result<bool, Self::Error> {
+        // 检查是否允许 TCP 转发
+        let allow_tcp_forwarding = false;
+        
+        if !allow_tcp_forwarding {
+            tracing::warn!(
+                client_ip = %self.client_ip,
+                action = "TCP_FORWARD_DENIED",
+                "Forwarded TCP connection denied: {}:{} -> {}:{}",
+                originator_address, originator_port, host_to_connect, port_to_connect
+            );
+            let _ = session.channel_failure(channel.id());
+            return Ok(false);
+        }
+        
+        let _ = session.channel_failure(channel.id());
+        Ok(false)
+    }
+
+    async fn tcpip_forward(
+        &mut self,
+        address: &str,
+        port: &mut u32,
+        _session: &mut server::Session,
+    ) -> Result<bool, Self::Error> {
+        // 检查是否允许 TCP 端口转发
+        let allow_tcp_forwarding = false;
+        
+        if !allow_tcp_forwarding {
+            tracing::warn!(
+                client_ip = %self.client_ip,
+                action = "TCP_FORWARD_REQUEST_DENIED",
+                "TCP port forward request denied: {}:{}",
+                address, port
+            );
+            return Ok(false);
+        }
+        
+        tracing::warn!(
+            client_ip = %self.client_ip,
+            action = "TCP_FORWARD_UNSUPPORTED",
+            "TCP port forwarding is not supported: {}:{}",
+            address, port
+        );
+        Ok(false)
+    }
+
+    async fn cancel_tcpip_forward(
+        &mut self,
+        address: &str,
+        port: u32,
+        _session: &mut server::Session,
+    ) -> Result<bool, Self::Error> {
+        // 取消 TCP 端口转发（由于不允许转发，直接返回失败）
+        tracing::warn!(
+            client_ip = %self.client_ip,
+            action = "TCP_FORWARD_CANCEL_DENIED",
+            "Cancel TCP port forward denied: {}:{}",
+            address, port
+        );
+        Ok(false)
+    }
+
+    async fn x11_request(
+        &mut self,
+        channel: ChannelId,
+        single_connection: bool,
+        _auth_protocol: &str,
+        _auth_cookie: &str,
+        screen_number: u32,
+        session: &mut server::Session,
+    ) -> Result<(), Self::Error> {
+        // 检查是否允许 X11 转发
+        let allow_x11_forwarding = false;
+        
+        if !allow_x11_forwarding {
+            tracing::warn!(
+                client_ip = %self.client_ip,
+                action = "X11_FORWARD_DENIED",
+                "X11 forwarding request denied (single={}, screen={})",
+                single_connection, screen_number
+            );
+            let _ = session.channel_failure(channel);
+            return Ok(());
+        }
+        
+        tracing::warn!(
+            client_ip = %self.client_ip,
+            action = "X11_FORWARD_UNSUPPORTED",
+            "X11 forwarding is not supported"
+        );
+        let _ = session.channel_failure(channel);
+        Ok(())
     }
 
     async fn subsystem_request(

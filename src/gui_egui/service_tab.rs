@@ -76,31 +76,29 @@ impl ServiceTab {
         }
 
         // 检查超时（30 秒）
-        if let Some(start_time) = self.operation_start_time {
-            if start_time.elapsed() >= Duration::from_secs(30) {
-                self.operation_state = OperationState::Idle;
-                self.operation_receiver = None;
-                self.operation_start_time = None;
-                self.set_err("操作超时，请稍后重试".to_string());
-                return;
-            }
+        if let Some(start_time) = self.operation_start_time
+            && start_time.elapsed() >= Duration::from_secs(30) {
+            self.operation_state = OperationState::Idle;
+            self.operation_receiver = None;
+            self.operation_start_time = None;
+            self.set_err("操作超时，请稍后重试".to_string());
+            return;
         }
 
         // 检查操作完成
-        if let Some(rx) = &self.operation_receiver {
-            if let Ok(result) = rx.try_recv() {
-                match result {
-                    OperationResult::Success(msg) => {
-                        self.set_ok(&msg);
-                    }
-                    OperationResult::Error(msg) => {
-                        self.set_err(msg);
-                    }
+        if let Some(rx) = &self.operation_receiver
+            && let Ok(result) = rx.try_recv() {
+            match result {
+                OperationResult::Success(msg) => {
+                    self.set_ok(&msg);
                 }
-                self.operation_state = OperationState::Idle;
-                self.operation_receiver = None;
-                self.operation_start_time = None;
+                OperationResult::Error(msg) => {
+                    self.set_err(msg);
+                }
             }
+            self.operation_state = OperationState::Idle;
+            self.operation_receiver = None;
+            self.operation_start_time = None;
         }
     }
 
