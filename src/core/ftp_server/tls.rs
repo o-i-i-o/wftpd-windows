@@ -1,12 +1,13 @@
 use anyhow::Result;
-use std::fs::File;
-use std::io::Read;
+use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use native_tls::Identity;
 use tokio::net::TcpStream;
-use tokio_native_tls::TlsAcceptor;
-use tokio_native_tls::TlsStream as AsyncTlsStream;
+use tokio_rustls::TlsAcceptor;
+use tokio_rustls::server::TlsStream as AsyncTlsStream;
+use rustls::ServerConfig;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use crate::core::cert_gen;
 
 pub type AsyncTlsTcpStream = AsyncTlsStream<TcpStream>;
 
@@ -19,6 +20,13 @@ impl TlsConfig {
     pub fn new(cert_path: Option<&str>, key_path: Option<&str>, _require_ssl: bool) -> Self {
         match (cert_path, key_path) {
             (Some(cert), Some(key)) => {
+                // 检查并自动生成证书
+                match cert_gen::ensure_cert_exists(cert, key) {
+                    Ok(true) => tracing::info!("已为 FTPS 生成自签名证书"),
+                    Ok(false) => tracing::info!("使用现有的 FTPS 证书"),
+                    Err(e) => tracing::warn!("检查证书失败：{}", e),
+                }
+                
                 match load_tls_acceptor(cert, key) {
                     Ok(acceptor) => {
                         tracing::info!("TLS enabled with certificate: {}", cert);
@@ -48,42 +56,53 @@ impl TlsConfig {
 }
 
 fn load_tls_acceptor(cert_path: &str, key_path: &str) -> Result<TlsAcceptor> {
-    let cert_path = Path::new(cert_path);
-    let key_path = Path::new(key_path);
+    let cert_file = Path::new(cert_path);
+    let key_file = Path::new(key_path);
 
-    let cert_extension = cert_path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase());
-
-    let identity = match cert_extension.as_deref() {
-        Some("pfx") | Some("p12") => {
-            let mut cert_file = File::open(cert_path)?;
-            let mut cert_data = Vec::new();
-            cert_file.read_to_end(&mut cert_data)?;
-            Identity::from_pkcs12(&cert_data, "")?
+    // 读取证书文件
+    let cert_data = fs::read(cert_file)?;
+    
+    // 读取私钥文件
+    let key_data = fs::read(key_file)?;
+    
+    // 解析 PEM 格式的证书
+    let mut cert_chain: Vec<CertificateDer<'static>> = Vec::new();
+    let cert_str = String::from_utf8_lossy(&cert_data);
+    for pem in pem::parse_many(cert_str.as_bytes())? {
+        if pem.tag() == "CERTIFICATE" {
+            cert_chain.push(CertificateDer::from(pem.contents().to_vec()));
         }
-        _ => {
-            let mut cert_file = File::open(cert_path)?;
-            let mut cert_data = Vec::new();
-            cert_file.read_to_end(&mut cert_data)?;
-
-            let mut key_file = File::open(key_path)?;
-            let mut key_data = Vec::new();
-            key_file.read_to_end(&mut key_data)?;
-
-            Identity::from_pkcs8(&cert_data, &key_data)?
+    }
+    
+    if cert_chain.is_empty() {
+        anyhow::bail!("未找到有效的证书");
+    }
+    
+    // 解析私钥（支持 PKCS8、PKCS1 或 EC）
+    let mut private_key: Option<PrivateKeyDer<'static>> = None;
+    let key_str = String::from_utf8_lossy(&key_data);
+    for pem in pem::parse_many(key_str.as_bytes())? {
+        match pem.tag() {
+            "PRIVATE KEY" | "RSA PRIVATE KEY" | "EC PRIVATE KEY" => {
+                private_key = Some(PrivateKeyDer::try_from(pem.contents().to_vec())
+                    .map_err(|e| anyhow::anyhow!("私钥解析失败：{}", e))?);
+                break;
+            }
+            _ => {}
         }
-    };
-
-    // 配置安全的TLS参数
-    let native_acceptor = native_tls::TlsAcceptor::builder(identity)
-        .min_protocol_version(Some(native_tls::Protocol::Tlsv12))
-        .build()?;
-
-    tracing::info!(
-        "TLS acceptor configured with min_protocol=TLSv1.2"
-    );
-
-    let acceptor = TlsAcceptor::from(native_acceptor);
+    }
+    
+    let key = private_key.ok_or_else(|| anyhow::anyhow!("未找到有效的私钥"))?;
+    
+    // 构建 TLS 配置
+    let config = ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(cert_chain, key)?
+        ;
+    
+    // 设置安全的协议版本
+    tracing::info!("TLS acceptor configured with min_protocol=TLSv1.2");
+    
+    let acceptor = TlsAcceptor::from(Arc::new(config));
     Ok(acceptor)
 }

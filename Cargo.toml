@@ -34,8 +34,11 @@ bytes = "1"
 fs2 = "0.4"
 socket2 = "0.6"
 polling = "3.11.0"
-native-tls = "0.2"
-tokio-native-tls = "0.3"
+rustls = "0.23.37"
+pem = "3.0.6"
+tokio-rustls = "0.26.4"
+rcgen = "0.14.7"
+time = { version = "0.3", features = ["serde"] }
 
 windows = { version = "0.62", features = [
     "Win32_Foundation",

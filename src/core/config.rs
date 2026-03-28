@@ -296,23 +296,24 @@ impl Config {
         }
         
         if self.ftp.ftps.enabled {
+            // 证书会自动生成，不需要检查是否存在
             if let Some(cert_path) = &self.ftp.ftps.cert_path {
-                if !Path::new(cert_path).exists() {
-                    warnings.push(format!("FTPS已启用，但证书文件不存在: {}", cert_path));
+                if cert_path.is_empty() {
+                    warnings.push("FTPS 已启用，但未配置证书路径".to_string());
                 }
             } else {
-                warnings.push("FTPS已启用，但未配置证书路径".to_string());
+                warnings.push("FTPS 已启用，但未配置证书路径".to_string());
             }
             
             if let Some(key_path) = &self.ftp.ftps.key_path {
-                if !Path::new(key_path).exists() {
-                    warnings.push(format!("FTPS已启用，但私钥文件不存在: {}", key_path));
+                if key_path.is_empty() {
+                    warnings.push("FTPS 已启用，但未配置私钥路径".to_string());
                 }
             } else {
-                warnings.push("FTPS已启用，但未配置私钥路径".to_string());
+                warnings.push("FTPS 已启用，但未配置私钥路径".to_string());
             }
         }
-        
+
         {
             let log_dir = &self.logging.log_dir;
             let log_path = Path::new(log_dir);

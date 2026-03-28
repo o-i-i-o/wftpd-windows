@@ -60,7 +60,7 @@ impl ControlStream {
         }
     }
 
-    pub async fn upgrade_to_tls(&mut self, acceptor: &tokio_native_tls::TlsAcceptor) -> Result<()> {
+    pub async fn upgrade_to_tls(&mut self, acceptor: &tokio_rustls::TlsAcceptor) -> Result<()> {
         if let ControlStream::Plain(stream_opt) = self
             && let Some(stream) = stream_opt.take() {
                 let tls_stream = acceptor.accept(stream).await?;
