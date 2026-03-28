@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 const PAGE_SIZE: usize = 100;
 const LOG_THRESHOLD: usize = 500;
+const DEFAULT_FETCH_COUNT: usize = 500;  // 增加默认加载数量到 500
 
 pub struct FileLogTab {
     logs: Vec<LogEntry>,
@@ -35,8 +36,8 @@ impl Default for FileLogTab {
         Self {
             logs: Vec::new(),
             auto_refresh: true,
-            fetch_count: 200,
-            fetch_count_buf: "200".to_string(),
+            fetch_count: DEFAULT_FETCH_COUNT,  // 使用新的默认值
+            fetch_count_buf: format!("{}", DEFAULT_FETCH_COUNT),
             last_error: None,
             loading: false,
             last_refresh_time: None,
@@ -82,24 +83,24 @@ impl FileLogTab {
                 b_time.cmp(&a_time)
             });
             
-            // 只读取最新的一个文件，除非不够再读旧的
-            for entry in log_files {
-                if all_logs.len() >= count {
-                    break;
-                }
+            // ✅ 只读取最新的一个日志文件
+            if let Some(latest_file) = log_files.first()
+                && let Ok(file) = File::open(latest_file.path()) {
+                let reader = BufReader::new(file);
+                // ✅ 从文件末尾开始读取（最新日志）
+                let mut lines: Vec<_> = reader.lines().collect();
+                // 倒序处理，优先处理最新的行
+                lines.reverse();
                 
-                if let Ok(file) = File::open(entry.path()) {
-                    let reader = BufReader::new(file);
-                    for line in reader.lines() {
-                        if all_logs.len() >= count {
-                            break;
-                        }
-                        if let Ok(line) = line
-                            && let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line)
-                            && log_entry.fields.operation.is_some()
-                        {
-                            all_logs.push(log_entry);
-                        }
+                for line in lines {
+                    if all_logs.len() >= count {
+                        break;
+                    }
+                    if let Ok(line) = line
+                        && let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line)
+                        && log_entry.fields.operation.is_some()
+                    {
+                        all_logs.push(log_entry);
                     }
                 }
             }
