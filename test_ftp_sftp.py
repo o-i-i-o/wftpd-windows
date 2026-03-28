@@ -90,13 +90,13 @@ class TestResult:
     def add_pass(self, test_name):
         self.total += 1
         self.passed += 1
-        print(f"  ✓ {test_name}")
+        print(f"  [PASS] {test_name}")
     
     def add_fail(self, test_name, reason):
         self.total += 1
         self.failed += 1
         self.errors.append({"test": test_name, "reason": reason})
-        print(f"  ✗ {test_name}: {reason}")
+        print(f"  [FAIL] {test_name}: {reason}")
     
     def get_summary(self):
         duration = (self.end_time - self.start_time) if self.end_time and self.start_time else None
@@ -1072,11 +1072,11 @@ class WFTPDManager:
                 return False
         
         # 先检测端口是否已被占用
-        ftp_port_in_use = is_port_in_use('127.0.0.1', 21)
-        sftp_port_in_use = is_port_in_use('127.0.0.1', 2222)
+        ftp_port_in_use = is_port_in_use(SERVER_HOST, FTP_PORT)
+        sftp_port_in_use = is_port_in_use(SERVER_HOST, SFTP_PORT)
         
         if ftp_port_in_use and sftp_port_in_use:
-            print("[信息] FTP (21) 和 SFTP (2222) 端口已在运行，跳过启动服务")
+            print(f"[信息] FTP ({FTP_PORT}) 和 SFTP ({SFTP_PORT}) 端口已在运行，跳过启动服务")
             return True
         elif ftp_port_in_use or sftp_port_in_use:
             print(f"[警告] 部分端口被占用 - FTP: {'是' if ftp_port_in_use else '否'}, SFTP: {'是' if sftp_port_in_use else '否'}")
@@ -1105,7 +1105,7 @@ class WFTPDManager:
                 print(f"错误信息：{error_msg}")
                 return False
             
-            print("wftpd 服务已启动（FTP 和 SFTP 端口均已就绪）")
+            print(f"wftpd 服务已启动（FTP:{FTP_PORT} 和 SFTP:{SFTP_PORT} 端口均已就绪）")
             return True
             
         except Exception as e:
@@ -1132,7 +1132,7 @@ def check_prerequisites():
     print("检查测试环境...")
     
     # 检查 Python 依赖
-    required_packages = ['paramiko', 'ftplib']
+    required_packages = ['paramiko']
     missing_packages = []
     
     try:
@@ -1145,7 +1145,7 @@ def check_prerequisites():
         print("请运行：pip install " + " ".join(missing_packages))
         return False
     
-    print("✓ Python 依赖检查通过")
+    print("  [PASS] Python 依赖检查通过")
     return True
 
 
