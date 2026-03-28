@@ -516,7 +516,13 @@ impl App for WftpgApp {
                 ui.add_space(12.0);
             });
     }
-}
+    
+    /// 在应用程序退出前调用，用于清理资源
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        tracing::info!("GUI 应用程序即将关闭，正在清理资源...");
+        // 注意：不需要关闭 FTP/SFTP 服务，因为它们由 Windows 服务管理
+        // 只需要清理 GUI 相关的资源即可
+    }
 
 fn setup_fonts(ctx: &egui::Context) {
     use egui::{FontData, FontDefinitions, FontFamily};

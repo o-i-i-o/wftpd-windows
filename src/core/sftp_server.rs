@@ -1153,7 +1153,19 @@ impl SftpState {
             }
         };
 
-        if tokio::fs::remove_dir_all(&full_path).await.is_ok() {
+        // ✅ Windows 上需要先检查是否是符号链接
+        // 符号链接目录需要用 remove_dir 而不是 remove_dir_all
+        let is_symlink = full_path.is_symlink();
+        
+        let result = if is_symlink {
+            // 符号链接目录，使用 std::fs::remove_dir
+            std::fs::remove_dir(&full_path)
+        } else {
+            // 普通目录，使用 tokio::fs::remove_dir_all
+            tokio::fs::remove_dir_all(&full_path).await
+        };
+
+        if result.is_ok() {
             crate::file_op_log!(
                 rmdir,
                 self.username.as_deref().unwrap_or("anonymous"),
