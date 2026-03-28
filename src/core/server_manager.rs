@@ -1,7 +1,6 @@
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::ffi::OsString;
-use std::sync::mpsc;
 
 use crate::core::config::Config;
 use crate::core::users::UserManager;
@@ -70,58 +69,6 @@ impl ServerManager {
         Ok(())
     }
 
-    pub fn start_ftp_async(
-        &self,
-        config: Arc<Mutex<Config>>,
-        user_manager: Arc<Mutex<UserManager>>,
-    ) -> mpsc::Receiver<Result<(), String>> {
-        let (tx, rx) = mpsc::channel();
-        let ftp_state = Arc::clone(&self.ftp_state);
-
-        std::thread::spawn(move || {
-            {
-                let state = ftp_state.lock();
-                if state.server.is_some() {
-                    let _ = tx.send(Ok(()));
-                    return;
-                }
-            }
-
-            let runtime = match tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .enable_all()
-                .build()
-            {
-                Ok(rt) => rt,
-                Err(e) => {
-                    let _ = tx.send(Err(format!("创建Tokio运行时失败: {}", e)));
-                    return;
-                }
-            };
-
-            let server = FtpServer::new(
-                config,
-                user_manager,
-            );
-
-            if let Err(e) = runtime.block_on(server.start()) {
-                runtime.shutdown_background();
-                let _ = tx.send(Err(format!("启动FTP服务器失败: {}", e)));
-                return;
-            }
-
-            {
-                let mut state = ftp_state.lock();
-                state.server = Some(server);
-                state.runtime = Some(runtime);
-            }
-
-            let _ = tx.send(Ok(()));
-        });
-
-        rx
-    }
-
     pub fn stop_ftp(&self) {
         let (maybe_server, maybe_runtime) = {
             let mut state = self.ftp_state.lock();
@@ -134,29 +81,6 @@ impl ServerManager {
         }
 
         tracing::info!("FTP server stopped");
-    }
-
-    pub fn stop_ftp_async(&self) -> mpsc::Receiver<Result<(), String>> {
-        let (tx, rx) = mpsc::channel();
-        let ftp_state = Arc::clone(&self.ftp_state);
-
-        std::thread::spawn(move || {
-            let (maybe_server, maybe_runtime) = {
-                let mut state = ftp_state.lock();
-                (state.server.take(), state.runtime.take())
-            };
-
-            if let (Some(server), Some(runtime)) = (maybe_server, maybe_runtime) {
-                runtime.block_on(server.stop());
-                runtime.shutdown_background();
-            }
-
-            tracing::info!("FTP server stopped");
-
-            let _ = tx.send(Ok(()));
-        });
-
-        rx
     }
 
     pub fn is_ftp_running(&self) -> bool {
@@ -197,58 +121,6 @@ impl ServerManager {
         Ok(())
     }
 
-    pub fn start_sftp_async(
-        &self,
-        config: Arc<Mutex<Config>>,
-        user_manager: Arc<Mutex<UserManager>>,
-    ) -> mpsc::Receiver<Result<(), String>> {
-        let (tx, rx) = mpsc::channel();
-        let sftp_state = Arc::clone(&self.sftp_state);
-
-        std::thread::spawn(move || {
-            {
-                let state = sftp_state.lock();
-                if state.server.is_some() {
-                    let _ = tx.send(Ok(()));
-                    return;
-                }
-            }
-
-            let runtime = match tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .enable_all()
-                .build()
-            {
-                Ok(rt) => rt,
-                Err(e) => {
-                    let _ = tx.send(Err(format!("创建Tokio运行时失败: {}", e)));
-                    return;
-                }
-            };
-
-            let server = SftpServer::new(
-                config,
-                user_manager,
-            );
-
-            if let Err(e) = runtime.block_on(server.start()) {
-                runtime.shutdown_background();
-                let _ = tx.send(Err(format!("启动SFTP服务器失败: {}", e)));
-                return;
-            }
-
-            {
-                let mut state = sftp_state.lock();
-                state.server = Some(server);
-                state.runtime = Some(runtime);
-            }
-
-            let _ = tx.send(Ok(()));
-        });
-
-        rx
-    }
-
     pub fn stop_sftp(&self) {
         let (maybe_server, maybe_runtime) = {
             let mut state = self.sftp_state.lock();
@@ -261,29 +133,6 @@ impl ServerManager {
         }
 
         tracing::info!("SFTP server stopped");
-    }
-
-    pub fn stop_sftp_async(&self) -> mpsc::Receiver<Result<(), String>> {
-        let (tx, rx) = mpsc::channel();
-        let sftp_state = Arc::clone(&self.sftp_state);
-
-        std::thread::spawn(move || {
-            let (maybe_server, maybe_runtime) = {
-                let mut state = sftp_state.lock();
-                (state.server.take(), state.runtime.take())
-            };
-
-            if let (Some(server), Some(runtime)) = (maybe_server, maybe_runtime) {
-                runtime.block_on(server.stop());
-                runtime.shutdown_background();
-            }
-
-            tracing::info!("SFTP server stopped");
-
-            let _ = tx.send(Ok(()));
-        });
-
-        rx
     }
 
     pub fn is_sftp_running(&self) -> bool {
@@ -366,6 +215,7 @@ impl ServerManager {
             tracing::warn!("设置服务描述失败（可忽略）: {:?}", e);
         }
 
+        tracing::info!("服务安装成功");
         Ok(())
     }
 
