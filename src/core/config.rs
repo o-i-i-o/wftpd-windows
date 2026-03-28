@@ -133,8 +133,6 @@ pub struct LoggingConfig {
     pub log_level: String,
     pub max_log_size: u64,
     pub max_log_files: usize,
-    pub log_to_file: bool,
-    pub log_to_gui: bool,
 }
 
 pub fn get_program_data_path() -> PathBuf {
@@ -211,8 +209,6 @@ impl Default for Config {
                 log_level: "info".to_string(),
                 max_log_size: 10 * 1024 * 1024,
                 max_log_files: 10,
-                log_to_file: true,
-                log_to_gui: true,
             },
         }
     }

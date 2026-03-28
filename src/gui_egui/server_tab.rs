@@ -715,6 +715,107 @@ impl ServerTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
+            Self::section_header(ui, "📋", "全局日志设置");
+
+            let available_width = ui.available_width();
+            let label_width = (available_width * 0.15).clamp(100.0, 160.0);
+
+            let mut log_dir = config.logging.log_dir.clone();
+            styles::form_row(ui, "日志目录", label_width, |ui| {
+                styles::input_frame().show(ui, |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut log_dir)
+                        .desired_width(ui.available_width() - 80.0)
+                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
+                });
+                if ui.button("浏览...").clicked()
+                    && let Some(path) = Self::pick_folder("选择日志目录")
+                {
+                    log_dir = path.to_string_lossy().to_string();
+                }
+            });
+            config.logging.log_dir = log_dir;
+
+            ui.horizontal(|ui| {
+                ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                ui.label(RichText::new("系统日志和文件操作日志将分别保存为 wftpg-*.log 和 file-ops-*.log")
+                    .size(styles::FONT_SIZE_SM)
+                    .color(styles::TEXT_MUTED_COLOR)
+                    .italics());
+            });
+
+            styles::form_row(ui, "日志级别", label_width, |ui| {
+                let levels = ["trace", "debug", "info", "warn", "error"];
+                egui::ComboBox::from_id_salt("log_level")
+                    .selected_text(&config.logging.log_level)
+                    .width(100.0)
+                    .show_ui(ui, |ui| {
+                        for level in levels {
+                            ui.selectable_value(
+                                &mut config.logging.log_level,
+                                level.to_string(),
+                                level
+                            );
+                        }
+                    });
+            });
+            ui.horizontal(|ui| {
+                ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                ui.label(RichText::new("日志级别越低，记录的日志越详细")
+                    .size(styles::FONT_SIZE_SM)
+                    .color(styles::TEXT_MUTED_COLOR)
+                    .italics());
+            });
+
+            styles::form_row_with_suffix(ui, "单个日志文件最大大小", label_width, |ui| {
+                let size_mb = config.logging.max_log_size / 1024 / 1024;
+                let mut size_str = size_mb.to_string();
+                styles::input_frame().show(ui, |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut size_str)
+                        .desired_width(80.0)
+                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
+                });
+                if let Ok(v) = size_str.parse::<u64>() {
+                    config.logging.max_log_size = v * 1024 * 1024;
+                }
+            }, "MB");
+
+            styles::form_row_with_suffix(ui, "最大日志文件数", label_width, |ui| {
+                let mut files_str = config.logging.max_log_files.to_string();
+                styles::input_frame().show(ui, |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut files_str)
+                        .desired_width(80.0)
+                        .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
+                });
+                if let Ok(v) = files_str.parse::<usize>() {
+                    config.logging.max_log_files = v;
+                }
+            }, "个 (自动清理过期日志)");
+
+            ui.add_space(styles::SPACING_SM);
+
+            ui.label(RichText::new("说明")
+                .size(styles::FONT_SIZE_MD)
+                .color(styles::TEXT_SECONDARY_COLOR)
+                .strong());
+            
+            egui::Frame::NONE
+                .fill(styles::BG_INFO)
+                .inner_margin(egui::Margin::same(12))
+                .corner_radius(egui::CornerRadius::same(6))
+                .show(ui, |ui| {
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new("• 日志将自动按日期滚动（每天一个文件）").size(styles::FONT_SIZE_SM).color(styles::TEXT_LABEL_COLOR));
+                        ui.label(RichText::new("• 超过最大文件数的旧日志会被自动清理").size(styles::FONT_SIZE_SM).color(styles::TEXT_LABEL_COLOR));
+                        ui.label(RichText::new("• 系统日志：wftpg-YYYY-MM-DD.log").size(styles::FONT_SIZE_SM).color(styles::TEXT_LABEL_COLOR));
+                        ui.label(RichText::new("• 文件操作日志：file-ops-YYYY-MM-DD.log").size(styles::FONT_SIZE_SM).color(styles::TEXT_LABEL_COLOR));
+                    });
+                });
+        });
+
+        ui.add_space(styles::SPACING_MD);
+
+        styles::card_frame().show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
             Self::section_header(ui, "⚙", "通用设置");
 
             let available_width = ui.available_width();
