@@ -6,8 +6,6 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tracing_subscriber::layer::SubscriberExt;
 
-use wftpg::core::server_manager::ServerManager;
-
 use wftpg::gui_egui::{about_tab, file_log_tab, log_tab, security_tab, server_tab, service_tab, styles, user_tab};
 
 #[cfg(windows)]
@@ -70,21 +68,12 @@ mod admin {
 }
 
 const INIT_TIMEOUT_SECS: u64 = 10;
-const SERVICE_INSTALL_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum InitState {
     Loading,
     Ready,
     Error,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum ServiceInstallStatus {
-    None,
-    Installing,
-    Success(String),
-    Failed(String),
 }
 
 struct InitResult {
@@ -124,10 +113,6 @@ struct WftpgApp {
     log_tab:        log_tab::LogTab,
     file_log_tab:   file_log_tab::FileLogTab,
     about_tab:      about_tab::AboutTab,
-    show_service_install_dialog: bool,
-    service_install_status: ServiceInstallStatus,
-    service_install_receiver: Option<mpsc::Receiver<Result<(), String>>>,
-    service_install_start_time: Option<Instant>,
     init_state:     InitState,
     init_error:     Option<String>,
     init_receiver:  Option<mpsc::Receiver<Result<InitResult, String>>>,
@@ -175,10 +160,6 @@ impl WftpgApp {
             log_tab:        log_tab::LogTab::new(),
             file_log_tab:   file_log_tab::FileLogTab::new(),
             about_tab:      about_tab::AboutTab::new(),
-            show_service_install_dialog: false,
-            service_install_status: ServiceInstallStatus::None,
-            service_install_receiver: None,
-            service_install_start_time: None,
             init_state:     InitState::Loading,
             init_error:     None,
             init_receiver:  Some(init_rx),
@@ -188,21 +169,8 @@ impl WftpgApp {
     }
     
     fn do_initialization() -> Result<InitResult, String> {
-        let manager = ServerManager::new();
-        let is_service_installed = manager.is_service_installed();
-        let mut show_service_dialog = false;
-
-        if !is_service_installed
-            && let Ok(current_exe) = std::env::current_exe()
-            && let Some(exe_dir) = current_exe.parent() {
-                let wftpd_exe = exe_dir.join("wftpd.exe");
-                if wftpd_exe.exists() {
-                    show_service_dialog = true;
-                }
-            }
-
         Ok(InitResult {
-            show_service_dialog,
+            show_service_dialog: false,
         })
     }
     
@@ -224,8 +192,7 @@ impl WftpgApp {
                 self.init_receiver = None;
 
                 match result {
-                    Ok(init_result) => {
-                        self.show_service_install_dialog = init_result.show_service_dialog;
+                    Ok(_) => {
                         self.init_state = InitState::Ready;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                         tracing::info!("应用初始化完成");
@@ -239,160 +206,11 @@ impl WftpgApp {
                 }
             }
     }
-    
-    fn check_service_install_result(&mut self) {
-        if let Some(start_time) = self.service_install_start_time
-            && start_time.elapsed() >= Duration::from_secs(SERVICE_INSTALL_TIMEOUT_SECS)
-        {
-            self.service_install_receiver = None;
-            self.service_install_start_time = None;
-            self.service_install_status = ServiceInstallStatus::Failed(
-                format!("服务安装超时（{}秒），请检查服务状态或手动安装。", SERVICE_INSTALL_TIMEOUT_SECS)
-            );
-            return;
-        }
-        
-        if let Some(rx) = &self.service_install_receiver
-            && let Ok(result) = rx.try_recv() {
-                self.service_install_receiver = None;
-                self.service_install_start_time = None;
-                
-                match result {
-                    Ok(_) => {
-                        self.service_install_status = ServiceInstallStatus::Success(
-                            "服务安装并启动成功！".to_string()
-                        );
-                    }
-                    Err(e) => {
-                        self.service_install_status = ServiceInstallStatus::Failed(e);
-                    }
-                }
-            }
-    }
+
+
 }
 
-impl WftpgApp {
-    fn install_service(&mut self, ctx: &egui::Context) {
-        self.service_install_status = ServiceInstallStatus::Installing;
-        self.service_install_start_time = Some(Instant::now());
-        
-        let (tx, rx) = mpsc::channel();
-        self.service_install_receiver = Some(rx);
-        
-        let ctx_clone = ctx.clone();
-        std::thread::spawn(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let manager = ServerManager::new();
-                manager.install_service()
-                    .and_then(|_| manager.start_service())
-            }));
-            
-            let final_result = match result {
-                Ok(Ok(_)) => Ok(()),
-                Ok(Err(e)) => Err(format!("服务安装失败: {}。请以管理员身份运行程序。", e)),
-                Err(panic_info) => {
-                    let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
-                        s.to_string()
-                    } else if let Some(s) = panic_info.downcast_ref::<String>() {
-                        s.clone()
-                    } else {
-                        "未知错误".to_string()
-                    };
-                    Err(format!("服务安装时发生 panic: {}", msg))
-                }
-            };
-            
-            let _ = tx.send(final_result);
-            ctx_clone.request_repaint();
-        });
-    }
 
-    fn show_service_dialog(&mut self, ctx: &egui::Context) {
-        if !self.show_service_install_dialog {
-            return;
-        }
-
-        egui::Window::new("安装后台服务")
-            .collapsible(false)
-            .resizable(false)
-            .fixed_size([520.0, 0.0])
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(styles::SPACING_LG);
-                    ui.label(RichText::new("🔔 检测到 wftpd.exe").size(styles::FONT_SIZE_LG).strong());
-                    ui.add_space(styles::SPACING_SM);
-                    ui.label(RichText::new("WFTPG 后台服务尚未安装。").size(styles::FONT_SIZE_MD));
-                    ui.label(RichText::new("是否将 wftpd.exe 注册为 Windows 服务并启动？").size(styles::FONT_SIZE_MD));
-                    ui.add_space(styles::SPACING_LG);
-
-                    match &self.service_install_status {
-                        ServiceInstallStatus::Installing => {
-                            ui.vertical_centered(|ui| {
-                                ui.spinner();
-                                ui.add_space(styles::SPACING_MD);
-                                ui.label(RichText::new("正在安装服务...").size(styles::FONT_SIZE_MD));
-                            });
-                            ui.add_space(styles::SPACING_SM);
-                            ui.label(RichText::new("这可能需要几秒钟，请稍候...").size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
-                        }
-                        ServiceInstallStatus::Success(msg) => {
-                            ui.vertical_centered(|ui| {
-                                ui.label(RichText::new(msg).color(styles::SUCCESS_COLOR).size(styles::FONT_SIZE_MD));
-                            });
-                            ui.add_space(styles::SPACING_LG);
-                            ui.vertical_centered(|ui| {
-                                if ui.add(styles::secondary_button("关闭")).clicked() {
-                                    self.show_service_install_dialog = false;
-                                    self.service_install_status = ServiceInstallStatus::None;
-                                }
-                            });
-                        }
-                        ServiceInstallStatus::Failed(msg) => {
-                            ui.label(RichText::new(msg).color(styles::DANGER_COLOR).size(styles::FONT_SIZE_MD));
-                            ui.add_space(styles::SPACING_SM);
-                            
-                            egui::Frame::new()
-                                .fill(styles::BG_SECONDARY)
-                                .inner_margin(egui::Margin::same(8))
-                                .corner_radius(egui::CornerRadius::same(4))
-                                .show(ui, |ui| {
-                                    ui.label(RichText::new("手动安装命令:").size(styles::FONT_SIZE_SM).strong());
-                                    ui.label(RichText::new("sc create wftpd binPath= \"<安装目录>\\wftpd.exe\" start= auto").size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
-                                    ui.add_space(styles::SPACING_XS);
-                                    ui.label(RichText::new("sc start wftpd").size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
-                                });
-                            
-                            ui.add_space(styles::SPACING_LG);
-
-                            ui.horizontal_centered(|ui| {
-                                if ui.add(styles::secondary_button("关闭")).clicked() {
-                                    self.show_service_install_dialog = false;
-                                    self.service_install_status = ServiceInstallStatus::None;
-                                }
-                                ui.add_space(styles::SPACING_MD);
-                                if ui.add(styles::primary_button("重试")).clicked() {
-                                    self.install_service(ctx);
-                                }
-                            });
-                        }
-                        ServiceInstallStatus::None => {
-                            ui.vertical_centered(|ui| {
-                                if ui.add(styles::secondary_button("稍后手动安装")).clicked() {
-                                    self.show_service_install_dialog = false;
-                                }
-                                ui.add_space(styles::SPACING_MD);
-                                if ui.add(styles::primary_button("安装并启动服务")).clicked() {
-                                    self.install_service(ctx);
-                                }
-                            });
-                        }
-                    }
-                    ui.add_space(styles::SPACING_MD);
-                });
-            });
-    }
-}
 
 impl App for WftpgApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut Frame) {
@@ -436,8 +254,6 @@ impl App for WftpgApp {
             InitState::Ready => {}
         }
         
-        self.check_service_install_result();
-        self.show_service_dialog(&ctx);
 
         CentralPanel::default()
             .frame(self.cached_styles.main_frame)

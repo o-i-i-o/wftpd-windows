@@ -7,9 +7,9 @@
 #![windows_subsystem = "windows"]
 extern crate windows_service;
 
-use wftpg::AppState;
-use wftpg::core::ipc::{IpcServer, ReloadCommand, ReloadResponse};
-use wftpg::core::windows_ipc::PIPE_NAME;
+use wftpd::AppState;
+use wftpd::core::ipc::{IpcServer, ReloadCommand, ReloadResponse};
+use wftpd::core::windows_ipc::PIPE_NAME;
 use std::ffi::OsString;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -148,16 +148,13 @@ fn run_main_loop_with_shutdown(state: &Arc<AppState>, ipc_server: &IpcServer, ru
             Ok(Some(mut connection)) => {
                 let state_clone = Arc::clone(state);
                 thread::spawn(move || {
-                    match connection.receive_command() {
-                        Ok(cmd) => {
-                            let response = handle_command(&state_clone, &cmd);
-                            if let Err(e) = connection.send_response(&response) {
-                                tracing::error!("发送 IPC 响应失败：{e}");
-                            }
+                    if let Ok(cmd) = connection.receive_command() {
+                        let response = handle_command(&state_clone, &cmd);
+                        if let Err(e) = connection.send_response(&response) {
+                            tracing::error!("发送 IPC 响应失败：{e}");
                         }
-                        Err(e) => {
-                            tracing::error!("接收 IPC 命令失败：{e}");
-                        }
+                    } else {
+                        tracing::warn!("接收 IPC 命令失败");
                     }
                 });
             }
@@ -244,16 +241,13 @@ fn run_main_loop(state: &Arc<AppState>, ipc_server: &IpcServer) {
             Ok(mut connection) => {
                 let state_clone = Arc::clone(state);
                 thread::spawn(move || {
-                    match connection.receive_command() {
-                        Ok(cmd) => {
-                            let response = handle_command(&state_clone, &cmd);
-                            if let Err(e) = connection.send_response(&response) {
-                                tracing::error!("发送 IPC 响应失败：{e}");
-                            }
+                    if let Ok(cmd) = connection.receive_command() {
+                        let response = handle_command(&state_clone, &cmd);
+                        if let Err(e) = connection.send_response(&response) {
+                            tracing::error!("发送 IPC 响应失败：{e}");
                         }
-                        Err(e) => {
-                            tracing::error!("接收 IPC 命令失败：{e}");
-                        }
+                    } else {
+                        tracing::warn!("接收 IPC 命令失败");
                     }
                 });
             }
