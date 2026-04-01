@@ -258,9 +258,9 @@ pub fn small_button(text: &str) -> egui::Button<'_> {
 
 pub fn status_message(ui: &mut egui::Ui, msg: &str, success: bool) {
     let (bg_color, text_color, icon) = if success {
-        (SUCCESS_LIGHT, SUCCESS_COLOR, "✓")
+        (SUCCESS_LIGHT, SUCCESS_COLOR, "√ ")
     } else {
-        (DANGER_LIGHT, DANGER_COLOR, "✗")
+        (DANGER_LIGHT, DANGER_COLOR, "×")
     };
     
     info_card_frame(bg_color).show(ui, |ui| {

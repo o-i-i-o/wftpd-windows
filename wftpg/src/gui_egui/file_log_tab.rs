@@ -454,7 +454,7 @@ impl FileLogTab {
                                     "UPDATE" => styles::TEXT_MUTED_COLOR,
                                     _ => styles::TEXT_LABEL_COLOR,
                                 };
-                                let status_icon = if success { "✓" } else { "✗" };
+                                let status_icon = if success { "√" } else { "×" };
                                 ui.label(RichText::new(format!("{} {}", status_icon, operation))
                                     .size(styles::FONT_SIZE_MD)
                                     .strong()

@@ -507,7 +507,7 @@ impl ServerTab {
                 if let Some(cert_path) = &config.ftp.ftps.cert_path {
                     let cert_exists = std::path::Path::new(cert_path).exists();
                     let cert_status = if cert_exists {
-                        ("✓ 证书文件已存在", styles::SUCCESS_COLOR)
+                        ("√ 证书文件已存在", styles::SUCCESS_COLOR)
                     } else {
                         ("⚠ 证书文件不存在", styles::DANGER_COLOR)
                     };
@@ -548,7 +548,7 @@ impl ServerTab {
                 if let Some(key_path) = &config.ftp.ftps.key_path {
                     let key_exists = std::path::Path::new(key_path).exists();
                     let key_status = if key_exists {
-                        ("✓ 私钥文件已存在", styles::SUCCESS_COLOR)
+                        ("√ 私钥文件已存在", styles::SUCCESS_COLOR)
                     } else {
                         ("⚠ 私钥文件不存在", styles::DANGER_COLOR)
                     };
@@ -621,7 +621,7 @@ impl ServerTab {
 
             let host_key_exists = std::path::Path::new(config.sftp.host_key_path.trim()).exists();
             let host_key_status = if host_key_exists {
-                ("✓ 文件已存在", styles::SUCCESS_COLOR)
+                ("√ 文件已存在", styles::SUCCESS_COLOR)
             } else {
                 ("ℹ 文件不存在，启动时将自动生成", styles::TEXT_MUTED_COLOR)
             };
