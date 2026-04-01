@@ -16,7 +16,6 @@ const INCREMENTAL_READ_SIZE: usize = 50;  // 每次增量读取最多 50 条
 
 pub struct LogTab {
     logs: VecDeque<LogEntry>,  // 使用 VecDeque 优化头部删除
-    auto_refresh: bool,
     last_error: Option<String>,
     loading: bool,
     last_refresh_time: Option<Instant>,
@@ -38,7 +37,6 @@ impl Default for LogTab {
         
         Self {
             logs: VecDeque::with_capacity(MAX_DISPLAY_LOGS),
-            auto_refresh: true,
             last_error: None,
             loading: false,
             last_refresh_time: None,
@@ -170,21 +168,24 @@ impl LogTab {
                 if count >= INCREMENTAL_READ_SIZE {
                     break;
                 }
-                if let Ok(line) = line
-                    && let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line)
-                    && log_entry.fields.operation.is_none()
-                {
-                    new_entries.push(log_entry);
-                    count += 1;
+                if let Ok(line) = line {
+                    if let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line)
+                        && log_entry.fields.operation.is_none()
+                    {
+                        new_entries.push(log_entry);
+                        count += 1;
+                    }
                 }
             }
             
-            // 更新文件位置
-            self.last_file_pos = current_size;
+            // 只在成功读取后更新文件位置，避免跳过有效日志
+            // 如果没有读到任何日志（都是无效行），也更新位置避免重复读取
+            if !new_entries.is_empty() || count == 0 {
+                self.last_file_pos = current_size;
+            }
             
             // 如果有新日志，插入到队列头部（最新的在前）
             if !new_entries.is_empty() {
-                let has_new_logs = !new_entries.is_empty();
                 let old_len = self.logs.len();
                 
                 // 将新日志插入到头部
@@ -196,9 +197,9 @@ impl LogTab {
                 }
                 
                 // 检测是否有新日志到达
-                if has_new_logs && self.user_at_bottom {
+                if self.user_at_bottom {
                     self.scroll_to_bottom = true;
-                } else if has_new_logs && !self.user_at_bottom {
+                } else {
                     self.new_logs_count = self.new_logs_count.saturating_add(self.logs.len() - old_len);
                 }
             }
@@ -261,18 +262,7 @@ impl LogTab {
             });
         });
 
-        if self.auto_refresh {
-            // 只在距离上次刷新超过指定间隔时才刷新
-            if self.last_refresh_time.is_none_or(|t| t.elapsed() >= AUTO_REFRESH_INTERVAL)
-                && !self.loading
-            {
-                // 使用增量读取代替全量加载
-                self.incrementally_read_logs();
-                self.last_refresh_time = Some(Instant::now());
-            }
-            // 动态控制刷新频率
-            ui.ctx().request_repaint_after(AUTO_REFRESH_INTERVAL);
-        }
+        // 移除自动刷新，改为手动刷新和事件驱动
 
         if let Some(err) = &self.last_error {
             styles::status_message(ui, err, false);

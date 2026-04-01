@@ -331,7 +331,23 @@ impl UserManager {
         &self.users
     }
 
+    /// 返回所有用户的 Vec（clone），兼容旧代码
     pub fn get_all_users(&self) -> Vec<User> {
         self.users.values().cloned().collect()
+    }
+
+    /// 返回用户数量，无需 clone
+    pub fn user_count(&self) -> usize {
+        self.users.len()
+    }
+
+    /// 返回用户引用迭代器，避免不必要的 clone
+    pub fn iter_users(&self) -> impl Iterator<Item = &User> {
+        self.users.values()
+    }
+
+    /// 返回可变用户引用迭代器
+    pub fn iter_users_mut(&mut self) -> impl Iterator<Item = &mut User> {
+        self.users.values_mut()
     }
 }

@@ -169,7 +169,8 @@ impl UserTab {
                                             .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)));
                                     });
                                 } else {
-                                    ui.label(RichText::new(self.form_username.clone()).strong().size(styles::FONT_SIZE_MD).color(styles::TEXT_PRIMARY_COLOR));
+                                    // 使用引用，避免不必要的 clone
+                                    ui.label(RichText::new(&self.form_username).strong().size(styles::FONT_SIZE_MD).color(styles::TEXT_PRIMARY_COLOR));
                                 }
                             });
 
@@ -240,7 +241,7 @@ impl UserTab {
                             });
                     }
 
-                    if let Some(ref err) = self.form_error.clone() {
+                    if let Some(ref err) = self.form_error {
                         ui.add_space(styles::SPACING_XS);
                         ui.label(RichText::new(err).color(styles::DANGER_COLOR).size(styles::FONT_SIZE_MD));
                     }
@@ -348,15 +349,26 @@ impl UserTab {
                 Ok(_) => {
                     tracing::info!("用户 {} 已删除", name);
                     self.save();
+                    // 删除成功后关闭模态框
+                    self.modal = ModalMode::None;
                 }
                 Err(e) => {
-                    tracing::error!("删除用户 {} 失败: {}", name, e);
-                    self.status_message = Some((format!("删除用户失败: {}", e), false));
+                    tracing::error!("删除用户 {} 失败：{}", name, e);
+                    self.status_message = Some((format!("删除用户失败：{}", e), false));
                 }
             }
         }
 
-        if close_modal && !do_submit { self.modal = ModalMode::None; self.form_error = None; }
+        // 分开处理提交和关闭逻辑，避免状态冲突
+        if do_submit {
+            // 提交操作已在上方完成，模态框已关闭
+            self.form_error = None;
+        } else if close_modal {
+            // 取消操作直接关闭模态框
+            self.modal = ModalMode::None;
+            self.form_error = None;
+        }
+        // 删除操作的模态框关闭已在删除逻辑中处理
     }
 
     pub fn ui(&mut self, ui: &mut Ui) {
@@ -367,7 +379,8 @@ impl UserTab {
         ui.horizontal(|ui| {
             styles::page_header(ui, "👥", "用户管理");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if let Some((msg, ok)) = &self.status_message.clone() {
+                // 直接使用引用，避免不必要的 clone
+                if let Some((msg, ok)) = &self.status_message {
                     styles::status_message(ui, msg, *ok);
                 }
             });
@@ -393,7 +406,8 @@ impl UserTab {
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let count = self.user_manager.get_all_users().len();
+                // 使用 user_count() 避免不必要的 clone
+                let count = self.user_manager.user_count();
                 ui.label(RichText::new(format!("共 {} 个用户", count))
                     .size(styles::FONT_SIZE_MD).color(styles::TEXT_MUTED_COLOR));
             });
@@ -401,7 +415,8 @@ impl UserTab {
 
         ui.add_space(styles::SPACING_MD);
 
-        let users: Vec<User> = self.user_manager.get_all_users();
+        // 使用 iter_users() 返回引用，避免 clone 所有用户
+        let users: Vec<&User> = self.user_manager.iter_users().collect();
         let mut to_toggle: Option<(String, bool)> = None;
         let mut to_edit: Option<User> = None;
         let mut to_delete_confirm: Option<String> = None;
@@ -445,22 +460,23 @@ impl UserTab {
                         });
                     })
                     .body(|mut body| {
-                        for user in &users {
-                            let user_clone = user.clone();
+                        for &user in &users {
+                            // user 现在是 User（通过解构引用）
                             body.row(styles::FONT_SIZE_MD, |mut row| {
                                 row.col(|ui| {
-                                    ui.label(RichText::new(&user_clone.username)
+                                    // 直接使用引用访问字段
+                                    ui.label(RichText::new(&user.username)
                                         .size(styles::FONT_SIZE_MD)
                                         .strong()
                                         .color(styles::TEXT_PRIMARY_COLOR));
                                 });
                                 row.col(|ui| {
-                                    ui.label(RichText::new(&user_clone.home_dir)
+                                    ui.label(RichText::new(&user.home_dir)
                                         .size(styles::FONT_SIZE_MD)
                                         .color(styles::TEXT_SECONDARY_COLOR));
                                 });
                                 row.col(|ui| {
-                                    let admin_rt = if user_clone.is_admin {
+                                    let admin_rt = if user.is_admin {
                                         RichText::new("👑 管理员").size(styles::FONT_SIZE_MD).color(styles::PRIMARY_COLOR)
                                     } else {
                                         RichText::new("👤 普通").size(styles::FONT_SIZE_MD).color(styles::TEXT_LABEL_COLOR)
@@ -468,12 +484,12 @@ impl UserTab {
                                     ui.label(admin_rt);
                                 });
                                 row.col(|ui| {
-                                    let st_col = if user_clone.enabled {
+                                    let st_col = if user.enabled {
                                         styles::SUCCESS_DARK
                                     } else {
                                         styles::DANGER_DARK
                                     };
-                                    let st_icon = if user_clone.enabled { "●" } else { "○" };
+                                    let st_icon = if user.enabled { "●" } else { "○" };
                                     ui.label(RichText::new(format!("{} 启用", st_icon))
                                         .size(styles::FONT_SIZE_MD).color(st_col));
                                 });
@@ -486,27 +502,30 @@ impl UserTab {
                                             .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
                                             .corner_radius(egui::CornerRadius::same(4));
                                         if ui.add(edit_btn).clicked() {
-                                            to_edit = Some(user_clone.clone());
+                                            // 在需要时 clone
+                                            to_edit = Some(user.clone());
                                         }
 
                                         let toggle_btn = egui::Button::new(
-                                            RichText::new(if user_clone.enabled {"禁用"} else {"启用"}).size(styles::FONT_SIZE_MD))
-                                            .fill(if user_clone.enabled {
+                                            RichText::new(if user.enabled {"禁用"} else {"启用"}).size(styles::FONT_SIZE_MD))
+                                            .fill(if user.enabled {
                                                 styles::DANGER_LIGHT
                                             } else {
                                                 styles::SUCCESS_LIGHT
                                             })
-                                            .stroke(egui::Stroke::new(1.0, if user_clone.enabled { styles::DANGER_COLOR } else { styles::SUCCESS_COLOR }))
+                                            .stroke(egui::Stroke::new(1.0, if user.enabled { styles::DANGER_COLOR } else { styles::SUCCESS_COLOR }))
                                             .corner_radius(egui::CornerRadius::same(4));
                                         if ui.add(toggle_btn).clicked() {
-                                            to_toggle = Some((user_clone.username.clone(), !user_clone.enabled));
+                                            // 在需要时 clone
+                                            to_toggle = Some((user.username.clone(), !user.enabled));
                                         }
 
                                         let del = egui::Button::new(RichText::new("删除").size(styles::FONT_SIZE_MD).color(Color32::WHITE))
                                             .fill(styles::DANGER_DARK)
                                             .corner_radius(egui::CornerRadius::same(4));
                                         if ui.add(del).clicked() {
-                                            to_delete_confirm = Some(user_clone.username.clone());
+                                            // 在需要时 clone
+                                            to_delete_confirm = Some(user.username.clone());
                                         }
                                     });
                                 });

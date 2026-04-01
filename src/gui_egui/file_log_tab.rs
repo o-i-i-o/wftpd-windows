@@ -20,7 +20,6 @@ pub struct FileLogTab {
     last_error: Option<String>,
     loading: bool,
     last_refresh_time: Option<Instant>,
-    stick_to_bottom: bool,
     log_dir: PathBuf,
     // 增量读取状态
     last_file_pos: u64,
@@ -40,7 +39,6 @@ impl Default for FileLogTab {
             last_error: None,
             loading: false,
             last_refresh_time: None,
-            stick_to_bottom: false,
             log_dir,
             last_file_pos: 0,
             current_log_file: None,
@@ -174,8 +172,11 @@ impl FileLogTab {
                 }
             }
             
-            // 更新文件位置
-            self.last_file_pos = current_size;
+            // 只在成功读取后更新文件位置，避免跳过有效日志
+            // 如果没有读到任何日志（都是无效行），也更新位置避免重复读取
+            if !new_entries.is_empty() || count == 0 {
+                self.last_file_pos = current_size;
+            }
             
             // 如果有新日志，插入到队列头部（最新的在前）
             if !new_entries.is_empty() {

@@ -233,7 +233,8 @@ impl ServiceTab {
         ui.horizontal(|ui| {
             styles::page_header(ui, "🖥", "系统服务管理");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if let Some((msg, ok)) = &self.status_message.clone() {
+                // 直接使用引用，避免不必要的 clone
+                if let Some((msg, ok)) = &self.status_message {
                     styles::status_message(ui, msg, *ok);
                 }
             });

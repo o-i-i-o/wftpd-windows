@@ -57,18 +57,10 @@ impl ServerTab {
         }
     }
 
-    pub fn save_config_async(&mut self, ctx: &egui::Context) {
+    pub fn save_config_async(&mut self, ctx: &egui::Context, config: Config) {
         if self.is_saving {
             return;
         }
-
-        let config = match &self.config {
-            Some(c) => c.clone(),
-            None => {
-                self.status_message = Some(("配置未加载，无法保存".to_string(), false));
-                return;
-            }
-        };
 
         self.is_saving = true;
         let (tx, rx) = mpsc::channel();
@@ -185,7 +177,6 @@ impl ServerTab {
         };
 
         let is_saving = self.is_saving;
-        let status_message = self.status_message.clone();
 
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("⚙").size(styles::FONT_SIZE_XL));
@@ -201,16 +192,14 @@ impl ServerTab {
                 };
 
                 if ui.add(save_btn).clicked() && !is_saving {
-                    // 直接在这里调用保存，避免状态混乱
-                    self.config = Some(config.clone());
-                    self.save_config_async(ui.ctx());
-                    config = match self.config.take() {
-                        Some(c) => c,
-                        None => return,
-                    };
+                    // 使用借用传递配置，避免不必要的 clone
+                    if let Some(ref config_to_save) = self.config {
+                        self.save_config_async(ui.ctx(), config_to_save.clone());
+                    }
                 }
 
-                if let Some((msg, success)) = &status_message {
+                // 直接使用 self.status_message 的引用，避免不必要的 clone
+                if let Some((msg, success)) = &self.status_message {
                     let msg_text = if *success {
                         RichText::new(msg).color(styles::SUCCESS_COLOR).size(styles::FONT_SIZE_SM)
                     } else {
