@@ -5,27 +5,28 @@ use crate::gui_egui::styles;
 use egui_extras::TableBuilder;
 use std::time::{Duration, Instant};
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::PathBuf;
+use std::collections::VecDeque;
 
-const PAGE_SIZE: usize = 100;
-const LOG_THRESHOLD: usize = 500;
-const DEFAULT_FETCH_COUNT: usize = 500;  // 增加默认加载数量到 500
+const MAX_DISPLAY_LOGS: usize = 2000;  // 最大显示 2000 条，避免内存过大
+const INITIAL_FETCH_COUNT: usize = 200;  // 初始加载 200 条
+const AUTO_REFRESH_INTERVAL: Duration = Duration::from_secs(3);  // 自动刷新间隔 3 秒
+const INCREMENTAL_READ_SIZE: usize = 50;  // 每次增量读取最多 50 条
 
 pub struct LogTab {
-    logs: Vec<LogEntry>,
+    logs: VecDeque<LogEntry>,  // 使用 VecDeque 优化头部删除
     auto_refresh: bool,
-    fetch_count: usize,
-    fetch_count_buf: String,
     last_error: Option<String>,
     loading: bool,
     last_refresh_time: Option<Instant>,
-    current_page: usize,
-    total_pages: usize,
     log_dir: PathBuf,
     scroll_to_bottom: bool,
     user_at_bottom: bool,
     new_logs_count: usize,
+    // 增量读取状态
+    last_file_pos: u64,
+    current_log_file: Option<PathBuf>,
 }
 
 impl Default for LogTab {
@@ -36,19 +37,17 @@ impl Default for LogTab {
             .unwrap_or_else(|| PathBuf::from("C:\\ProgramData\\wftpg\\logs"));
         
         Self {
-            logs: Vec::new(),
+            logs: VecDeque::with_capacity(MAX_DISPLAY_LOGS),
             auto_refresh: true,
-            fetch_count: DEFAULT_FETCH_COUNT,  // 使用新的默认值
-            fetch_count_buf: format!("{}", DEFAULT_FETCH_COUNT),
             last_error: None,
             loading: false,
             last_refresh_time: None,
-            current_page: 1,
-            total_pages: 1,
             log_dir,
             scroll_to_bottom: true,
             user_at_bottom: true,
             new_logs_count: 0,
+            last_file_pos: 0,
+            current_log_file: None,
         }
     }
 }
@@ -60,23 +59,20 @@ impl LogTab {
         tab
     }
 
+    /// 初始化加载日志
     fn load_logs(&mut self) {
         self.loading = true;
         self.last_error = None;
+        self.logs.clear();
         
-        let log_dir = self.log_dir.clone();
-        let count = self.fetch_count;
-        let old_logs_len = self.logs.len();
+        let log_dir = &self.log_dir;
         
-        let mut all_logs = Vec::new();
-        
-        if let Ok(entries) = fs::read_dir(&log_dir) {
-            // 收集所有 wftpg*.log 文件
+        // 找到最新的日志文件
+        if let Ok(entries) = fs::read_dir(log_dir) {
             let mut log_files: Vec<_> = entries
                 .filter_map(|e| e.ok())
                 .filter(|e| {
                     let name = e.file_name().to_string_lossy().to_string();
-                    // 匹配 wftpg.YYYY-MM-DD.log 格式（注意是点号分隔）
                     (name.starts_with("wftpg.") || name.starts_with("wftpg-")) && name.ends_with(".log")
                 })
                 .collect();
@@ -88,55 +84,124 @@ impl LogTab {
                 b_time.cmp(&a_time)
             });
             
-            // ✅ 只读取最新的一个日志文件
-            if let Some(latest_file) = log_files.first()
-                && let Ok(file) = File::open(latest_file.path()) {
-                let reader = BufReader::new(file);
-                // ✅ 从文件末尾开始读取（最新日志）
-                let mut lines: Vec<_> = reader.lines().collect();
-                // 倒序处理，优先处理最新的行
-                lines.reverse();
-                
-                for line in lines {
-                    if all_logs.len() >= count {
-                        break;
+            // 读取最新日志文件的最后部分
+            if let Some(latest_file) = log_files.first() {
+                self.current_log_file = Some(latest_file.path());
+                if let Ok(file) = File::open(latest_file.path()) {
+                    let metadata = file.metadata().ok();
+                    let file_size = metadata.map(|m| m.len()).unwrap_or(0);
+                    
+                    // 从文件末尾往前读，获取最新的 INITIAL_FETCH_COUNT 条
+                    let reader = BufReader::new(file);
+                    let mut lines: Vec<_> = reader.lines().collect();
+                    lines.reverse();
+                    
+                    let mut count = 0;
+                    for line in lines {
+                        if count >= INITIAL_FETCH_COUNT {
+                            break;
+                        }
+                        if let Ok(line) = line
+                            && let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line)
+                            && log_entry.fields.operation.is_none()
+                        {
+                            self.logs.push_back(log_entry);
+                            count += 1;
+                        }
                     }
-                    if let Ok(line) = line
-                        && let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line)
-                        && log_entry.fields.operation.is_none()
-                    {
-                        all_logs.push(log_entry);
-                    }
+                    
+                    // 记录当前文件位置（下次从这里继续读）
+                    self.last_file_pos = file_size;
                 }
             }
         }
         
-        // 按时间戳降序排序（新的在前，旧的在后）
-        // 这样表格顶部就是最新的日志
-        all_logs.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        // 按时间戳降序排序（新的在前）
+        let mut logs_vec: Vec<_> = self.logs.drain(..).collect();
+        logs_vec.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        self.logs.extend(logs_vec);
         
-        // 检测是否有新日志到达（倒序比较，最新的日志）
-        let has_new_logs = if self.logs.is_empty() {
-            !all_logs.is_empty()
-        } else {
-            all_logs.first().is_some_and(|new_log| {
-                self.logs.first().is_none_or(|old_log| {
-                    new_log.timestamp > old_log.timestamp
-                })
-            })
-        };
-        
-        self.logs = all_logs;
         self.loading = false;
         self.last_refresh_time = Some(Instant::now());
-        self.update_pagination();
+        self.new_logs_count = 0;
+    }
+
+    /// 增量读取新日志（只读新增的部分）
+    fn incrementally_read_logs(&mut self) {
+        let Some(current_file) = &self.current_log_file else {
+            return;
+        };
         
-        // 如果有新日志且用户在底部，自动滚动到底部
-        if has_new_logs && self.user_at_bottom {
-            self.scroll_to_bottom = true;
-        } else if has_new_logs && !self.user_at_bottom {
-            // 用户不在底部，增加新日志计数
-            self.new_logs_count = self.new_logs_count.saturating_add(self.logs.len() - old_logs_len);
+        if !current_file.exists() {
+            // 文件不存在，重新初始化
+            self.load_logs();
+            return;
+        }
+        
+        if let Ok(file) = File::open(current_file) {
+            let metadata = match file.metadata() {
+                Ok(m) => m,
+                Err(_) => return,
+            };
+            
+            let current_size = metadata.len();
+            
+            // 如果文件变小了（日志轮转），重新初始化
+            if current_size < self.last_file_pos {
+                self.load_logs();
+                return;
+            }
+            
+            // 如果没有新内容，直接返回
+            if current_size == self.last_file_pos {
+                return;
+            }
+            
+            // 只读取新增的部分
+            let mut reader = BufReader::new(file);
+            if reader.seek(SeekFrom::Start(self.last_file_pos)).is_err() {
+                return;
+            }
+            
+            let mut new_entries = Vec::new();
+            let mut count = 0;
+            
+            for line in reader.lines() {
+                if count >= INCREMENTAL_READ_SIZE {
+                    break;
+                }
+                if let Ok(line) = line
+                    && let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line)
+                    && log_entry.fields.operation.is_none()
+                {
+                    new_entries.push(log_entry);
+                    count += 1;
+                }
+            }
+            
+            // 更新文件位置
+            self.last_file_pos = current_size;
+            
+            // 如果有新日志，插入到队列头部（最新的在前）
+            if !new_entries.is_empty() {
+                let has_new_logs = !new_entries.is_empty();
+                let old_len = self.logs.len();
+                
+                // 将新日志插入到头部
+                for entry in new_entries.into_iter().rev() {
+                    if self.logs.len() >= MAX_DISPLAY_LOGS {
+                        self.logs.pop_back();  // 移除最旧的
+                    }
+                    self.logs.push_front(entry);
+                }
+                
+                // 检测是否有新日志到达
+                if has_new_logs && self.user_at_bottom {
+                    self.scroll_to_bottom = true;
+                } else if has_new_logs && !self.user_at_bottom {
+                    self.new_logs_count = self.new_logs_count.saturating_add(self.logs.len() - old_len);
+                }
+            }
         }
     }
 
@@ -147,26 +212,7 @@ impl LogTab {
         self.load_logs();
     }
 
-    fn update_pagination(&mut self) {
-        self.total_pages = if self.logs.is_empty() {
-            1
-        } else {
-            self.logs.len().div_ceil(PAGE_SIZE)
-        };
-        if self.current_page > self.total_pages {
-            self.current_page = self.total_pages;
-        }
-    }
 
-    fn get_page_logs(&self) -> &[LogEntry] {
-        let start = (self.current_page - 1) * PAGE_SIZE;
-        let end = std::cmp::min(start + PAGE_SIZE, self.logs.len());
-        if start < self.logs.len() {
-            &self.logs[start..end]
-        } else {
-            &[]
-        }
-    }
 
     fn format_last_refresh(&self) -> String {
         match self.last_refresh_time {
@@ -202,45 +248,30 @@ impl LogTab {
             
             ui.checkbox(&mut self.auto_refresh, "自动刷新");
             
-            ui.label(RichText::new("显示条数:").size(styles::FONT_SIZE_MD).color(styles::TEXT_SECONDARY_COLOR));
-            
-            let response = styles::input_frame().show(ui, |ui| {
-                ui.add(egui::TextEdit::singleline(&mut self.fetch_count_buf)
-                    .desired_width(60.0)
-                    .font(egui::FontId::new(styles::FONT_SIZE_MD, egui::FontFamily::Proportional)))
-            });
-            
-            if response.response.lost_focus() || response.response.has_focus() {
-                if let Ok(v) = self.fetch_count_buf.parse::<usize>() {
-                    let new_count = v.clamp(1, 10_000);
-                    if new_count != self.fetch_count {
-                        self.fetch_count = new_count;
-                        self.fetch_count_buf = new_count.to_string();
-                    }
-                } else {
-                    self.fetch_count_buf = self.fetch_count.to_string();
-                }
-            }
+
             
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(RichText::new(format!("共 {} 条日志 | {}", self.logs.len(), self.format_last_refresh()))
+                let status_text = if self.loading {
+                    format!("加载中... | {} 条", self.logs.len())
+                } else {
+                    format!("共 {} 条 | {}", self.logs.len(), self.format_last_refresh())
+                };
+                ui.label(RichText::new(status_text)
                     .size(styles::FONT_SIZE_MD).color(styles::TEXT_MUTED_COLOR));
             });
         });
 
         if self.auto_refresh {
-            // 只在距离上次刷新超过 5 秒时才真正刷新
-            if self.last_refresh_time.is_none_or(|t| t.elapsed() >= Duration::from_secs(5))
+            // 只在距离上次刷新超过指定间隔时才刷新
+            if self.last_refresh_time.is_none_or(|t| t.elapsed() >= AUTO_REFRESH_INTERVAL)
                 && !self.loading
             {
-                self.request_refresh();
+                // 使用增量读取代替全量加载
+                self.incrementally_read_logs();
+                self.last_refresh_time = Some(Instant::now());
             }
-            // 如果正在加载或刚加载完成，立即请求重绘
-            if self.loading || self.last_refresh_time.is_some_and(|t| t.elapsed().as_secs() < 1) {
-                ui.ctx().request_repaint();
-            } else {
-                ui.ctx().request_repaint_after(Duration::from_secs(5));
-            }
+            // 动态控制刷新频率
+            ui.ctx().request_repaint_after(AUTO_REFRESH_INTERVAL);
         }
 
         if let Some(err) = &self.last_error {
@@ -289,11 +320,7 @@ impl LogTab {
                 .min_scrolled_height(0.0)
                 .sense(egui::Sense::hover());
 
-            let display_logs = if self.logs.len() > LOG_THRESHOLD {
-                self.get_page_logs()
-            } else {
-                &self.logs
-            };
+            let display_logs: Vec<&LogEntry> = self.logs.iter().collect();
 
             table
                 .header(styles::FONT_SIZE_MD, |mut header| {
@@ -399,30 +426,7 @@ impl LogTab {
                     }
                 }
                 
-                if self.logs.len() > LOG_THRESHOLD {
-                    ui.add_space(styles::SPACING_SM);
-                    ui.horizontal(|ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(RichText::new(format!("第 {} / {} 页", self.current_page, self.total_pages))
-                                .size(styles::FONT_SIZE_MD).color(styles::TEXT_MUTED_COLOR));
-                            
-                            ui.add_space(styles::SPACING_SM);
-                            
-                            if ui.add(styles::small_button("末页")).clicked() {
-                                self.current_page = self.total_pages;
-                            }
-                            if ui.add(styles::small_button("下一页")).clicked() && self.current_page < self.total_pages {
-                                self.current_page += 1;
-                            }
-                            if ui.add(styles::small_button("上一页")).clicked() && self.current_page > 1 {
-                                self.current_page -= 1;
-                            }
-                            if ui.add(styles::small_button("首页")).clicked() {
-                                self.current_page = 1;
-                            }
-                        });
-                    });
-                }
+
             });
         });
     }
