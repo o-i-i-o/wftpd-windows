@@ -11,7 +11,6 @@ use std::collections::VecDeque;
 
 const MAX_DISPLAY_LOGS: usize = 2000;  // 最大显示 2000 条，避免内存过大
 const INITIAL_FETCH_COUNT: usize = 200;  // 初始加载 200 条
-const AUTO_REFRESH_INTERVAL: Duration = Duration::from_secs(3);  // 自动刷新间隔 3 秒
 const INCREMENTAL_READ_SIZE: usize = 50;  // 每次增量读取最多 50 条
 
 pub struct FileLogTab {
