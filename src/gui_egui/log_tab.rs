@@ -283,6 +283,9 @@ impl LogTab {
                 } else {
                     self.new_logs_count = self.new_logs_count.saturating_add(self.logs.len() - old_len);
                 }
+                
+                // 更新刷新时间
+                self.last_refresh_time = Some(Instant::now());
             }
         }
     }
@@ -398,7 +401,7 @@ impl LogTab {
                 .min_scrolled_height(0.0)
                 .sense(egui::Sense::hover());
 
-            let display_logs: Vec<&LogEntry> = self.logs.iter().collect();
+            // 避免每次渲染都重新收集，直接在迭代器中处理
 
             table
                 .header(styles::FONT_SIZE_MD, |mut header| {
@@ -419,7 +422,8 @@ impl LogTab {
                     });
                 })
                 .body(|mut body| {
-                    for entry in display_logs {
+                    // 直接使用 iter() 而不收集中间 Vec
+                    for entry in &self.logs {
                         body.row(styles::FONT_SIZE_MD, |mut row| {
                             row.col(|ui| {
                                 ui.label(RichText::new(entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string())

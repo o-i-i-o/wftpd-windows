@@ -8,6 +8,8 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::collections::VecDeque;
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use std::sync::mpsc::{self, Receiver};
 
 const MAX_DISPLAY_LOGS: usize = 2000;  // 最大显示 2000 条，避免内存过大
 const INITIAL_FETCH_COUNT: usize = 200;  // 初始加载 200 条
@@ -22,6 +24,11 @@ pub struct FileLogTab {
     // 增量读取状态
     last_file_pos: u64,
     current_log_file: Option<PathBuf>,
+    // 文件监听器（事件驱动）
+    log_watcher: Option<RecommendedWatcher>,
+    log_rx: Option<Receiver<Result<Event, notify::Error>>>,
+    needs_refresh: bool,  // 标记是否需要刷新
+    last_event_time: Option<Instant>,  // 上次事件时间（用于防抖）
 }
 
 impl Default for FileLogTab {
@@ -39,6 +46,10 @@ impl Default for FileLogTab {
             log_dir,
             last_file_pos: 0,
             current_log_file: None,
+            log_watcher: None,
+            log_rx: None,
+            needs_refresh: false,
+            last_event_time: None,
         }
     }
 }
@@ -46,8 +57,79 @@ impl Default for FileLogTab {
 impl FileLogTab {
     pub fn new() -> Self {
         let mut tab = Self::default();
+        // 初始化文件监听器
+        tab.init_log_watcher();
         tab.load_logs();
         tab
+    }
+
+    /// 初始化日志文件监听器
+    fn init_log_watcher(&mut self) {
+        // 创建通道接收文件事件
+        let (tx, rx) = mpsc::channel();
+        
+        // 创建监听器
+        let watcher_result = RecommendedWatcher::new(
+            move |res: Result<Event, notify::Error>| {
+                let _ = tx.send(res);
+            },
+            notify::Config::default()
+                .with_poll_interval(Duration::from_secs(2))  // 轮询间隔
+        );
+        
+        match watcher_result {
+            Ok(mut watcher) => {
+                // 监听日志目录
+                if self.log_dir.exists() {
+                    if let Err(e) = watcher.watch(&self.log_dir, RecursiveMode::NonRecursive) {
+                        tracing::warn!("Failed to watch log directory: {}", e);
+                    } else {
+                        tracing::info!("File log watcher initialized for: {:?}", self.log_dir);
+                    }
+                }
+                
+                self.log_watcher = Some(watcher);
+                self.log_rx = Some(rx);
+            }
+            Err(e) => {
+                tracing::error!("Failed to create log watcher: {}", e);
+            }
+        }
+    }
+
+    /// 检查日志文件事件（在 UI 循环中调用）
+    pub fn check_log_events(&mut self) {
+        if let Some(rx) = &self.log_rx {
+            // 非阻塞接收所有积压的事件
+            while let Ok(result) = rx.try_recv() {
+                match result {
+                    Ok(event) => {
+                        // 只处理文件修改和创建事件
+                        match event.kind {
+                            EventKind::Modify(_) | EventKind::Create(_) => {
+                                // 检查是否是当前正在读取的日志文件
+                                for path in &event.paths {
+                                    if path.extension().is_some_and(|ext| ext == "log") {
+                                        // 防抖动：1 秒内的事件只触发一次
+                                        let now = Instant::now();
+                                        if self.last_event_time.is_none_or(|t| t.elapsed() >= Duration::from_secs(1)) {
+                                            self.needs_refresh = true;
+                                            self.last_event_time = Some(now);
+                                            tracing::debug!("File log file changed: {:?}", path);
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("File log watcher error: {}", e);
+                    }
+                }
+            }
+        }
     }
 
     /// 初始化加载日志
@@ -183,6 +265,9 @@ impl FileLogTab {
                     }
                     self.logs.push_front(entry);
                 }
+                
+                // 更新刷新时间
+                self.last_refresh_time = Some(Instant::now());
             }
         }
     }
@@ -214,6 +299,15 @@ impl FileLogTab {
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         styles::page_header(ui, "📁", "文件操作日志");
+
+        // 先检查文件事件（事件驱动）
+        self.check_log_events();
+
+        // 如果有新日志触发，则加载（防抖动已处理）
+        if self.needs_refresh && !self.loading {
+            self.incrementally_read_logs();
+            self.needs_refresh = false;
+        }
 
         ui.horizontal(|ui| {
             let refresh_btn = if self.loading {
@@ -280,7 +374,7 @@ impl FileLogTab {
                 .min_scrolled_height(0.0)
                 .sense(egui::Sense::hover());
 
-            let display_logs: Vec<&LogEntry> = self.logs.iter().collect();
+            // 避免每次渲染都重新收集，直接在迭代器中处理
 
             table
                 .header(styles::FONT_SIZE_MD, |mut header| {
@@ -307,7 +401,8 @@ impl FileLogTab {
                     });
                 })
                 .body(|mut body| {
-                    for entry in display_logs {
+                    // 直接使用 iter() 而不收集中间 Vec
+                    for entry in &self.logs {
                         body.row(styles::FONT_SIZE_MD, |mut row| {
                             row.col(|ui| {
                                 ui.label(RichText::new(entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string())

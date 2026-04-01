@@ -106,8 +106,6 @@ pub struct LogEntry {
     #[serde(with = "custom_datetime_format")]
     pub timestamp: DateTime<Local>,
     pub level: LogLevel,
-    #[serde(default, rename = "target")]
-    pub target: String,
     #[serde(default)]
     pub fields: LogFields,
 }
@@ -216,7 +214,6 @@ where
         let entry = LogEntry {
             timestamp: Local::now(),
             level: log_level,
-            target: target.to_string(),
             fields: LogFields {
                 message: visitor.message.unwrap_or_default(),
                 client_ip: visitor.client_ip,
@@ -266,7 +263,6 @@ where
         let entry = LogEntry {
             timestamp: Local::now(),
             level: log_level,
-            target: target.to_string(),
             fields: LogFields {
                 message: visitor.message.unwrap_or_default(),
                 client_ip: visitor.client_ip.clone(),
