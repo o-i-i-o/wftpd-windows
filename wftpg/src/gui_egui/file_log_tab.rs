@@ -11,9 +11,9 @@ use std::collections::VecDeque;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::mpsc::{self, Receiver};
 
-const MAX_DISPLAY_LOGS: usize = 2000;  // 最大显示 2000 条，避免内存过大
-const INITIAL_FETCH_COUNT: usize = 200;  // 初始加载 200 条
-const INCREMENTAL_READ_SIZE: usize = 50;  // 每次增量读取最多 50 条
+const MAX_DISPLAY_LOGS: usize = 500;  // 最大显示 500 条，避免内存过大（从 2000 降低到 500）
+const INITIAL_FETCH_COUNT: usize = 100;  // 初始加载 100 条（从 200 降低到 100）
+const INCREMENTAL_READ_SIZE: usize = 20;  // 每次增量读取最多 20 条（从 50 降低到 20）
 
 pub struct FileLogTab {
     logs: VecDeque<LogEntry>,  // 使用 VecDeque 优化头部删除
@@ -100,8 +100,15 @@ impl FileLogTab {
     /// 检查日志文件事件（在 UI 循环中调用）
     pub fn check_log_events(&mut self) {
         if let Some(rx) = &self.log_rx {
-            // 非阻塞接收所有积压的事件
+            // 非阻塞接收所有积压的事件，但有数量限制避免处理过多事件
+            let mut event_count = 0;
+            const MAX_EVENTS_PER_FRAME: usize = 5;
             while let Ok(result) = rx.try_recv() {
+                event_count += 1;
+                if event_count > MAX_EVENTS_PER_FRAME {
+                    // 丢弃多余事件，避免一帧内处理过多
+                    break;
+                }
                 match result {
                     Ok(event) => {
                         // 只处理文件修改和创建事件
@@ -189,9 +196,12 @@ impl FileLogTab {
             }
         }
         
-        // 按时间戳降序排序（新的在前）
+        // 按时间戳降序排序（新的在前），然后只保留最新的 MAX_DISPLAY_LOGS
         let mut logs_vec: Vec<_> = self.logs.drain(..).collect();
         logs_vec.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        if logs_vec.len() > MAX_DISPLAY_LOGS {
+            logs_vec.truncate(MAX_DISPLAY_LOGS);
+        }
         self.logs.extend(logs_vec);
         
         self.loading = false;
@@ -360,6 +370,8 @@ impl FileLogTab {
 
             let available_width = ui.available_width();
 
+            // 使用 ScrollArea 包裹表格，支持滚动
+            // 使用 lazy_body 优化性能，只渲染可见行
             let table = TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
@@ -373,8 +385,6 @@ impl FileLogTab {
                 .column(styles::table_column_remainder(250.0))
                 .min_scrolled_height(0.0)
                 .sense(egui::Sense::hover());
-
-            // 避免每次渲染都重新收集，直接在迭代器中处理
 
             table
                 .header(styles::FONT_SIZE_MD, |mut header| {
