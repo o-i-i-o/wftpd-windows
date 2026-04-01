@@ -8,7 +8,7 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::collections::VecDeque;
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::mpsc::{self, Receiver};
 
 const MAX_DISPLAY_LOGS: usize = 500;  // 最大显示 500 条，避免内存过大（从 2000 降低到 500）
@@ -176,35 +176,24 @@ impl LogTab {
     /// 检查日志文件事件（在 UI 循环中调用）
     pub fn check_log_events(&mut self) {
         if let Some(rx) = &self.log_rx {
-            // 非阻塞接收所有积压的事件，但有数量限制避免处理过多事件
             let mut event_count = 0;
-            const MAX_EVENTS_PER_FRAME: usize = 5;
+            const MAX_EVENTS_PER_FRAME: usize = 10;
             while let Ok(result) = rx.try_recv() {
                 event_count += 1;
                 if event_count > MAX_EVENTS_PER_FRAME {
-                    // 丢弃多余事件，避免一帧内处理过多
                     break;
                 }
                 match result {
                     Ok(event) => {
-                        // 只处理文件修改和创建事件
-                        match event.kind {
-                            EventKind::Modify(_) | EventKind::Create(_) => {
-                                // 检查是否是当前正在读取的日志文件
-                                for path in &event.paths {
-                                    if path.extension().is_some_and(|ext| ext == "log") {
-                                        // 防抖动：1 秒内的事件只触发一次
-                                        let now = Instant::now();
-                                        if self.last_event_time.is_none_or(|t| t.elapsed() >= Duration::from_secs(1)) {
-                                            self.needs_refresh = true;
-                                            self.last_event_time = Some(now);
-                                            tracing::debug!("Log file changed: {:?}", path);
-                                        }
-                                        break;
-                                    }
+                        for path in &event.paths {
+                            if path.extension().is_some_and(|ext| ext == "log") {
+                                let now = Instant::now();
+                                if self.last_event_time.is_none_or(|t| t.elapsed() >= Duration::from_millis(300)) {
+                                    self.needs_refresh = true;
+                                    self.last_event_time = Some(now);
                                 }
+                                break;
                             }
-                            _ => {}
                         }
                     }
                     Err(e) => {
