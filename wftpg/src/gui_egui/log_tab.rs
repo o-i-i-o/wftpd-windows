@@ -259,13 +259,12 @@ impl LogTab {
                 if count >= INCREMENTAL_READ_SIZE {
                     break;
                 }
-                if let Ok(line) = line {
-                    if let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line)
-                        && log_entry.fields.operation.is_none()
-                    {
-                        new_entries.push(log_entry);
-                        count += 1;
-                    }
+                if let Ok(line) = line
+                    && let Ok(log_entry) = serde_json::from_str::<LogEntry>(&line)
+                    && log_entry.fields.operation.is_none()
+                {
+                    new_entries.push(log_entry);
+                    count += 1;
                 }
             }
             

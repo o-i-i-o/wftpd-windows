@@ -5,7 +5,10 @@ use egui::{CentralPanel, RichText, Color32, IconData};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tracing_subscriber::layer::SubscriberExt;
+use std::sync::Arc;
+use parking_lot::RwLock;
 
+use wftpg::core::config::Config;
 use wftpg::gui_egui::{about_tab, file_log_tab, log_tab, security_tab, server_tab, service_tab, styles, user_tab};
 
 #[cfg(windows)]
@@ -76,9 +79,7 @@ enum InitState {
     Error,
 }
 
-struct InitResult {
-    show_service_dialog: bool,
-}
+struct InitResult;
 
 struct CachedStyles {
     loading_frame: egui::Frame,
@@ -106,13 +107,14 @@ impl CachedStyles {
 
 struct WftpgApp {
     current_tab:    usize,
-    server_tab:     server_tab::ServerTab,
-    user_tab:       user_tab::UserTab,
-    security_tab:   security_tab::SecurityTab,
-    service_tab:    service_tab::ServiceTab,
-    log_tab:        log_tab::LogTab,
-    file_log_tab:   file_log_tab::FileLogTab,
-    about_tab:      about_tab::AboutTab,
+    config:         Arc<RwLock<Config>>,
+    server_tab:     Option<server_tab::ServerTab>,
+    user_tab:       Option<user_tab::UserTab>,
+    security_tab:   Option<security_tab::SecurityTab>,
+    service_tab:    Option<service_tab::ServiceTab>,
+    log_tab:        Option<log_tab::LogTab>,
+    file_log_tab:   Option<file_log_tab::FileLogTab>,
+    about_tab:      Option<about_tab::AboutTab>,
     init_state:     InitState,
     init_error:     Option<String>,
     init_receiver:  Option<mpsc::Receiver<Result<InitResult, String>>>,
@@ -123,6 +125,8 @@ struct WftpgApp {
 impl WftpgApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         cc.egui_ctx.set_global_style(styles::get_custom_style());
+        
+        let config = Arc::new(RwLock::new(Config::load(&Config::get_config_path()).unwrap_or_default()));
         
         let (init_tx, init_rx) = mpsc::channel();
         let ctx_clone = cc.egui_ctx.clone();
@@ -153,13 +157,14 @@ impl WftpgApp {
         
         Self {
             current_tab:    0,
-            server_tab:     server_tab::ServerTab::new(),
-            user_tab:       user_tab::UserTab::new(),
-            security_tab:   security_tab::SecurityTab::new(),
-            service_tab:    service_tab::ServiceTab::new(),
-            log_tab:        log_tab::LogTab::new(),
-            file_log_tab:   file_log_tab::FileLogTab::new(),
-            about_tab:      about_tab::AboutTab::new(),
+            config:         config.clone(),
+            server_tab:     None,
+            user_tab:       None,
+            security_tab:   None,
+            service_tab:    None,
+            log_tab:        None,
+            file_log_tab:   None,
+            about_tab:      None,
             init_state:     InitState::Loading,
             init_error:     None,
             init_receiver:  Some(init_rx),
@@ -169,9 +174,7 @@ impl WftpgApp {
     }
     
     fn do_initialization() -> Result<InitResult, String> {
-        Ok(InitResult {
-            show_service_dialog: false,
-        })
+        Ok(InitResult)
     }
     
     fn check_init_result(&mut self, ctx: &egui::Context) {
@@ -206,8 +209,33 @@ impl WftpgApp {
                 }
             }
     }
-
-
+    
+    fn ensure_tab_initialized(&mut self, tab_idx: usize) {
+        match tab_idx {
+            0 if self.server_tab.is_none() => {
+                self.server_tab = Some(server_tab::ServerTab::with_config(self.config.clone()));
+            }
+            1 if self.user_tab.is_none() => {
+                self.user_tab = Some(user_tab::UserTab::new());
+            }
+            2 if self.security_tab.is_none() => {
+                self.security_tab = Some(security_tab::SecurityTab::with_config(self.config.clone()));
+            }
+            3 if self.service_tab.is_none() => {
+                self.service_tab = Some(service_tab::ServiceTab::new());
+            }
+            4 if self.log_tab.is_none() => {
+                self.log_tab = Some(log_tab::LogTab::new());
+            }
+            5 if self.file_log_tab.is_none() => {
+                self.file_log_tab = Some(file_log_tab::FileLogTab::new());
+            }
+            6 if self.about_tab.is_none() => {
+                self.about_tab = Some(about_tab::AboutTab::new());
+            }
+            _ => {}
+        }
+    }
 }
 
 
@@ -317,15 +345,16 @@ impl App for WftpgApp {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        self.ensure_tab_initialized(self.current_tab);
                         match self.current_tab {
-                            0 => self.server_tab.ui(ui),
-                            1 => self.user_tab.ui(ui),
-                            2 => self.security_tab.ui(ui),
-                            3 => self.service_tab.ui(ui),
-                            4 => self.log_tab.ui(ui),
-                            5 => self.file_log_tab.ui(ui),
-                            6 => self.about_tab.ui(ui),
-                            _ => self.server_tab.ui(ui),
+                            0 => self.server_tab.as_mut().unwrap().ui(ui),
+                            1 => self.user_tab.as_mut().unwrap().ui(ui),
+                            2 => self.security_tab.as_mut().unwrap().ui(ui),
+                            3 => self.service_tab.as_mut().unwrap().ui(ui),
+                            4 => self.log_tab.as_mut().unwrap().ui(ui),
+                            5 => self.file_log_tab.as_mut().unwrap().ui(ui),
+                            6 => self.about_tab.as_mut().unwrap().ui(ui),
+                            _ => self.server_tab.as_mut().unwrap().ui(ui),
                         }
                     });
                     
@@ -334,41 +363,24 @@ impl App for WftpgApp {
     }
     
     /// 在应用程序退出前调用，用于清理 egui 资源
-    fn on_exit(&mut self) {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         tracing::info!("GUI 应用程序即将关闭，正在清理 egui 资源...");
-        // egui/eframe 会自动清理大部分资源
-        // 这里可以清理一些自定义的资源（如果有）
     }
 }
 
 fn setup_fonts(ctx: &egui::Context) {
-    use egui::{FontData, FontDefinitions, FontFamily};
-    let mut fonts = FontDefinitions::default();
+    let mut fonts = egui::FontDefinitions::default();
 
-    let candidates = [
-        ("C:\\Windows\\Fonts\\seguisym.ttf", "Segoe UI Symbol"),
-        ("C:\\Windows\\Fonts\\msyh.ttc", "Microsoft YaHei"),
-        ("C:\\Windows\\Fonts\\msyhbd.ttc", "Microsoft YaHei Bold"),
-        ("C:\\Windows\\Fonts\\simsun.ttc", "SimSun"),
-        ("C:\\Windows\\Fonts\\simhei.ttf", "SimHei"),
-    ];
-
-    for (path, name) in &candidates {
-        match std::fs::read(path) {
-            Ok(data) => {
-                fonts.font_data.insert((*name).into(), FontData::from_owned(data).into());
-                if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
-                    family.push((*name).into());
-                }
-                if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
-                    family.push((*name).into());
-                }
-                tracing::info!("成功加载字体: {}", name);
-            }
-            Err(e) => {
-                tracing::warn!("加载字体 {} 失败: {}", path, e);
-            }
-        }
+    if let Ok(data) = std::fs::read("C:\\Windows\\Fonts\\simsun.ttc") {
+        fonts.font_data.insert(
+            "SimSun".into(),
+            egui::FontData::from_owned(data).into(),
+        );
+        fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, "SimSun".into());
+        fonts.families.entry(egui::FontFamily::Monospace).or_default().insert(0, "SimSun".into());
+        tracing::info!("成功加载中文字体 SimSun");
+    } else {
+        tracing::warn!("无法加载中文字体，将使用默认字体");
     }
 
     ctx.set_fonts(fonts);
@@ -457,6 +469,7 @@ fn main() -> eframe::Result<()> {
             .with_icon(icon),
         persist_window: true,
         persistence_path: Some(persistence_path),
+        renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
 

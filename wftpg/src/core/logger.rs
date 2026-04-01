@@ -414,8 +414,8 @@ impl TracingLogger {
             eprintln!("Warning: Failed to create log directory {}: {}", path.display(), e);
         }
 
-        let buffer = LogBuffer::new(1000);
-        let file_op_buffer = LogBuffer::new(2000);
+        let buffer = LogBuffer::new(100);
+        let file_op_buffer = LogBuffer::new(100);
 
         let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
             .rotation(tracing_appender::rolling::Rotation::DAILY)

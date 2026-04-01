@@ -3,6 +3,8 @@ use crate::core::config::Config;
 use crate::core::ipc::IpcClient;
 use crate::gui_egui::styles;
 use std::sync::mpsc;
+use std::sync::Arc;
+use parking_lot::RwLock;
 use std::time::Instant;
 
 #[derive(Debug, Clone)]
@@ -100,7 +102,7 @@ enum SaveResult {
 }
 
 pub struct SecurityTab {
-    config: Config,
+    config: Arc<RwLock<Config>>,
     max_login_attempts_buf: String,
     ban_duration_buf: String,
     max_connections_buf: String,
@@ -119,15 +121,16 @@ pub struct SecurityTab {
     last_save_time: Option<Instant>,
 }
 
-impl Default for SecurityTab {
-    fn default() -> Self {
-        let config = Config::load(&Config::get_config_path()).unwrap_or_default();
-        let max_login_attempts_buf = config.security.max_login_attempts.to_string();
-        let ban_duration_buf = config.security.ban_duration.to_string();
-        let max_connections_buf = config.security.max_connections.to_string();
-        let max_connections_per_ip_buf = config.security.max_connections_per_ip.to_string();
-        let allowed_ips_text = config.security.allowed_ips.join("\n");
-        let denied_ips_text = config.security.denied_ips.join("\n");
+impl SecurityTab {
+    pub fn with_config(config: Arc<RwLock<Config>>) -> Self {
+        let cfg = config.read();
+        let max_login_attempts_buf = cfg.security.max_login_attempts.to_string();
+        let ban_duration_buf = cfg.security.ban_duration.to_string();
+        let max_connections_buf = cfg.security.max_connections.to_string();
+        let max_connections_per_ip_buf = cfg.security.max_connections_per_ip.to_string();
+        let allowed_ips_text = cfg.security.allowed_ips.join("\n");
+        let denied_ips_text = cfg.security.denied_ips.join("\n");
+        drop(cfg);
         
         let (tx, rx) = mpsc::channel();
         
@@ -150,12 +153,6 @@ impl Default for SecurityTab {
             is_saving: false,
             last_save_time: None,
         }
-    }
-}
-
-impl SecurityTab {
-    pub fn new() -> Self { 
-        Self::default() 
     }
 
     fn validate_all(&mut self) -> bool {
@@ -215,26 +212,27 @@ impl SecurityTab {
     }
 
     fn apply_buffers_to_config(&mut self) {
+        let mut cfg = self.config.write();
         if let Ok(v) = self.max_login_attempts_buf.parse::<u32>() {
-            self.config.security.max_login_attempts = v;
+            cfg.security.max_login_attempts = v;
         }
         if let Ok(v) = self.ban_duration_buf.parse::<u64>() {
-            self.config.security.ban_duration = v;
+            cfg.security.ban_duration = v;
         }
         if let Ok(v) = self.max_connections_buf.parse::<usize>() {
-            self.config.security.max_connections = v;
+            cfg.security.max_connections = v;
         }
         if let Ok(v) = self.max_connections_per_ip_buf.parse::<usize>() {
-            self.config.security.max_connections_per_ip = v;
+            cfg.security.max_connections_per_ip = v;
         }
         
-        self.config.security.allowed_ips = self
+        cfg.security.allowed_ips = self
             .allowed_ips_text
             .lines()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
-        self.config.security.denied_ips = self
+        cfg.security.denied_ips = self
             .denied_ips_text
             .lines()
             .map(|s| s.trim().to_string())
@@ -247,11 +245,9 @@ impl SecurityTab {
             return;
         }
             
-        // 检查前一次保存是否完成，如果还在进行中则不处理
-        if let Some(ref rx) = self.save_receiver
+        if let Some(rx) = &self.save_receiver
             && rx.try_recv().is_err()
         {
-            // 前一次操作还未完成，忽略本次请求
             tracing::warn!("前一次保存操作尚未完成，忽略本次保存请求");
             return;
         }
@@ -264,9 +260,8 @@ impl SecurityTab {
         self.apply_buffers_to_config();
             
         self.is_saving = true;
-        let config = self.config.clone();
+        let config = self.config.read().clone();
             
-        // 重新创建通道，避免堆积
         let (tx, rx) = mpsc::channel();
         self.save_sender = Some(tx.clone());
         self.save_receiver = Some(rx);

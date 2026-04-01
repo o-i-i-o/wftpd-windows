@@ -3,6 +3,8 @@ use crate::core::config::Config;
 use crate::core::ipc::IpcClient;
 use crate::gui_egui::styles;
 use std::sync::mpsc;
+use std::sync::Arc;
+use parking_lot::RwLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigLoadState {
@@ -13,7 +15,7 @@ pub enum ConfigLoadState {
 
 #[derive(Debug)]
 pub struct ServerTab {
-    pub config: Option<Config>,
+    pub config: Arc<RwLock<Config>>,
     pub status_message: Option<(String, bool)>,
     config_load_state: ConfigLoadState,
     config_load_error: Option<String>,
@@ -21,39 +23,15 @@ pub struct ServerTab {
     is_saving: bool,
 }
 
-impl Default for ServerTab {
-    fn default() -> Self {
+impl ServerTab {
+    pub fn with_config(config: Arc<RwLock<Config>>) -> Self {
         Self {
-            config: None,
+            config,
             status_message: None,
-            config_load_state: ConfigLoadState::Loading,
+            config_load_state: ConfigLoadState::Loaded,
             config_load_error: None,
             save_receiver: None,
             is_saving: false,
-        }
-    }
-}
-
-impl ServerTab {
-    pub fn new() -> Self {
-        let mut tab = Self::default();
-        tab.load_config();
-        tab
-    }
-
-    pub fn load_config(&mut self) {
-        match Config::load(&Config::get_config_path()) {
-            Ok(config) => {
-                tracing::info!("服务器配置加载成功");
-                self.config = Some(config);
-                self.config_load_state = ConfigLoadState::Loaded;
-            }
-            Err(e) => {
-                tracing::warn!("加载服务器配置失败，使用默认配置: {}", e);
-                self.config = Some(Config::default());
-                self.config_load_state = ConfigLoadState::Loaded;
-                self.status_message = Some((format!("配置加载失败，使用默认配置: {}", e), false));
-            }
         }
     }
 
@@ -171,9 +149,9 @@ impl ServerTab {
             ConfigLoadState::Loaded => {}
         }
 
-        let mut config = match self.config.take() {
-            Some(c) => c,
-            None => return,
+        let mut config = {
+            let cfg = self.config.read();
+            cfg.clone()
         };
 
         let is_saving = self.is_saving;
@@ -192,10 +170,8 @@ impl ServerTab {
                 };
 
                 if ui.add(save_btn).clicked() && !is_saving {
-                    // 使用借用传递配置，避免不必要的 clone
-                    if let Some(ref config_to_save) = self.config {
-                        self.save_config_async(ui.ctx(), config_to_save.clone());
-                    }
+                    let config_to_save = self.config.read().clone();
+                    self.save_config_async(ui.ctx(), config_to_save);
                 }
 
                 // 直接使用 self.status_message 的引用，避免不必要的 clone
@@ -820,6 +796,6 @@ impl ServerTab {
                 });
         });
 
-        self.config = Some(config);
+        *self.config.write() = config;
     }
 }

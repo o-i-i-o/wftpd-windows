@@ -11,6 +11,12 @@ const SERVICE_NAME: &str = "wftpd";
 
 pub struct ServerManager;
 
+impl Default for ServerManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ServerManager {
     pub fn new() -> Self {
         ServerManager
@@ -69,18 +75,18 @@ impl ServerManager {
             let query_result = QueryServiceStatusEx(
                 service,
                 SC_STATUS_PROCESS_INFO,
-                Some(unsafe {
+                Some(
                     std::slice::from_raw_parts_mut(
                         &mut status as *mut _ as *mut u8,
                         std::mem::size_of::<SERVICE_STATUS_PROCESS>(),
                     )
-                }),
+                ),
                 &mut bytes_needed,
             );
             
             let _ = CloseServiceHandle(service);
             
-            if let Ok(_) = query_result {
+            if query_result.is_ok() {
                 return status.dwCurrentState == SERVICE_RUNNING;
             }
         }
@@ -90,11 +96,19 @@ impl ServerManager {
     /// 安装服务
     pub fn install_service(&self) -> Result<()> {
         unsafe {
-            // 获取当前 exe 路径
             let exe_path = std::env::current_exe()
                 .context("无法获取当前程序路径")?;
             
-            let exe_path_str = exe_path.to_string_lossy().to_string();
+            let exe_dir = exe_path.parent()
+                .context("无法获取程序目录")?;
+            
+            let service_exe = exe_dir.join("wftpd.exe");
+            
+            if !service_exe.exists() {
+                anyhow::bail!("找不到后端服务程序: {}", service_exe.display());
+            }
+            
+            let exe_path_str = service_exe.to_string_lossy().to_string();
             let exe_path_wide: Vec<u16> = exe_path_str.encode_utf16().chain(std::iter::once(0)).collect();
             
             let service_name_wide: Vec<u16> = SERVICE_NAME.encode_utf16().chain(std::iter::once(0)).collect();
