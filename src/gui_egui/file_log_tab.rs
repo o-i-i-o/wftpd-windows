@@ -16,7 +16,6 @@ const INCREMENTAL_READ_SIZE: usize = 50;  // 每次增量读取最多 50 条
 
 pub struct FileLogTab {
     logs: VecDeque<LogEntry>,  // 使用 VecDeque 优化头部删除
-    auto_refresh: bool,
     last_error: Option<String>,
     loading: bool,
     last_refresh_time: Option<Instant>,
@@ -35,7 +34,6 @@ impl Default for FileLogTab {
         
         Self {
             logs: VecDeque::with_capacity(MAX_DISPLAY_LOGS),
-            auto_refresh: true,
             last_error: None,
             loading: false,
             last_refresh_time: None,
@@ -230,11 +228,7 @@ impl FileLogTab {
             if ui.add(refresh_btn).clicked() && !self.loading {
                 self.request_refresh();
             }
-            
-            ui.checkbox(&mut self.auto_refresh, "自动刷新");
-            
 
-            
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let status_text = if self.loading {
                     format!("加载中... | {} 条", self.logs.len())
@@ -246,17 +240,7 @@ impl FileLogTab {
             });
         });
 
-        if self.auto_refresh {
-            // 只在距离上次刷新超过指定间隔时才刷新
-            if self.last_refresh_time.is_none_or(|t| t.elapsed() >= AUTO_REFRESH_INTERVAL)
-                && !self.loading
-            {
-                // 使用增量读取代替全量加载
-                self.incrementally_read_logs();
-                self.last_refresh_time = Some(Instant::now());
-            }
-            ui.ctx().request_repaint_after(AUTO_REFRESH_INTERVAL);
-        }
+        // 移除自动刷新，改为手动刷新和事件驱动
 
         if let Some(err) = &self.last_error {
             styles::status_message(ui, err, false);

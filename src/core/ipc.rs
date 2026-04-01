@@ -40,6 +40,29 @@ impl ReloadResponse {
     }
 }
 
+/// 日志写入通知（后端发送给前端）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogNotification {
+    pub log_type: String,  // "server" or "file"
+    pub message: String,
+}
+
+impl LogNotification {
+    pub fn server_log(msg: impl Into<String>) -> Self {
+        LogNotification {
+            log_type: "server".to_string(),
+            message: msg.into(),
+        }
+    }
+    
+    pub fn file_log(msg: impl Into<String>) -> Self {
+        LogNotification {
+            log_type: "file".to_string(),
+            message: msg.into(),
+        }
+    }
+}
+
 /// IPC 消息协议头（4 字节长度前缀）
 fn read_message<R: Read>(reader: &mut R) -> Result<Vec<u8>> {
     let mut len_bytes = [0u8; 4];

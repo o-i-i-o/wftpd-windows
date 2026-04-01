@@ -247,8 +247,6 @@ impl LogTab {
                 self.request_refresh();
             }
             
-            ui.checkbox(&mut self.auto_refresh, "自动刷新");
-            
 
             
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
