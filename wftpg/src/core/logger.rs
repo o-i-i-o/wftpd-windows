@@ -1,12 +1,12 @@
 use chrono::{DateTime, Local};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
-use parking_lot::RwLock;
 use tracing::Level;
-use tracing_subscriber::{Layer, layer::SubscriberExt, filter};
 use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::{Layer, filter, layer::SubscriberExt};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {
@@ -63,9 +63,8 @@ impl<'de> Deserialize<'de> for LogLevel {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Self::from_str(&s).ok_or_else(|| {
-            serde::de::Error::custom(format!("Unknown log level: {}", s))
-        })
+        Self::from_str(&s)
+            .ok_or_else(|| serde::de::Error::custom(format!("Unknown log level: {}", s)))
     }
 }
 
@@ -85,17 +84,22 @@ mod custom_datetime_format {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        
+
         if let Ok(dt) = DateTime::parse_from_rfc3339(&s) {
             return Ok(dt.with_timezone(&Local));
         }
-        
-        for fmt in &["%Y-%m-%dT%H:%M:%S%.f%:z", "%Y-%m-%dT%H:%M:%S%.fZ", "%Y-%m-%dT%H:%M:%S%:z", "%Y-%m-%dT%H:%M:%SZ"] {
+
+        for fmt in &[
+            "%Y-%m-%dT%H:%M:%S%.f%:z",
+            "%Y-%m-%dT%H:%M:%S%.fZ",
+            "%Y-%m-%dT%H:%M:%S%:z",
+            "%Y-%m-%dT%H:%M:%SZ",
+        ] {
             if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&s, fmt) {
                 return Ok(Local.from_utc_datetime(&dt));
             }
         }
-        
+
         Err(serde::de::Error::custom("Invalid datetime format"))
     }
 }
@@ -193,10 +197,14 @@ impl<S> Layer<S> for SystemLogLayer
 where
     S: tracing::Subscriber,
 {
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
         let metadata = event.metadata();
         let target = metadata.target();
-        
+
         if target.starts_with("file_op") {
             return;
         }
@@ -242,7 +250,11 @@ impl<S> Layer<S> for FileOpLogLayer
 where
     S: tracing::Subscriber,
 {
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
         let metadata = event.metadata();
         let target = metadata.target();
 
@@ -396,7 +408,12 @@ pub struct TracingLogger {
 }
 
 impl TracingLogger {
-    pub fn init(log_dir: &str, _max_size: u64, max_files: usize, log_level: &str) -> Result<Self, String> {
+    pub fn init(
+        log_dir: &str,
+        _max_size: u64,
+        max_files: usize,
+        log_level: &str,
+    ) -> Result<Self, String> {
         if let Some(global) = GLOBAL_LOGGER.get() {
             // 检查是否需要重新初始化（日志目录或级别发生变化）
             // 注意：由于 tracing subscriber 已经设置，无法动态更改日志级别和目录
@@ -410,7 +427,11 @@ impl TracingLogger {
         let path = PathBuf::from(log_dir);
 
         if let Err(e) = std::fs::create_dir_all(&path) {
-            eprintln!("Warning: Failed to create log directory {}: {}", path.display(), e);
+            eprintln!(
+                "Warning: Failed to create log directory {}: {}",
+                path.display(),
+                e
+            );
         }
 
         let buffer = LogBuffer::new(100);
@@ -434,14 +455,17 @@ impl TracingLogger {
             .build(&path)
             .map_err(|e| format!("创建文件操作日志文件失败: {}", e))?;
 
-        let (file_op_non_blocking, file_op_guard) = tracing_appender::non_blocking(file_op_appender);
+        let (file_op_non_blocking, file_op_guard) =
+            tracing_appender::non_blocking(file_op_appender);
 
-        let level_filter: tracing::Level = log_level.to_lowercase().parse()
+        let level_filter: tracing::Level = log_level
+            .to_lowercase()
+            .parse()
             .unwrap_or(tracing::Level::INFO);
 
         let buffer_layer = SystemLogLayer::new(buffer.clone());
         let file_op_buffer_layer = FileOpLogLayer::new(file_op_buffer.clone());
-        
+
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_writer(non_blocking)
             .with_ansi(false)
@@ -465,15 +489,17 @@ impl TracingLogger {
             }));
 
         let subscriber = tracing_subscriber::registry()
-            .with(tracing::level_filters::LevelFilter::from_level(level_filter))
+            .with(tracing::level_filters::LevelFilter::from_level(
+                level_filter,
+            ))
             .with(buffer_layer)
             .with(file_op_buffer_layer)
             .with(fmt_layer)
             .with(file_op_fmt_layer);
-        
+
         tracing::subscriber::set_global_default(subscriber)
             .map_err(|e| format!("设置 tracing 日志失败：{}", e))?;
-        
+
         // 记录初始化参数，便于调试
         tracing::debug!(
             target: "system",
@@ -482,7 +508,7 @@ impl TracingLogger {
             max_log_files = max_files,
             "TracingLogger 初始化完成"
         );
-        
+
         let _ = GLOBAL_LOGGER.set(GlobalLogger {
             buffer: buffer.clone(),
             file_op_buffer: file_op_buffer.clone(),
@@ -548,10 +574,7 @@ impl LogReader {
                 .filter(|e| {
                     e.file_name()
                         .to_str()
-                        .is_some_and(|name| {
-                            name.starts_with(file_prefix) &&
-                            name.ends_with(".log")
-                        })
+                        .is_some_and(|name| name.starts_with(file_prefix) && name.ends_with(".log"))
                 })
                 .collect::<Vec<_>>(),
             Err(_) => return logs,

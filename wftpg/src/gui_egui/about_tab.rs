@@ -1,5 +1,5 @@
-use egui::{Color32, RichText, Ui};
 use crate::gui_egui::styles;
+use egui::{Color32, RichText, Ui};
 
 pub struct AboutTab {
     show_licenses_modal: bool,
@@ -37,7 +37,8 @@ impl AboutTab {
             .fixed_pos(egui::pos2(0.0, 0.0))
             .order(egui::Order::Background)
             .show(ctx, |ui| {
-                ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(140));
+                ui.painter()
+                    .rect_filled(screen, 0.0, Color32::from_black_alpha(140));
             });
 
         let modal_width = (screen.width() * 0.6).clamp(500.0, 800.0);
@@ -118,10 +119,7 @@ impl AboutTab {
                 ui.add_space(styles::SPACING_SM);
 
                 ui.vertical_centered(|ui| {
-                    if ui
-                        .add(styles::primary_button("关闭"))
-                        .clicked()
-                    {
+                    if ui.add(styles::primary_button("关闭")).clicked() {
                         self.show_licenses_modal = false;
                     }
                 });

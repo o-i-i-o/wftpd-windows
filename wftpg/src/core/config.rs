@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::core::error::ConfigError;
 
 /// 主配置结构
-/// 
+///
 /// 包含所有服务器配置项，支持 TOML 格式序列化和反序列化
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -27,7 +27,7 @@ pub struct Config {
 // 移除 Clone 的手动实现，使用派生的 Clone
 
 /// 服务器配置
-/// 
+///
 /// 包含全局连接数和每 IP 连接数统计，使用原子操作和无锁数据结构确保线程安全
 #[derive(Debug, Serialize)]
 pub struct ServerConfig {
@@ -56,7 +56,7 @@ impl Clone for ServerConfig {
         ServerConfig {
             global_connection_count: AtomicUsize::new(self.get_global_count()),
             connection_count_per_ip: parking_lot::Mutex::new(
-                self.connection_count_per_ip.lock().clone()
+                self.connection_count_per_ip.lock().clone(),
             ),
         }
     }
@@ -70,30 +70,30 @@ impl ServerConfig {
             connection_count_per_ip: parking_lot::Mutex::new(HashMap::new()),
         }
     }
-    
+
     /// 增加全局连接数（原子操作）
-    /// 
+    ///
     /// # Returns
     /// 返回增加前的连接数
     pub fn increment_global(&self) -> usize {
         self.global_connection_count.fetch_add(1, Ordering::SeqCst)
     }
-    
+
     /// 减少全局连接数（原子操作）
     pub fn decrement_global(&self) {
         self.global_connection_count.fetch_sub(1, Ordering::SeqCst);
     }
-    
+
     /// 获取当前全局连接数
     pub fn get_global_count(&self) -> usize {
         self.global_connection_count.load(Ordering::SeqCst)
     }
-    
+
     /// 增加指定 IP 的连接数
-    /// 
+    ///
     /// # Arguments
     /// * `ip` - 客户端 IP 地址
-    /// 
+    ///
     /// # Returns
     /// 返回增加后的连接数
     pub fn increment_ip(&self, ip: &str) -> usize {
@@ -102,9 +102,9 @@ impl ServerConfig {
         *count += 1;
         *count
     }
-    
+
     /// 减少指定 IP 的连接数
-    /// 
+    ///
     /// # Arguments
     /// * `ip` - 客户端 IP 地址
     pub fn decrement_ip(&self, ip: &str) {
@@ -118,7 +118,7 @@ impl ServerConfig {
             }
         }
     }
-    
+
     /// 获取指定 IP 的当前连接数
     pub fn get_ip_count(&self, ip: &str) -> usize {
         let map = self.connection_count_per_ip.lock();
@@ -258,7 +258,7 @@ fn default_log_level() -> String {
 }
 
 /// 安全配置
-/// 
+///
 /// 包含登录限制、IP 白名单/黑名单、连接数限制等
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
@@ -306,10 +306,13 @@ pub fn get_program_data_path() -> PathBuf {
 
 fn get_default_paths() -> (String, String) {
     let base_path = get_program_data_path();
-    
+
     let log_dir = base_path.join("logs").to_string_lossy().to_string();
-    let host_key_path = base_path.join("ssh\\ssh_host_rsa_key").to_string_lossy().to_string();
-    
+    let host_key_path = base_path
+        .join("ssh\\ssh_host_rsa_key")
+        .to_string_lossy()
+        .to_string();
+
     (log_dir, host_key_path)
 }
 
@@ -317,9 +320,15 @@ impl Default for Config {
     fn default() -> Self {
         let (log_dir, host_key_path) = get_default_paths();
         let base_path = get_program_data_path();
-        let cert_path = base_path.join("certs\\server.crt").to_string_lossy().to_string();
-        let key_path = base_path.join("certs\\server.key").to_string_lossy().to_string();
-        
+        let cert_path = base_path
+            .join("certs\\server.crt")
+            .to_string_lossy()
+            .to_string();
+        let key_path = base_path
+            .join("certs\\server.key")
+            .to_string_lossy()
+            .to_string();
+
         Config {
             server: ServerConfig::new(),
             ftp: FtpConfig {
@@ -378,7 +387,7 @@ impl Default for Config {
 
 impl Config {
     /// 从文件加载配置
-    /// 
+    ///
     /// 如果文件不存在，则创建默认配置并保存
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         if !path.exists() {
@@ -388,36 +397,35 @@ impl Config {
             }
             return Ok(config);
         }
-        
-        let content = fs::read_to_string(path)
-            .map_err(ConfigError::ReadFailed)?;
-        
-        let config: Config = toml::from_str(&content)
-            .map_err(ConfigError::ParseFailed)?;
-        
+
+        let content = fs::read_to_string(path).map_err(ConfigError::ReadFailed)?;
+
+        let config: Config = toml::from_str(&content).map_err(ConfigError::ParseFailed)?;
+
         Ok(config)
     }
 
     /// 验证配置路径的有效性
-    /// 
+    ///
     /// # Returns
     /// 返回警告信息列表，如果为空则表示所有路径均有效
     pub fn validate_paths(&self) -> Vec<String> {
         let mut warnings = Vec::new();
-        
+
         if self.ftp.allow_anonymous {
             match &self.ftp.anonymous_home {
                 None => {
                     warnings.push("匿名用户已启用，但未配置匿名用户主目录".to_string());
                 }
                 Some(anon_home) => {
-                    if let Err(e) = Self::validate_home_path(anon_home, "FTP 匿名用户主目录") {
+                    if let Err(e) = Self::validate_home_path(anon_home, "FTP 匿名用户主目录")
+                    {
                         warnings.push(e);
                     }
                 }
             }
         }
-        
+
         if self.ftp.ftps.enabled {
             // 证书会自动生成，不需要检查是否存在
             if let Some(cert_path) = &self.ftp.ftps.cert_path {
@@ -427,7 +435,7 @@ impl Config {
             } else {
                 warnings.push("FTPS 已启用，但未配置证书路径".to_string());
             }
-            
+
             if let Some(key_path) = &self.ftp.ftps.key_path {
                 if key_path.is_empty() {
                     warnings.push("FTPS 已启用，但未配置私钥路径".to_string());
@@ -455,7 +463,7 @@ impl Config {
                 }
             }
         }
-        
+
         warnings
     }
 
@@ -473,59 +481,60 @@ impl Config {
         }
         Ok(())
     }
-    
+
     /// 保存配置到文件
     pub fn save(&self, path: &Path) -> Result<(), ConfigError> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(ConfigError::WriteFailed)?;
+            fs::create_dir_all(parent).map_err(ConfigError::WriteFailed)?;
         }
-        
-        let content = toml::to_string_pretty(self)
-            .map_err(ConfigError::SerializeFailed)?;
-        
-        fs::write(path, content)
-            .map_err(ConfigError::WriteFailed)?;
-        
+
+        let content = toml::to_string_pretty(self).map_err(ConfigError::SerializeFailed)?;
+
+        fs::write(path, content).map_err(ConfigError::WriteFailed)?;
+
         Ok(())
     }
-    
+
     pub fn get_config_path() -> PathBuf {
         get_program_data_path().join("config.toml")
     }
-    
+
     pub fn get_users_path() -> PathBuf {
         get_program_data_path().join("users.json")
     }
-    
+
     /// 检查 IP 地址是否在允许列表中
     pub fn is_ip_allowed(&self, ip: &str) -> bool {
-        if self.security.denied_ips.iter().any(|cidr| {
-            ip_matches_cidr(ip, cidr).unwrap_or(false)
-        }) {
+        if self
+            .security
+            .denied_ips
+            .iter()
+            .any(|cidr| ip_matches_cidr(ip, cidr).unwrap_or(false))
+        {
             return false;
         }
-        
+
         if self.security.allowed_ips.is_empty() {
             return true;
         }
-        
-        self.security.allowed_ips.iter().any(|cidr| {
-            ip_matches_cidr(ip, cidr).unwrap_or(false)
-        })
+
+        self.security
+            .allowed_ips
+            .iter()
+            .any(|cidr| ip_matches_cidr(ip, cidr).unwrap_or(false))
     }
-    
+
     /// 检查连接数限制
-    /// 
+    ///
     /// # Arguments
     /// * `client_ip` - 客户端 IP 地址
-    /// 
+    ///
     /// # Returns
     /// 如果未超过限制返回 true，否则返回 false
     pub fn check_connection_limits(&self, client_ip: &str) -> bool {
         let global_count = self.server.get_global_count();
         let ip_count = self.server.get_ip_count(client_ip);
-        
+
         if global_count >= self.security.max_connections {
             tracing::warn!(
                 "Connection limit reached: {} global connections (max: {})",
@@ -534,7 +543,7 @@ impl Config {
             );
             return false;
         }
-        
+
         if ip_count >= self.security.max_connections_per_ip {
             tracing::warn!(
                 "Per-IP connection limit reached for {}: {} connections (max: {})",
@@ -544,12 +553,12 @@ impl Config {
             );
             return false;
         }
-        
+
         true
     }
-    
+
     /// 注册新连接（增加计数器）
-    /// 
+    ///
     /// # Arguments
     /// * `client_ip` - 客户端 IP 地址
     pub fn register_connection(&self, client_ip: &str) {
@@ -562,9 +571,9 @@ impl Config {
             self.server.get_ip_count(client_ip)
         );
     }
-    
+
     /// 注销连接（减少计数器）
-    /// 
+    ///
     /// # Arguments
     /// * `client_ip` - 客户端 IP 地址
     pub fn unregister_connection(&self, client_ip: &str) {
@@ -580,22 +589,24 @@ impl Config {
 }
 
 fn ip_matches_cidr(ip: &str, cidr: &str) -> Result<bool> {
-    use std::net::{Ipv4Addr, Ipv6Addr};
     use ipnet::{Ipv4Net, Ipv6Net};
-    
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
     if cidr == "0.0.0.0/0" || cidr == "::/0" {
         return Ok(true);
     }
-    
+
     if let Ok(ipv4) = ip.parse::<Ipv4Addr>()
-        && let Ok(net) = cidr.parse::<Ipv4Net>() {
-            return Ok(net.contains(&ipv4));
-        }
-    
+        && let Ok(net) = cidr.parse::<Ipv4Net>()
+    {
+        return Ok(net.contains(&ipv4));
+    }
+
     if let Ok(ipv6) = ip.parse::<Ipv6Addr>()
-        && let Ok(net) = cidr.parse::<Ipv6Net>() {
-            return Ok(net.contains(&ipv6));
-        }
-    
+        && let Ok(net) = cidr.parse::<Ipv6Net>()
+    {
+        return Ok(net.contains(&ipv6));
+    }
+
     Ok(ip == cidr)
 }

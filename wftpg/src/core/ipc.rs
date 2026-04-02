@@ -1,6 +1,6 @@
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::io::{Read, Write, BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::time::Duration;
 
 use crate::core::windows_ipc::{IpcServerInner, IpcStream};
@@ -38,7 +38,7 @@ impl ReloadResponse {
     pub fn error(msg: &str) -> Self {
         ReloadResponse {
             success: false,
-            message: msg.to_string(), 
+            message: msg.to_string(),
         }
     }
 }
@@ -46,30 +46,29 @@ impl ReloadResponse {
 /// IPC 消息协议头（4 字节长度前缀）
 fn read_message<R: Read>(reader: &mut R) -> Result<Vec<u8>> {
     let mut len_bytes = [0u8; 4];
-    reader.read_exact(&mut len_bytes)
+    reader
+        .read_exact(&mut len_bytes)
         .context("读取消息长度失败")?;
     let len = u32::from_be_bytes(len_bytes) as usize;
-    
+
     // 限制最大消息大小，防止内存溢出
     if len > 10 * 1024 * 1024 {
         anyhow::bail!("消息过大：{} 字节", len);
     }
-    
+
     let mut buffer = vec![0u8; len];
-    reader.read_exact(&mut buffer)
-        .context("读取消息内容失败")?;
-    
+    reader.read_exact(&mut buffer).context("读取消息内容失败")?;
+
     Ok(buffer)
 }
 
 fn write_message<W: Write>(writer: &mut W, data: &[u8]) -> Result<()> {
     let len = data.len() as u32;
-    writer.write_all(&len.to_be_bytes())
+    writer
+        .write_all(&len.to_be_bytes())
         .context("写入消息长度失败")?;
-    writer.write_all(data)
-        .context("写入消息内容失败")?;
-    writer.flush()
-        .context("刷新消息缓冲区失败")?;
+    writer.write_all(data).context("写入消息内容失败")?;
+    writer.flush().context("刷新消息缓冲区失败")?;
     Ok(())
 }
 
@@ -82,35 +81,34 @@ impl IpcConnection {
     fn new(stream: IpcStream) -> Self {
         IpcConnection { stream }
     }
-    
+
     /// 接收命令（带超时）
     pub fn receive_command(&mut self) -> Result<ReloadCommand> {
         // 设置读取超时
-        self.stream.set_read_timeout(Some(Duration::from_secs(IPC_TIMEOUT_SECS)))
+        self.stream
+            .set_read_timeout(Some(Duration::from_secs(IPC_TIMEOUT_SECS)))
             .context("设置读取超时失败")?;
-        
+
         let mut reader = BufReader::new(&self.stream);
-        
-        let buffer = read_message(&mut reader)
-            .context("接收 IPC 命令失败")?;
-        
-        let command: ReloadCommand = serde_json::from_slice(&buffer)
-            .context("解析 IPC 命令失败")?;
-        
+
+        let buffer = read_message(&mut reader).context("接收 IPC 命令失败")?;
+
+        let command: ReloadCommand =
+            serde_json::from_slice(&buffer).context("解析 IPC 命令失败")?;
+
         Ok(command)
     }
-    
+
     /// 发送响应（带超时）
     pub fn send_response(&mut self, response: &ReloadResponse) -> Result<()> {
         // 设置写入超时
-        self.stream.set_write_timeout(Some(Duration::from_secs(IPC_TIMEOUT_SECS)))
+        self.stream
+            .set_write_timeout(Some(Duration::from_secs(IPC_TIMEOUT_SECS)))
             .context("设置写入超时失败")?;
-        
-        let json = serde_json::to_vec(response)
-            .context("序列化响应失败")?;
+
+        let json = serde_json::to_vec(response).context("序列化响应失败")?;
         let mut writer = BufWriter::new(&self.stream);
-        write_message(&mut writer, &json)
-            .context("发送 IPC 响应失败")?;
+        write_message(&mut writer, &json).context("发送 IPC 响应失败")?;
         Ok(())
     }
 }
@@ -123,18 +121,16 @@ pub struct IpcServer {
 impl IpcServer {
     pub fn new() -> Result<Self> {
         Ok(IpcServer {
-            inner: IpcServerInner::new()
-                .context("创建 IPC 服务器失败")?,
+            inner: IpcServerInner::new().context("创建 IPC 服务器失败")?,
         })
     }
-    
+
     /// 接受客户端连接（阻塞）
     pub fn accept(&self) -> Result<IpcConnection> {
-        let stream = self.inner.accept()
-            .context("接受 IPC 连接失败")?;
+        let stream = self.inner.accept().context("接受 IPC 连接失败")?;
         Ok(IpcConnection::new(stream))
     }
-    
+
     /// 接受客户端连接（带超时）
     pub fn accept_timeout(&self, timeout: Duration) -> Result<Option<IpcConnection>> {
         match self.inner.accept_timeout(timeout)? {
@@ -150,36 +146,32 @@ pub struct IpcClient;
 impl IpcClient {
     /// 内部方法：发送命令并接收响应（带超时）
     fn send_command_internal(cmd: ReloadCommand) -> Result<ReloadResponse> {
-        let stream = IpcStream::connect()
-            .context("连接 IPC 服务器失败")?;
-        
+        let stream = IpcStream::connect().context("连接 IPC 服务器失败")?;
+
         // 设置超时
-        stream.set_read_timeout(Some(Duration::from_secs(IPC_TIMEOUT_SECS)))
+        stream
+            .set_read_timeout(Some(Duration::from_secs(IPC_TIMEOUT_SECS)))
             .context("设置读取超时失败")?;
-        stream.set_write_timeout(Some(Duration::from_secs(IPC_TIMEOUT_SECS)))
+        stream
+            .set_write_timeout(Some(Duration::from_secs(IPC_TIMEOUT_SECS)))
             .context("设置写入超时失败")?;
-        
+
         let mut writer = BufWriter::new(&stream);
-        let json = serde_json::to_vec(&cmd)
-            .context("序列化命令失败")?;
-        write_message(&mut writer, &json)
-            .context("发送命令失败")?;
-        
+        let json = serde_json::to_vec(&cmd).context("序列化命令失败")?;
+        write_message(&mut writer, &json).context("发送命令失败")?;
+
         let mut reader = BufReader::new(&stream);
-        let buffer = read_message(&mut reader)
-            .context("读取响应失败")?;
-        
-        let response: ReloadResponse = serde_json::from_slice(&buffer)
-            .context("解析响应失败")?;
+        let buffer = read_message(&mut reader).context("读取响应失败")?;
+
+        let response: ReloadResponse = serde_json::from_slice(&buffer).context("解析响应失败")?;
         Ok(response)
     }
-    
+
     /// 通知后端重新加载配置
     pub fn notify_reload() -> Result<ReloadResponse> {
-        Self::send_command_internal(ReloadCommand::reload())
-            .context("通知重载配置失败")
+        Self::send_command_internal(ReloadCommand::reload()).context("通知重载配置失败")
     }
-    
+
     /// 检查后端服务是否运行
     pub fn is_server_running() -> bool {
         IpcStream::connect().is_ok()

@@ -1,9 +1,9 @@
-﻿//! 用户管理模块
-//! 
+//! 用户管理模块
+//!
 //! 提供用户认证、权限管理和密码哈希功能
-//! 
+//!
 //! # 安全特性
-//! 
+//!
 //! - 使用 Argon2 进行密码哈希（推荐的安全算法）
 //! - 支持用户启用/禁用状态
 //! - 细粒度的权限控制
@@ -11,8 +11,8 @@
 
 use anyhow::{Context, Result};
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ use std::path::Path;
 use crate::core::error::UserError;
 
 /// 用户信息
-/// 
+///
 /// 包含用户的基本信息、权限和状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
@@ -47,7 +47,7 @@ fn default_enabled() -> bool {
 }
 
 /// 用户权限
-/// 
+///
 /// 定义用户对文件和目录的操作权限
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub struct Permissions {
@@ -79,17 +79,17 @@ impl Permissions {
             speed_limit_kbps: None,
         }
     }
-    
+
     /// 检查是否有读取权限
     pub fn can_read(&self) -> bool {
         self.can_read
     }
-    
+
     /// 检查是否有写入权限
     pub fn can_write(&self) -> bool {
         self.can_write
     }
-    
+
     /// 检查是否有删除权限
     pub fn can_delete(&self) -> bool {
         self.can_delete
@@ -99,20 +99,36 @@ impl Permissions {
 impl fmt::Display for Permissions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut perms = Vec::new();
-        if self.can_read { perms.push("读"); }
-        if self.can_write { perms.push("写"); }
-        if self.can_delete { perms.push("删"); }
-        if self.can_list { perms.push("列表"); }
-        if self.can_mkdir { perms.push("建目录"); }
-        if self.can_rmdir { perms.push("删目录"); }
-        if self.can_rename { perms.push("重命名"); }
-        if self.can_append { perms.push("追加"); }
+        if self.can_read {
+            perms.push("读");
+        }
+        if self.can_write {
+            perms.push("写");
+        }
+        if self.can_delete {
+            perms.push("删");
+        }
+        if self.can_list {
+            perms.push("列表");
+        }
+        if self.can_mkdir {
+            perms.push("建目录");
+        }
+        if self.can_rmdir {
+            perms.push("删目录");
+        }
+        if self.can_rename {
+            perms.push("重命名");
+        }
+        if self.can_append {
+            perms.push("追加");
+        }
         write!(f, "{}", perms.join(","))
     }
 }
 
 /// 用户管理器
-/// 
+///
 /// 管理用户的增删改查和认证
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UserManager {
@@ -126,7 +142,7 @@ impl UserManager {
     }
 
     /// 从文件加载用户数据
-    /// 
+    ///
     /// 如果文件不存在或解析失败，返回空的用户管理器
     pub fn load(path: &Path) -> Result<Self> {
         if !path.exists() {
@@ -170,9 +186,9 @@ impl UserManager {
     }
 
     /// 对密码进行哈希处理
-    /// 
+    ///
     /// # Security
-    /// 
+    ///
     /// 使用 Argon2 算法，自动生成随机盐值
     fn hash_password(password: &str) -> Result<String, UserError> {
         let salt = SaltString::generate(&mut OsRng);
@@ -185,11 +201,11 @@ impl UserManager {
     }
 
     /// 验证密码
-    /// 
+    ///
     /// # Arguments
     /// * `password` - 待验证的明文密码
     /// * `hash` - 存储的密码哈希
-    /// 
+    ///
     /// # Returns
     /// 验证成功返回 true，否则返回 false
     fn verify_password(password: &str, hash: &str) -> bool {
@@ -203,13 +219,13 @@ impl UserManager {
     }
 
     /// 添加新用户
-    /// 
+    ///
     /// # Arguments
     /// * `username` - 用户名
     /// * `password` - 密码
     /// * `home_dir` - 用户主目录
     /// * `is_admin` - 是否为管理员
-    /// 
+    ///
     /// # Errors
     /// 如果用户已存在或主目录无效，返回错误
     pub fn add_user(
@@ -225,7 +241,9 @@ impl UserManager {
 
         let home_dir = home_dir.trim();
         if home_dir.is_empty() {
-            return Err(UserError::InvalidHomeDirectory("用户主目录不能为空".to_string()));
+            return Err(UserError::InvalidHomeDirectory(
+                "用户主目录不能为空".to_string(),
+            ));
         }
 
         Self::validate_and_prepare_home_dir(home_dir)
@@ -249,14 +267,14 @@ impl UserManager {
     }
 
     /// 验证并准备用户主目录
-    /// 
+    ///
     /// 验证逻辑：
     /// 1. 目录不能为空
     /// 2. 如果目录存在，验证是有效目录且路径可规范化
     /// 3. 如果目录不存在，尝试创建（确保父目录存在）
     fn validate_and_prepare_home_dir(home_dir: &str) -> Result<()> {
         let path = std::path::Path::new(home_dir);
-        
+
         if home_dir.trim().is_empty() {
             anyhow::bail!("用户主目录不能为空");
         }
@@ -311,7 +329,9 @@ impl UserManager {
 
         let home_dir = home_dir.trim();
         if home_dir.is_empty() {
-            return Err(UserError::InvalidHomeDirectory("用户主目录不能为空".to_string()));
+            return Err(UserError::InvalidHomeDirectory(
+                "用户主目录不能为空".to_string(),
+            ));
         }
 
         Self::validate_and_prepare_home_dir(home_dir)
@@ -363,11 +383,11 @@ impl UserManager {
     }
 
     /// 用户认证
-    /// 
+    ///
     /// # Arguments
     /// * `username` - 用户名
     /// * `password` - 密码
-    /// 
+    ///
     /// # Returns
     /// 认证成功返回 Ok(true)，失败返回 Ok(false) 或错误
     pub fn authenticate(&mut self, username: &str, password: &str) -> Result<bool, UserError> {
@@ -392,7 +412,7 @@ impl UserManager {
     }
 
     /// 从文件重新加载用户数据
-    /// 
+    ///
     /// 如果文件不存在或解析失败，静默忽略错误
     pub fn reload(&mut self, path: &Path) -> Result<()> {
         if !path.exists() {

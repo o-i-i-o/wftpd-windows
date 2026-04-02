@@ -1,6 +1,6 @@
-use egui::{Color32, RichText, Ui};
 use crate::core::server_manager::ServerManager;
 use crate::gui_egui::styles;
+use egui::{Color32, RichText, Ui};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -52,7 +52,9 @@ impl Default for ServiceTab {
 }
 
 impl ServiceTab {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     fn refresh_status(&mut self) {
         self.is_installed = self.manager.is_service_installed();
@@ -77,7 +79,8 @@ impl ServiceTab {
 
         // 检查超时（30 秒）
         if let Some(start_time) = self.operation_start_time
-            && start_time.elapsed() >= Duration::from_secs(30) {
+            && start_time.elapsed() >= Duration::from_secs(30)
+        {
             self.operation_state = OperationState::Idle;
             self.operation_receiver = None;
             self.operation_start_time = None;
@@ -87,7 +90,8 @@ impl ServiceTab {
 
         // 检查操作完成
         if let Some(rx) = &self.operation_receiver
-            && let Ok(result) = rx.try_recv() {
+            && let Ok(result) = rx.try_recv()
+        {
             match result {
                 OperationResult::Success(msg) => {
                     self.set_ok(&msg);
@@ -106,10 +110,10 @@ impl ServiceTab {
     fn install_service_async(&mut self, ctx: &egui::Context) {
         self.operation_state = OperationState::Installing;
         self.operation_start_time = Some(Instant::now());
-        
+
         let (tx, rx) = mpsc::channel();
         self.operation_receiver = Some(rx);
-        
+
         let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
             let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -129,10 +133,10 @@ impl ServiceTab {
     fn start_service_async(&mut self, ctx: &egui::Context) {
         self.operation_state = OperationState::Starting;
         self.operation_start_time = Some(Instant::now());
-        
+
         let (tx, rx) = mpsc::channel();
         self.operation_receiver = Some(rx);
-        
+
         let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
             let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -152,10 +156,10 @@ impl ServiceTab {
     fn stop_service_async(&mut self, ctx: &egui::Context) {
         self.operation_state = OperationState::Stopping;
         self.operation_start_time = Some(Instant::now());
-        
+
         let (tx, rx) = mpsc::channel();
         self.operation_receiver = Some(rx);
-        
+
         let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
             let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -175,10 +179,10 @@ impl ServiceTab {
     fn restart_service_async(&mut self, ctx: &egui::Context) {
         self.operation_state = OperationState::Restarting;
         self.operation_start_time = Some(Instant::now());
-        
+
         let (tx, rx) = mpsc::channel();
         self.operation_receiver = Some(rx);
-        
+
         let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
             let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -198,10 +202,10 @@ impl ServiceTab {
     fn uninstall_service_async(&mut self, ctx: &egui::Context) {
         self.operation_state = OperationState::Uninstalling;
         self.operation_start_time = Some(Instant::now());
-        
+
         let (tx, rx) = mpsc::channel();
         self.operation_receiver = Some(rx);
-        
+
         let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
             let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -224,7 +228,7 @@ impl ServiceTab {
     pub fn ui(&mut self, ui: &mut Ui) {
         // 检查异步操作结果
         self.check_operation_result();
-        
+
         // 定期刷新状态（从 2 秒改为 5 秒，减少不必要的系统调用）
         if self.last_check.elapsed().as_secs() >= 5 {
             self.refresh_status();
@@ -243,39 +247,75 @@ impl ServiceTab {
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             self.section_header(ui, "📋", "服务信息");
-            
+
             let available_width = ui.available_width();
             let label_width = (available_width * 0.25).clamp(80.0, 120.0);
-            
+
             egui::Grid::new("svc_info")
                 .num_columns(2)
                 .spacing([20.0, 8.0])
                 .min_col_width(label_width)
                 .show(ui, |ui| {
-                    ui.label(RichText::new("服务名称").size(styles::FONT_SIZE_MD).color(styles::TEXT_LABEL_COLOR));
-                    ui.label(RichText::new("wftpd").size(styles::FONT_SIZE_MD).strong().color(styles::TEXT_PRIMARY_COLOR));
+                    ui.label(
+                        RichText::new("服务名称")
+                            .size(styles::FONT_SIZE_MD)
+                            .color(styles::TEXT_LABEL_COLOR),
+                    );
+                    ui.label(
+                        RichText::new("wftpd")
+                            .size(styles::FONT_SIZE_MD)
+                            .strong()
+                            .color(styles::TEXT_PRIMARY_COLOR),
+                    );
                     ui.end_row();
 
-                    ui.label(RichText::new("显示名称").size(styles::FONT_SIZE_MD).color(styles::TEXT_LABEL_COLOR));
-                    ui.label(RichText::new("WFTPD SFTP/FTP Server").size(styles::FONT_SIZE_MD).strong().color(styles::TEXT_PRIMARY_COLOR));
+                    ui.label(
+                        RichText::new("显示名称")
+                            .size(styles::FONT_SIZE_MD)
+                            .color(styles::TEXT_LABEL_COLOR),
+                    );
+                    ui.label(
+                        RichText::new("WFTPD SFTP/FTP Server")
+                            .size(styles::FONT_SIZE_MD)
+                            .strong()
+                            .color(styles::TEXT_PRIMARY_COLOR),
+                    );
                     ui.end_row();
 
-                    ui.label(RichText::new("安装状态").size(styles::FONT_SIZE_MD).color(styles::TEXT_LABEL_COLOR));
+                    ui.label(
+                        RichText::new("安装状态")
+                            .size(styles::FONT_SIZE_MD)
+                            .color(styles::TEXT_LABEL_COLOR),
+                    );
                     let (inst_txt, inst_col) = if self.is_installed {
                         ("● 已安装", styles::SUCCESS_DARK)
                     } else {
                         ("● 未安装", styles::DANGER_DARK)
                     };
-                    ui.label(RichText::new(inst_txt).size(styles::FONT_SIZE_MD).color(inst_col).strong());
+                    ui.label(
+                        RichText::new(inst_txt)
+                            .size(styles::FONT_SIZE_MD)
+                            .color(inst_col)
+                            .strong(),
+                    );
                     ui.end_row();
 
-                    ui.label(RichText::new("运行状态").size(styles::FONT_SIZE_MD).color(styles::TEXT_LABEL_COLOR));
+                    ui.label(
+                        RichText::new("运行状态")
+                            .size(styles::FONT_SIZE_MD)
+                            .color(styles::TEXT_LABEL_COLOR),
+                    );
                     let (run_txt, run_col) = if self.is_running {
                         ("● 运行中", styles::SUCCESS_DARK)
                     } else {
                         ("● 已停止", styles::DANGER_DARK)
                     };
-                    ui.label(RichText::new(run_txt).size(styles::FONT_SIZE_MD).color(run_col).strong());
+                    ui.label(
+                        RichText::new(run_txt)
+                            .size(styles::FONT_SIZE_MD)
+                            .color(run_col)
+                            .strong(),
+                    );
                     ui.end_row();
                 });
         });
@@ -301,11 +341,15 @@ impl ServiceTab {
                         _ => "📦 安装服务",
                     };
                     let btn = egui::Button::new(
-                        RichText::new(btn_text).color(Color32::WHITE).size(styles::FONT_SIZE_MD)
-                    ).fill(styles::INFO_COLOR)
-                     .corner_radius(egui::CornerRadius::same(6));
-                    
-                    let btn_response = ui.add_enabled(self.operation_state == OperationState::Idle, btn);
+                        RichText::new(btn_text)
+                            .color(Color32::WHITE)
+                            .size(styles::FONT_SIZE_MD),
+                    )
+                    .fill(styles::INFO_COLOR)
+                    .corner_radius(egui::CornerRadius::same(6));
+
+                    let btn_response =
+                        ui.add_enabled(self.operation_state == OperationState::Idle, btn);
                     if btn_response.clicked() {
                         self.install_service_async(ui.ctx());
                     }
@@ -316,11 +360,15 @@ impl ServiceTab {
                             _ => "▶ 启动服务",
                         };
                         let btn = egui::Button::new(
-                            RichText::new(btn_text).color(Color32::WHITE).size(styles::FONT_SIZE_MD)
-                        ).fill(styles::SUCCESS_DARK)
-                         .corner_radius(egui::CornerRadius::same(6));
-                        
-                        let btn_response = ui.add_enabled(self.operation_state == OperationState::Idle, btn);
+                            RichText::new(btn_text)
+                                .color(Color32::WHITE)
+                                .size(styles::FONT_SIZE_MD),
+                        )
+                        .fill(styles::SUCCESS_DARK)
+                        .corner_radius(egui::CornerRadius::same(6));
+
+                        let btn_response =
+                            ui.add_enabled(self.operation_state == OperationState::Idle, btn);
                         if btn_response.clicked() {
                             self.start_service_async(ui.ctx());
                         }
@@ -330,11 +378,15 @@ impl ServiceTab {
                             _ => "⏹ 停止服务",
                         };
                         let btn = egui::Button::new(
-                            RichText::new(btn_text).color(Color32::WHITE).size(styles::FONT_SIZE_MD)
-                        ).fill(Color32::from_rgb(230, 126, 34))
-                         .corner_radius(egui::CornerRadius::same(6));
-                        
-                        let btn_response = ui.add_enabled(self.operation_state == OperationState::Idle, btn);
+                            RichText::new(btn_text)
+                                .color(Color32::WHITE)
+                                .size(styles::FONT_SIZE_MD),
+                        )
+                        .fill(Color32::from_rgb(230, 126, 34))
+                        .corner_radius(egui::CornerRadius::same(6));
+
+                        let btn_response =
+                            ui.add_enabled(self.operation_state == OperationState::Idle, btn);
                         if btn_response.clicked() {
                             self.stop_service_async(ui.ctx());
                         }
@@ -347,11 +399,15 @@ impl ServiceTab {
                             _ => "🔄 重启服务",
                         };
                         let restart_btn = egui::Button::new(
-                            RichText::new(btn_text).color(Color32::WHITE).size(styles::FONT_SIZE_MD)
-                        ).fill(styles::INFO_COLOR)
-                         .corner_radius(egui::CornerRadius::same(6));
-                        
-                        let restart_btn_response = ui.add_enabled(self.operation_state == OperationState::Idle, restart_btn);
+                            RichText::new(btn_text)
+                                .color(Color32::WHITE)
+                                .size(styles::FONT_SIZE_MD),
+                        )
+                        .fill(styles::INFO_COLOR)
+                        .corner_radius(egui::CornerRadius::same(6));
+
+                        let restart_btn_response = ui
+                            .add_enabled(self.operation_state == OperationState::Idle, restart_btn);
                         if restart_btn_response.clicked() {
                             self.restart_service_async(ui.ctx());
                         }
@@ -360,15 +416,22 @@ impl ServiceTab {
                     ui.separator();
 
                     if self.confirming_uninstall {
-                        ui.label(RichText::new("确认卸载？").size(styles::FONT_SIZE_MD).color(styles::DANGER_DARK));
-                        
+                        ui.label(
+                            RichText::new("确认卸载？")
+                                .size(styles::FONT_SIZE_MD)
+                                .color(styles::DANGER_DARK),
+                        );
+
                         let can_operate = self.operation_state == OperationState::Idle;
-                        
+
                         let yes_btn = egui::Button::new(
-                            RichText::new("确认").color(Color32::WHITE).size(styles::FONT_SIZE_MD)
-                        ).fill(styles::DANGER_DARK)
-                         .corner_radius(egui::CornerRadius::same(6));
-                        
+                            RichText::new("确认")
+                                .color(Color32::WHITE)
+                                .size(styles::FONT_SIZE_MD),
+                        )
+                        .fill(styles::DANGER_DARK)
+                        .corner_radius(egui::CornerRadius::same(6));
+
                         let yes_response = ui.add_enabled(can_operate, yes_btn);
                         if yes_response.clicked() {
                             self.confirming_uninstall = false;
@@ -383,11 +446,17 @@ impl ServiceTab {
                             _ => "🗑 卸载服务",
                         };
                         let uninstall_btn = egui::Button::new(
-                            RichText::new(uninstall_btn_text).size(styles::FONT_SIZE_MD).color(styles::DANGER_DARK)
-                        ).fill(styles::DANGER_LIGHT)
-                         .corner_radius(egui::CornerRadius::same(6));
-                        
-                        let uninstall_btn_response = ui.add_enabled(self.operation_state == OperationState::Idle, uninstall_btn);
+                            RichText::new(uninstall_btn_text)
+                                .size(styles::FONT_SIZE_MD)
+                                .color(styles::DANGER_DARK),
+                        )
+                        .fill(styles::DANGER_LIGHT)
+                        .corner_radius(egui::CornerRadius::same(6));
+
+                        let uninstall_btn_response = ui.add_enabled(
+                            self.operation_state == OperationState::Idle,
+                            uninstall_btn,
+                        );
                         if uninstall_btn_response.clicked() {
                             self.confirming_uninstall = true;
                         }
@@ -398,11 +467,15 @@ impl ServiceTab {
 
         ui.add_space(styles::SPACING_MD);
 
-        styles::warning_box(ui, "注意事项", &[
-            "安装/卸载服务需要以管理员身份运行本程序",
-            "服务安装后将设为开机自动启动（AutoStart）",
-            "服务以 SYSTEM 账户运行，配置文件位于 ProgramData\\wftpg\\",
-            "停止服务会断开所有当前活动的 FTP/SFTP 连接",
-        ]);
+        styles::warning_box(
+            ui,
+            "注意事项",
+            &[
+                "安装/卸载服务需要以管理员身份运行本程序",
+                "服务安装后将设为开机自动启动（AutoStart）",
+                "服务以 SYSTEM 账户运行，配置文件位于 ProgramData\\wftpg\\",
+                "停止服务会断开所有当前活动的 FTP/SFTP 连接",
+            ],
+        );
     }
 }

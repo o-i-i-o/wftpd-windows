@@ -66,7 +66,7 @@ pub fn paths_equal_ignore_case<P1: AsRef<Path>, P2: AsRef<Path>>(path1: P1, path
 pub fn to_ftp_path(path: &Path, home_dir: &Path) -> Result<String, PathResolveError> {
     let normalized_path = normalize_windows_path(path);
     let normalized_home = normalize_windows_path(home_dir);
-    
+
     let relative = match normalized_path.strip_prefix(&normalized_home) {
         Ok(r) => r,
         Err(_) => {
@@ -93,12 +93,12 @@ fn is_absolute_ftp_path(path: &str) -> bool {
     if path.is_empty() {
         return false;
     }
-    
+
     let path_buf = Path::new(path);
     if path_buf.is_absolute() {
         return true;
     }
-    
+
     let first_char = path.chars().next().unwrap();
     first_char == '/' || first_char == '\\'
 }
@@ -106,36 +106,35 @@ fn is_absolute_ftp_path(path: &str) -> bool {
 fn is_valid_path_component(name: &std::ffi::OsStr) -> bool {
     let name_str = name.to_string_lossy();
     let name_str = name_str.trim();
-    
+
     if name_str.is_empty() {
         return false;
     }
-    
+
     if name_str == "." || name_str == ".." {
         return true;
     }
-    
+
     if name_str.contains(':') {
         return false;
     }
-    
+
     if cfg!(windows) {
         let invalid_chars = ['<', '>', '"', '|', '?', '*'];
         if name_str.chars().any(|c| invalid_chars.contains(&c)) {
             return false;
         }
-        
+
         let reserved_names = [
-            "CON", "PRN", "AUX", "NUL",
-            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+            "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+            "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
         ];
         let upper = name_str.to_uppercase();
         if reserved_names.contains(&upper.as_str()) {
             return false;
         }
     }
-    
+
     true
 }
 
@@ -164,13 +163,11 @@ fn resolve_path_internal(
     }
 
     if is_absolute_ftp_path(clean_path) {
-        let relative = clean_path
-            .trim_start_matches('/')
-            .trim_start_matches('\\');
+        let relative = clean_path.trim_start_matches('/').trim_start_matches('\\');
         if relative.is_empty() {
             return Ok(home_canon.to_path_buf());
         }
-        
+
         let relative_path = Path::new(relative);
         for component in relative_path.components() {
             if let Component::Prefix(_) | Component::RootDir = component {
@@ -191,9 +188,9 @@ fn resolve_path_internal(
                 return Err(PathResolveError::InvalidPath);
             }
         }
-        
+
         let resolved_path = home_canon.join(relative);
-        
+
         if !resolved_path.starts_with(home_canon) {
             tracing::warn!(
                 "resolve_path_internal: Absolute path outside home directory - resolved: {:?}, home: {:?}, input: {:?}",
@@ -203,7 +200,7 @@ fn resolve_path_internal(
             );
             return Err(PathResolveError::PathEscape);
         }
-        
+
         Ok(resolved_path)
     } else {
         let clean_path_path = Path::new(clean_path);
@@ -226,7 +223,7 @@ fn resolve_path_internal(
                 return Err(PathResolveError::InvalidPath);
             }
         }
-        
+
         let base = if cwd.is_empty() {
             home_canon.to_path_buf()
         } else {
@@ -241,9 +238,9 @@ fn resolve_path_internal(
             }
             cwd_path
         };
-        
+
         let resolved_path = base.join(clean_path);
-        
+
         Ok(resolved_path)
     }
 }
@@ -256,9 +253,9 @@ fn build_safe_path(
     let mut safe_path = home_canon.to_path_buf();
     let home_components: Vec<_> = home_canon.components().collect();
     let resolved_components: Vec<_> = resolved.components().collect();
-    
+
     let mut relative_depth: usize = 0;
-    
+
     for (i, component) in resolved_components.iter().enumerate() {
         match component {
             Component::Prefix(_) | Component::RootDir => {
@@ -274,7 +271,7 @@ fn build_safe_path(
                     );
                     return Err(PathResolveError::PathEscape);
                 }
-                
+
                 if !safe_path.pop() {
                     tracing::warn!(
                         "build_safe_path: Failed to pop path - input: {:?}, resolved: {:?}",
@@ -283,7 +280,7 @@ fn build_safe_path(
                     );
                     return Err(PathResolveError::PathEscape);
                 }
-                
+
                 if !path_starts_with_ignore_case(&safe_path, home_canon) {
                     tracing::warn!(
                         "build_safe_path: Path escape after pop - input: {:?}, safe_path: {:?}, home: {:?}",
@@ -293,14 +290,14 @@ fn build_safe_path(
                     );
                     return Err(PathResolveError::PathEscape);
                 }
-                
+
                 relative_depth = relative_depth.saturating_sub(1);
             }
             Component::Normal(name) => {
                 if i < home_components.len() {
                     continue;
                 }
-                
+
                 if !is_valid_path_component(name) {
                     tracing::warn!(
                         "build_safe_path: Invalid component name - component: {:?}, input: {:?}",
@@ -309,10 +306,10 @@ fn build_safe_path(
                     );
                     return Err(PathResolveError::InvalidPath);
                 }
-                
+
                 safe_path.push(name);
                 relative_depth += 1;
-                
+
                 if relative_depth > MAX_PATH_DEPTH {
                     tracing::warn!(
                         "build_safe_path: Path depth exceeded - depth: {}, max: {}, input: {:?}",
@@ -325,7 +322,7 @@ fn build_safe_path(
             }
         }
     }
-    
+
     if !path_starts_with_ignore_case(&safe_path, home_canon) {
         tracing::warn!(
             "build_safe_path: Final path outside home - safe_path: {:?}, home: {:?}, input: {:?}",
@@ -335,7 +332,7 @@ fn build_safe_path(
         );
         return Err(PathResolveError::PathEscape);
     }
-    
+
     Ok(safe_path)
 }
 
@@ -356,7 +353,7 @@ fn canonicalize_and_validate(
                 );
                 return Err(PathResolveError::PathEscape);
             }
-            
+
             if !allow_symlink
                 && let Ok(metadata) = path.symlink_metadata()
                 && metadata.file_type().is_symlink()
@@ -368,7 +365,7 @@ fn canonicalize_and_validate(
                 );
                 return Err(PathResolveError::SymlinkNotAllowed);
             }
-            
+
             Ok(canon)
         }
         Err(e) => {
@@ -527,7 +524,7 @@ pub fn resolve_directory_path(
     path: &str,
 ) -> Result<PathBuf, PathResolveError> {
     let input_desc = format!("cwd={}, home={}, path={}", cwd, home_dir, path);
-    
+
     let home = PathBuf::from(home_dir);
     let home_canon = home.canonicalize().map_err(|e| {
         tracing::error!(
@@ -609,10 +606,7 @@ pub fn safe_resolve_path_no_symlink(
     }
 }
 
-pub fn validate_existing_path(
-    path: &Path,
-    home_canon: &Path,
-) -> Result<PathBuf, PathResolveError> {
+pub fn validate_existing_path(path: &Path, home_canon: &Path) -> Result<PathBuf, PathResolveError> {
     let canon = path.canonicalize().map_err(|e| {
         tracing::warn!(
             "validate_existing_path: Canonicalize failed - path: {:?}, error: {}",
@@ -621,7 +615,7 @@ pub fn validate_existing_path(
         );
         PathResolveError::CanonicalizeFailed
     })?;
-    
+
     if !canon.starts_with(home_canon) {
         tracing::warn!(
             "validate_existing_path: Path escape detected - canonicalized: {:?}, home: {:?}",
@@ -630,7 +624,7 @@ pub fn validate_existing_path(
         );
         return Err(PathResolveError::PathEscape);
     }
-    
+
     Ok(canon)
 }
 
@@ -642,7 +636,7 @@ fn validate_symlink_chain(
 ) -> Result<PathBuf, PathResolveError> {
     let mut current = PathBuf::new();
     let mut components = path.components().peekable();
-    
+
     while let Some(component) = components.next() {
         match component {
             Component::Prefix(_) | Component::RootDir => {
@@ -654,70 +648,66 @@ fn validate_symlink_chain(
             }
             Component::Normal(name) => {
                 current.push(name);
-                
+
                 // 检查当前路径是否是符号链接
                 if let Ok(metadata) = current.symlink_metadata()
                     && metadata.file_type().is_symlink()
                 {
-                        // 读取符号链接目标
-                        let link_target = match std::fs::read_link(&current) {
-                            Ok(target) => target,
-                            Err(e) => {
-                                tracing::warn!(
-                                    "validate_symlink_chain: Failed to read symlink - path: {:?}, error: {}, input: {:?}",
-                                    current,
-                                    e,
-                                    input_desc
-                                );
-                                return Err(PathResolveError::SymlinkNotAllowed);
-                            }
-                        };
-                        
-                        // 解析符号链接目标
-                        let resolved_target = if link_target.is_absolute() {
-                            link_target.clone()
-                        } else {
-                            let parent = current.parent().unwrap_or(Path::new("/"));
-                            parent.join(&link_target)
-                        };
-                        
-                        // 规范化符号链接目标
-                        let canon_target = match resolved_target.canonicalize() {
-                            Ok(canon) => canon,
-                            Err(_) => {
-                                // 目标不存在，使用安全路径构建
-                                let parent = current.parent().unwrap_or(Path::new("/"));
-                                build_safe_path(
-                                    home_canon,
-                                    &parent.join(&link_target),
-                                    input_desc,
-                                )?
-                            }
-                        };
-                        
-                        // 验证符号链接目标是否在主目录内
-                        if !path_starts_with_ignore_case(&canon_target, home_canon) {
+                    // 读取符号链接目标
+                    let link_target = match std::fs::read_link(&current) {
+                        Ok(target) => target,
+                        Err(e) => {
                             tracing::warn!(
-                                "validate_symlink_chain: Symlink target outside home - link: {:?}, target: {:?}, home: {:?}, input: {:?}",
+                                "validate_symlink_chain: Failed to read symlink - path: {:?}, error: {}, input: {:?}",
                                 current,
-                                canon_target,
-                                home_canon,
+                                e,
                                 input_desc
                             );
                             return Err(PathResolveError::SymlinkNotAllowed);
                         }
-                        
-                        tracing::debug!(
-                            "validate_symlink_chain: Valid symlink - link: {:?}, target: {:?}",
-                            current,
-                            canon_target
-                        );
-                        
-                        // 继续验证符号链接目标内部的组件
-                        if components.peek().is_some() {
-                            // 还有后续组件，需要继续验证
-                            current = canon_target;
+                    };
+
+                    // 解析符号链接目标
+                    let resolved_target = if link_target.is_absolute() {
+                        link_target.clone()
+                    } else {
+                        let parent = current.parent().unwrap_or(Path::new("/"));
+                        parent.join(&link_target)
+                    };
+
+                    // 规范化符号链接目标
+                    let canon_target = match resolved_target.canonicalize() {
+                        Ok(canon) => canon,
+                        Err(_) => {
+                            // 目标不存在，使用安全路径构建
+                            let parent = current.parent().unwrap_or(Path::new("/"));
+                            build_safe_path(home_canon, &parent.join(&link_target), input_desc)?
                         }
+                    };
+
+                    // 验证符号链接目标是否在主目录内
+                    if !path_starts_with_ignore_case(&canon_target, home_canon) {
+                        tracing::warn!(
+                            "validate_symlink_chain: Symlink target outside home - link: {:?}, target: {:?}, home: {:?}, input: {:?}",
+                            current,
+                            canon_target,
+                            home_canon,
+                            input_desc
+                        );
+                        return Err(PathResolveError::SymlinkNotAllowed);
+                    }
+
+                    tracing::debug!(
+                        "validate_symlink_chain: Valid symlink - link: {:?}, target: {:?}",
+                        current,
+                        canon_target
+                    );
+
+                    // 继续验证符号链接目标内部的组件
+                    if components.peek().is_some() {
+                        // 还有后续组件，需要继续验证
+                        current = canon_target;
+                    }
                 }
             }
         }
@@ -728,7 +718,7 @@ fn validate_symlink_chain(
         Ok(canon) => canon,
         Err(_) => current,
     };
-    
+
     if !path_starts_with_ignore_case(&final_path, home_canon) {
         tracing::warn!(
             "validate_symlink_chain: Final path outside home - path: {:?}, home: {:?}, input: {:?}",
@@ -738,7 +728,7 @@ fn validate_symlink_chain(
         );
         return Err(PathResolveError::PathEscape);
     }
-    
+
     Ok(final_path)
 }
 
@@ -760,16 +750,24 @@ mod tests {
         assert!(is_valid_path_component(std::ffi::OsStr::new("valid_name")));
         assert!(is_valid_path_component(std::ffi::OsStr::new("..")));
         assert!(is_valid_path_component(std::ffi::OsStr::new(".")));
-        assert!(!is_valid_path_component(std::ffi::OsStr::new("invalid:name")));
+        assert!(!is_valid_path_component(std::ffi::OsStr::new(
+            "invalid:name"
+        )));
         assert!(!is_valid_path_component(std::ffi::OsStr::new("")));
     }
 
     #[test]
     fn test_to_ftp_path_windows() {
         let home = Path::new("C:\\share_test");
-        assert_eq!(to_ftp_path(Path::new("C:\\share_test\\file.txt"), home).unwrap(), "/file.txt");
+        assert_eq!(
+            to_ftp_path(Path::new("C:\\share_test\\file.txt"), home).unwrap(),
+            "/file.txt"
+        );
         assert_eq!(to_ftp_path(Path::new("C:\\share_test"), home).unwrap(), "/");
-        assert_eq!(to_ftp_path(Path::new("C:\\share_test\\subdir\\file.txt"), home).unwrap(), "/subdir/file.txt");
+        assert_eq!(
+            to_ftp_path(Path::new("C:\\share_test\\subdir\\file.txt"), home).unwrap(),
+            "/subdir/file.txt"
+        );
     }
 
     #[test]
@@ -777,11 +775,11 @@ mod tests {
         let home = PathBuf::from("C:\\share_test");
         if home.exists() {
             let home_canon = home.canonicalize().unwrap();
-            
+
             let result = resolve_path_internal("", &home_canon, "/subdir/file.txt").unwrap();
             assert!(result.starts_with(&home_canon));
             assert!(result.to_string_lossy().contains("subdir"));
-            
+
             let result2 = resolve_path_internal("", &home_canon, "/").unwrap();
             assert_eq!(result2, home_canon);
         }
@@ -792,7 +790,7 @@ mod tests {
         let home = PathBuf::from("C:\\share_test");
         if home.exists() {
             let home_canon = home.canonicalize().unwrap();
-            
+
             let result = resolve_path_internal("", &home_canon, "file.txt").unwrap();
             assert!(result.starts_with(&home_canon));
             assert!(result.to_string_lossy().ends_with("file.txt"));
