@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Windows 构建和测试
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: 安装 Rust
+      uses: dtolnay/rust-action@stable
+      with:
+        toolchain: stable
+        target: x86_64-pc-windows-msvc
+    
+    - name: 缓存依赖
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: |
+          wftpg -> ./wftpg
+          wftpd -> ./wftpd
+    
+    - name: 构建 wftpg (GUI)
+      run: |
+        cd wftpg
+        cargo build --release --verbose
+      shell: pwsh
+    
+    - name: 构建 wftpd (Daemon)
+      run: |
+        cd wftpd
+        cargo build --release --verbose
+      shell: pwsh
+    
+    - name: 运行 clippy 检查
+      run: |
+        cd wftpg
+        cargo clippy -- -D warnings
+        cd ../wftpd
+        cargo clippy -- -D warnings
+      shell: pwsh
+    
+    - name: 运行测试
+      run: |
+        cd wftpg
+        cargo test --release
+        cd ../wftpd
+        cargo test --release
+      shell: pwsh
+    
+    - name: 上传构建产物
+      uses: actions/upload-artifact@v4
+      with:
+        name: wftpg-windows-build
+        path: |
+          wftpg/target/release/wftpg.exe
+          wftpg/target/release/wftpd.exe
+        retention-days: 30
+
+  # Linux 交叉编译检查
+  check-linux:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: 安装 Rust
+      uses: dtolnay/rust-action@stable
+    
+    - name: 缓存依赖
+      uses: Swatinem/rust-cache@v2
+    
+    - name: 检查代码格式
+      run: |
+        rustup component add rustfmt
+        cargo fmt --check
+      working-directory: wftpg
+    
+    - name: Clippy 检查
+      run: |
+        cargo clippy -- -D warnings
+      working-directory: wftpg
+
+  # 发布版本
+  release:
+    needs: [build-windows]
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: 安装 Rust
+      uses: dtolnay/rust-action@stable
+    
+    - name: 构建发布版本
+      run: |
+        cd wftpg
+        cargo build --release --verbose
+        cd ../wftpd
+        cargo build --release --verbose
+      shell: pwsh
+    
+    - name: 打包发布文件
+      run: |
+        $version = $env:GITHUB_REF_NAME -replace 'v', ''
+        New-Item -ItemType Directory -Force -Path "release"
+        Copy-Item "wftpg/target/release/wftpg.exe" "release/"
+        Copy-Item "wftpd/target/release/wftpd.exe" "release/"
+        Compress-Archive -Path "release/*" -DestinationPath "WFTPG-$version-windows-x64.zip"
+        Write-Output "Created WFTPG-$version-windows-x64.zip"
+      shell: pwsh
+    
+    - name: 创建 GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: WFTPG-*.zip
+        generate_release_notes: true
+        draft: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
