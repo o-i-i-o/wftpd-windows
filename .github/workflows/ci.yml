@@ -38,19 +38,7 @@ jobs:
         cd ../wftpd
         cargo fmt --check
       working-directory: wftpg
-    
-    - name: 构建 wftpg (GUI)
-      run: |
-        cd wftpg
-        cargo build --release --verbose
-      shell: pwsh
-    
-    - name: 构建 wftpd (Daemon)
-      run: |
-        cd wftpd
-        cargo build --release --verbose
-      shell: pwsh
-    
+
     - name: 运行 clippy 检查
       run: |
         cd wftpg
@@ -65,6 +53,18 @@ jobs:
         cargo test --release
         cd ../wftpd
         cargo test --release
+      shell: pwsh
+
+    - name: 构建 wftpg (GUI)
+      run: |
+        cd wftpg
+        cargo build --release --verbose
+      shell: pwsh
+    
+    - name: 构建 wftpd (Daemon)
+      run: |
+        cd wftpd
+        cargo build --release --verbose
       shell: pwsh
     
     - name: 上传构建产物
