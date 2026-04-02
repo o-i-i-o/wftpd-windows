@@ -246,10 +246,10 @@ impl ServerManager {
             ControlService(service, SERVICE_CONTROL_STOP, &mut status).context("无法停止服务")?;
 
             for _ in 0..30 {
-                if QueryServiceStatus(service, &mut status).is_ok() {
-                    if status.dwCurrentState == SERVICE_STOPPED {
-                        break;
-                    }
+                if QueryServiceStatus(service, &mut status).is_ok()
+                    && status.dwCurrentState == SERVICE_STOPPED
+                {
+                    break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
