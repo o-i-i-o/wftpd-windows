@@ -366,6 +366,7 @@ WFTPG 采用前后端分离的双进程架构：
 本项目使用 GitHub Actions 进行持续集成，自动执行以下任务：
 
 - ✅ Windows 平台构建和测试
+- ✅ 代码格式检查 (rustfmt)
 - ✅ Clippy 代码质量检查
 - ✅ 自动化测试运行
 - ✅ 版本发布和打包
@@ -380,7 +381,7 @@ WFTPG 采用前后端分离的双进程架构：
 
 当创建以 `v` 开头的标签（如 `v3.2.15`）时，CI 将自动：
 1. 构建 release 版本
-2. 打包为 ZIP 文件
+2. 打包为 ZIP 文件（包含 wftpg.exe、wftpd.exe、安装.cmd、卸载.cmd）
 3. 创建 GitHub Release 并上传构建产物
 
 ## 常见问题 (FAQ)

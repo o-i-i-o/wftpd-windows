@@ -13,7 +13,7 @@ env:
 
 jobs:
   # Windows 构建和测试
-  build-windows:
+  build:
     runs-on: windows-latest
     
     steps:
@@ -24,6 +24,7 @@ jobs:
       with:
         toolchain: stable
         target: x86_64-pc-windows-msvc
+        components: rustfmt, clippy
     
     - name: 缓存依赖
       uses: Swatinem/rust-cache@v2
@@ -31,6 +32,10 @@ jobs:
         workspaces: |
           wftpg -> ./wftpg
           wftpd -> ./wftpd
+      
+    - name: 检查代码格式
+      run: cargo fmt --check
+      working-directory: wftpg
     
     - name: 构建 wftpg (GUI)
       run: |
@@ -47,9 +52,9 @@ jobs:
     - name: 运行 clippy 检查
       run: |
         cd wftpg
-        cargo clippy -- -D warnings
+        cargo clippy --release -- -D warnings
         cd ../wftpd
-        cargo clippy -- -D warnings
+        cargo clippy --release -- -D warnings
       shell: pwsh
     
     - name: 运行测试
@@ -66,36 +71,12 @@ jobs:
         name: wftpg-windows-build
         path: |
           wftpg/target/release/wftpg.exe
-          wftpg/target/release/wftpd.exe
+          wftpd/target/release/wftpd.exe
         retention-days: 30
-
-  # Linux 交叉编译检查
-  check-linux:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: 安装 Rust
-      uses: dtolnay/rust-action@stable
-    
-    - name: 缓存依赖
-      uses: Swatinem/rust-cache@v2
-    
-    - name: 检查代码格式
-      run: |
-        rustup component add rustfmt
-        cargo fmt --check
-      working-directory: wftpg
-    
-    - name: Clippy 检查
-      run: |
-        cargo clippy -- -D warnings
-      working-directory: wftpg
 
   # 发布版本
   release:
-    needs: [build-windows]
+    needs: [build]
     runs-on: windows-latest
     if: startsWith(github.ref, 'refs/tags/v')
     
@@ -104,6 +85,9 @@ jobs:
     
     - name: 安装 Rust
       uses: dtolnay/rust-action@stable
+      with:
+        toolchain: stable
+        target: x86_64-pc-windows-msvc
     
     - name: 构建发布版本
       run: |
@@ -119,6 +103,8 @@ jobs:
         New-Item -ItemType Directory -Force -Path "release"
         Copy-Item "wftpg/target/release/wftpg.exe" "release/"
         Copy-Item "wftpd/target/release/wftpd.exe" "release/"
+        Copy-Item "..\安装.cmd" "release/"
+        Copy-Item "..\卸载.cmd" "release/"
         Compress-Archive -Path "release/*" -DestinationPath "WFTPG-$version-windows-x64.zip"
         Write-Output "Created WFTPG-$version-windows-x64.zip"
       shell: pwsh
