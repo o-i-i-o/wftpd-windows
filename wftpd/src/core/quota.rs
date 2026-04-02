@@ -1,11 +1,11 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
-use std::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct QuotaUsage {
@@ -40,12 +40,12 @@ impl QuotaManager {
         if !path.exists() {
             return Ok(QuotaData::default());
         }
-        
+
         let content = fs::read_to_string(path)?;
         if content.trim().is_empty() {
             return Ok(QuotaData::default());
         }
-        
+
         let data: QuotaData = serde_json::from_str(&content)?;
         Ok(data)
     }
@@ -77,10 +77,7 @@ impl QuotaManager {
 
     pub async fn get_usage(&self, username: &str) -> u64 {
         let data = self.data.lock().await;
-        data.users
-            .get(username)
-            .map(|u| u.used_bytes)
-            .unwrap_or(0)
+        data.users.get(username).map(|u| u.used_bytes).unwrap_or(0)
     }
 
     pub async fn check_quota(
@@ -90,11 +87,8 @@ impl QuotaManager {
         additional_bytes: u64,
     ) -> Result<bool> {
         let data = self.data.lock().await;
-        let used = data.users
-            .get(username)
-            .map(|u| u.used_bytes)
-            .unwrap_or(0);
-        
+        let used = data.users.get(username).map(|u| u.used_bytes).unwrap_or(0);
+
         let quota_bytes = quota_mb * 1024 * 1024;
         Ok(used.saturating_add(additional_bytes) <= quota_bytes)
     }
@@ -133,9 +127,8 @@ impl QuotaManager {
 
     pub async fn recalculate_usage(&self, username: &str, home_dir: &Path) -> Result<u64> {
         let home_dir = home_dir.to_path_buf();
-        let total_size = tokio::task::spawn_blocking(move || {
-            Self::calculate_dir_size(&home_dir)
-        }).await
+        let total_size = tokio::task::spawn_blocking(move || Self::calculate_dir_size(&home_dir))
+            .await
             .map_err(|e| anyhow::anyhow!("spawn_blocking error: {}", e))??;
 
         {
@@ -150,11 +143,11 @@ impl QuotaManager {
 
     fn calculate_dir_size(path: &Path) -> Result<u64> {
         let mut total_size = 0u64;
-        
+
         if path.is_file() {
             return Ok(fs::metadata(path)?.len());
         }
-        
+
         if path.is_dir() {
             let entries = fs::read_dir(path)?;
             for entry in entries {
@@ -167,7 +160,7 @@ impl QuotaManager {
                 }
             }
         }
-        
+
         Ok(total_size)
     }
 
@@ -181,7 +174,7 @@ pub fn format_size(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;
     const GB: u64 = MB * 1024;
-    
+
     if bytes >= GB {
         format!("{:.2} GB", bytes as f64 / GB as f64)
     } else if bytes >= MB {

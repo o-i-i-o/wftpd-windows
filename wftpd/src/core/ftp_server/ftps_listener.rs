@@ -3,9 +3,9 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 
 use crate::core::config::Config;
-use crate::core::users::UserManager;
-use crate::core::quota::QuotaManager;
 use crate::core::ftp_server::tls::TlsConfig;
+use crate::core::quota::QuotaManager;
+use crate::core::users::UserManager;
 
 pub async fn start_ftps_implicit_server(
     config: Arc<Mutex<Config>>,
@@ -22,11 +22,12 @@ pub async fn start_ftps_implicit_server(
     let bind_addr = format!("{}:{}", bind_ip, ftps_port);
 
     let listener = {
-        use socket2::{Domain, Protocol, Socket, Type, SockAddr};
+        use socket2::{Domain, Protocol, SockAddr, Socket, Type};
         let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
         socket.set_reuse_address(true)?;
         socket.set_nonblocking(true)?;
-        let addr: std::net::SocketAddr = bind_addr.parse()
+        let addr: std::net::SocketAddr = bind_addr
+            .parse()
             .map_err(|e| anyhow::anyhow!("Invalid bind address: {}", e))?;
         socket.bind(&SockAddr::from(addr))?;
         socket.listen(128)?;

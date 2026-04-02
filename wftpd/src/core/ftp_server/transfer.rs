@@ -1,11 +1,11 @@
 use anyhow::Result;
+use std::net::ToSocketAddrs;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use std::net::ToSocketAddrs;
 
 use super::passive::PassiveManager;
 use crate::core::rate_limiter::RateLimiter;
@@ -27,17 +27,19 @@ pub async fn get_data_connection(
         None => anyhow::bail!("No data port specified"),
     };
 
-    tracing::debug!("get_data_connection: passive_mode={}, port={}, remote_ip={}", passive_mode, port, remote_ip);
+    tracing::debug!(
+        "get_data_connection: passive_mode={}, port={}, remote_ip={}",
+        passive_mode,
+        port,
+        remote_ip
+    );
 
     if passive_mode {
         let listener = passive_manager.get_listener(port);
 
         if let Some(listener) = listener {
             tracing::debug!("Attempting to accept passive connection on port {}", port);
-            match tokio::time::timeout(
-                Duration::from_secs(30),
-                listener.accept()
-            ).await {
+            match tokio::time::timeout(Duration::from_secs(30), listener.accept()).await {
                 Ok(Ok((stream, addr))) => {
                     tracing::debug!("Passive connection accepted from {}", addr);
                     Ok(stream)
@@ -57,30 +59,30 @@ pub async fn get_data_connection(
         }
     } else if let Some(addr) = data_addr {
         tracing::debug!("Active mode: connecting to {}", addr);
-        let socket_addr = addr.to_socket_addrs()
+        let socket_addr = addr
+            .to_socket_addrs()
             .map_err(|e| anyhow::anyhow!("Invalid address {}: {}", addr, e))?
             .next()
             .ok_or_else(|| anyhow::anyhow!("Could not resolve address: {}", addr))?;
-        let stream = tokio::time::timeout(
-            Duration::from_secs(30),
-            TcpStream::connect(&socket_addr)
-        ).await
-            .map_err(|_| anyhow::anyhow!("Connection timeout"))?
-            .map_err(|e| anyhow::anyhow!("Failed to connect: {}", e))?;
+        let stream =
+            tokio::time::timeout(Duration::from_secs(30), TcpStream::connect(&socket_addr))
+                .await
+                .map_err(|_| anyhow::anyhow!("Connection timeout"))?
+                .map_err(|e| anyhow::anyhow!("Failed to connect: {}", e))?;
         Ok(stream)
     } else {
         let addr = format!("{}:{}", remote_ip, port);
         tracing::debug!("Active mode (fallback): connecting to {}", addr);
-        let socket_addr = addr.to_socket_addrs()
+        let socket_addr = addr
+            .to_socket_addrs()
             .map_err(|e| anyhow::anyhow!("Invalid address {}: {}", addr, e))?
             .next()
             .ok_or_else(|| anyhow::anyhow!("Could not resolve address: {}", addr))?;
-        let stream = tokio::time::timeout(
-            Duration::from_secs(30),
-            TcpStream::connect(&socket_addr)
-        ).await
-            .map_err(|_| anyhow::anyhow!("Connection timeout"))?
-            .map_err(|e| anyhow::anyhow!("Failed to connect: {}", e))?;
+        let stream =
+            tokio::time::timeout(Duration::from_secs(30), TcpStream::connect(&socket_addr))
+                .await
+                .map_err(|_| anyhow::anyhow!("Connection timeout"))?
+                .map_err(|e| anyhow::anyhow!("Failed to connect: {}", e))?;
         Ok(stream)
     }
 }
@@ -92,14 +94,20 @@ pub async fn receive_file(
     abort: Arc<AtomicBool>,
     is_ascii: bool,
 ) -> Result<u64> {
-    tracing::debug!("receive_file: path={}, offset={}, is_ascii={}", file_path.display(), offset, is_ascii);
-    
+    tracing::debug!(
+        "receive_file: path={}, offset={}, is_ascii={}",
+        file_path.display(),
+        offset,
+        is_ascii
+    );
+
     let file_result = if offset > 0 {
         tokio::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(false)
-            .open(file_path).await
+            .open(file_path)
+            .await
     } else {
         tokio::fs::File::create(file_path).await
     };
@@ -107,11 +115,15 @@ pub async fn receive_file(
     let mut file = match file_result {
         Ok(f) => f,
         Err(e) => {
-            tracing::error!("Failed to create/open file '{}': {}", file_path.display(), e);
+            tracing::error!(
+                "Failed to create/open file '{}': {}",
+                file_path.display(),
+                e
+            );
             return Err(anyhow::anyhow!("Failed to create file: {}", e));
         }
     };
-    
+
     if offset > 0
         && let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await
     {
@@ -122,7 +134,7 @@ pub async fn receive_file(
     let mut buf = [0u8; DEFAULT_BUFFER_SIZE];
     let mut total_written: u64 = 0;
     let mut transfer_error: Option<anyhow::Error> = None;
-    
+
     loop {
         if abort.load(Ordering::Relaxed) {
             tracing::debug!("Transfer aborted by client");
@@ -130,7 +142,10 @@ pub async fn receive_file(
         }
         match data_stream.read(&mut buf).await {
             Ok(0) => {
-                tracing::debug!("Data connection closed (EOF), total written: {}", total_written);
+                tracing::debug!(
+                    "Data connection closed (EOF), total written: {}",
+                    total_written
+                );
                 break;
             }
             Ok(n) => {
@@ -159,11 +174,19 @@ pub async fn receive_file(
     }
 
     if let Some(e) = transfer_error {
-        tracing::error!("STOR failed: {} bytes written before error to {}", total_written, file_path.display());
+        tracing::error!(
+            "STOR failed: {} bytes written before error to {}",
+            total_written,
+            file_path.display()
+        );
         return Err(e);
     }
 
-    tracing::debug!("STOR completed: {} bytes written to {}", total_written, file_path.display());
+    tracing::debug!(
+        "STOR completed: {} bytes written to {}",
+        total_written,
+        file_path.display()
+    );
     Ok(total_written)
 }
 
@@ -176,12 +199,13 @@ pub async fn receive_file_append(
     let mut file = tokio::fs::OpenOptions::new()
         .append(true)
         .create(true)
-        .open(file_path).await?;
+        .open(file_path)
+        .await?;
 
     let mut buf = [0u8; DEFAULT_BUFFER_SIZE];
     let mut total_written: u64 = 0;
     let mut transfer_error: Option<anyhow::Error> = None;
-    
+
     loop {
         if abort.load(Ordering::Relaxed) {
             break;
@@ -228,14 +252,20 @@ pub async fn receive_file_with_limits(
     is_ascii: bool,
     rate_limiter: Option<&RateLimiter>,
 ) -> Result<u64> {
-    tracing::debug!("receive_file_with_limits: path={}, offset={}, is_ascii={}", file_path.display(), offset, is_ascii);
-    
+    tracing::debug!(
+        "receive_file_with_limits: path={}, offset={}, is_ascii={}",
+        file_path.display(),
+        offset,
+        is_ascii
+    );
+
     let file_result = if offset > 0 {
         tokio::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(false)
-            .open(file_path).await
+            .open(file_path)
+            .await
     } else {
         tokio::fs::File::create(file_path).await
     };
@@ -243,11 +273,15 @@ pub async fn receive_file_with_limits(
     let mut file = match file_result {
         Ok(f) => f,
         Err(e) => {
-            tracing::error!("Failed to create/open file '{}': {}", file_path.display(), e);
+            tracing::error!(
+                "Failed to create/open file '{}': {}",
+                file_path.display(),
+                e
+            );
             return Err(anyhow::anyhow!("Failed to create file: {}", e));
         }
     };
-    
+
     if offset > 0
         && let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await
     {
@@ -258,7 +292,7 @@ pub async fn receive_file_with_limits(
     let mut buf = [0u8; DEFAULT_BUFFER_SIZE];
     let mut total_written: u64 = 0;
     let mut transfer_error: Option<anyhow::Error> = None;
-    
+
     loop {
         if abort.load(Ordering::Relaxed) {
             tracing::debug!("Transfer aborted by client");
@@ -266,14 +300,17 @@ pub async fn receive_file_with_limits(
         }
         match data_stream.read(&mut buf).await {
             Ok(0) => {
-                tracing::debug!("Data connection closed (EOF), total written: {}", total_written);
+                tracing::debug!(
+                    "Data connection closed (EOF), total written: {}",
+                    total_written
+                );
                 break;
             }
             Ok(n) => {
                 if let Some(limiter) = rate_limiter {
                     limiter.acquire(n).await;
                 }
-                
+
                 let data = if is_ascii {
                     convert_crlf_to_lf(&buf[..n])
                 } else {
@@ -299,11 +336,19 @@ pub async fn receive_file_with_limits(
     }
 
     if let Some(e) = transfer_error {
-        tracing::error!("STOR failed: {} bytes written before error to {}", total_written, file_path.display());
+        tracing::error!(
+            "STOR failed: {} bytes written before error to {}",
+            total_written,
+            file_path.display()
+        );
         return Err(e);
     }
 
-    tracing::debug!("STOR completed: {} bytes written to {}", total_written, file_path.display());
+    tracing::debug!(
+        "STOR completed: {} bytes written to {}",
+        total_written,
+        file_path.display()
+    );
     Ok(total_written)
 }
 
@@ -316,14 +361,14 @@ pub async fn send_file_with_limits(
     rate_limiter: Option<&RateLimiter>,
 ) -> Result<()> {
     let mut file = tokio::fs::File::open(file_path).await?;
-    
+
     if offset > 0 {
         file.seek(std::io::SeekFrom::Start(offset)).await?;
     }
 
     let mut buf = [0u8; DEFAULT_BUFFER_SIZE];
     let mut transfer_error: Option<anyhow::Error> = None;
-    
+
     loop {
         if abort.load(Ordering::Relaxed) {
             break;
@@ -334,7 +379,7 @@ pub async fn send_file_with_limits(
                 if let Some(limiter) = rate_limiter {
                     limiter.acquire(n).await;
                 }
-                
+
                 let data = if is_ascii {
                     convert_lf_to_crlf(&buf[..n])
                 } else {
@@ -378,7 +423,8 @@ pub async fn send_directory_listing(
         if entry_count >= MAX_ENTRIES_PER_BATCH {
             tracing::warn!(
                 "Directory listing truncated: {} entries limit reached for {:?}",
-                MAX_ENTRIES_PER_BATCH, dir_path
+                MAX_ENTRIES_PER_BATCH,
+                dir_path
             );
             break;
         }
@@ -391,11 +437,7 @@ pub async fn send_directory_listing(
                 entries_data.extend_from_slice(line.as_bytes());
             } else {
                 let is_dir = metadata.is_dir();
-                let perms = if is_dir {
-                    "drwxr-xr-x"
-                } else {
-                    "-rw-r--r--"
-                };
+                let perms = if is_dir { "drwxr-xr-x" } else { "-rw-r--r--" };
                 let size = metadata.len();
                 let mtime = get_file_mtime(&metadata);
                 let nlink = if is_dir { 2 } else { 1 };
@@ -438,7 +480,8 @@ pub async fn send_mlsd_listing(
         if entry_count >= MAX_ENTRIES_PER_BATCH {
             tracing::warn!(
                 "MLSD listing truncated: {} entries limit reached for {:?}",
-                MAX_ENTRIES_PER_BATCH, dir_path
+                MAX_ENTRIES_PER_BATCH,
+                dir_path
             );
             break;
         }
@@ -476,10 +519,11 @@ pub fn get_file_mtime(metadata: &std::fs::Metadata) -> String {
 pub fn get_file_mtime_raw(metadata: &std::fs::Metadata) -> String {
     use std::time::UNIX_EPOCH;
     if let Ok(time) = metadata.modified()
-        && let Ok(_d) = time.duration_since(UNIX_EPOCH) {
-            let dt: chrono::DateTime<chrono::Local> = time.into();
-            return dt.format("%Y%m%d%H%M%S").to_string();
-        }
+        && let Ok(_d) = time.duration_since(UNIX_EPOCH)
+    {
+        let dt: chrono::DateTime<chrono::Local> = time.into();
+        return dt.format("%Y%m%d%H%M%S").to_string();
+    }
     "19700101000000".to_string()
 }
 
@@ -498,7 +542,7 @@ pub fn build_mlst_facts(metadata: &std::fs::Metadata, owner: &str) -> String {
         let dt: chrono::DateTime<chrono::Utc> = time.into();
         facts.push(format!("modify={}", dt.format("%Y%m%d%H%M%S")));
     }
-    
+
     facts.push(format!("UNIX.owner={}", owner));
     facts.push(format!("UNIX.group={}", owner));
 
@@ -509,13 +553,11 @@ pub fn build_mlst_facts(metadata: &std::fs::Metadata, owner: &str) -> String {
 /// 使用预分配和迭代器优化
 fn convert_lf_to_crlf(data: &[u8]) -> Vec<u8> {
     // 先扫描需要添加的\r数量，精确分配内存
-    let lf_count = data.iter()
-        .filter(|&&b| b == b'\n')
-        .count();
-    
+    let lf_count = data.iter().filter(|&&b| b == b'\n').count();
+
     // 预分配足够空间（假设每个\n 前都需要添加\r）
     let mut result = Vec::with_capacity(data.len() + lf_count);
-    
+
     // 使用迭代器处理，避免索引边界检查
     let mut prev_was_cr = false;
     for &byte in data {
@@ -531,7 +573,7 @@ fn convert_lf_to_crlf(data: &[u8]) -> Vec<u8> {
             prev_was_cr = byte == b'\r';
         }
     }
-    
+
     result
 }
 
@@ -539,13 +581,14 @@ fn convert_lf_to_crlf(data: &[u8]) -> Vec<u8> {
 /// 使用预分配和迭代器优化
 fn convert_crlf_to_lf(data: &[u8]) -> Vec<u8> {
     // 先扫描需要移除的\r数量
-    let crlf_count = data.windows(2)
+    let crlf_count = data
+        .windows(2)
         .filter(|window| window[0] == b'\r' && window[1] == b'\n')
         .count();
-    
+
     // 预分配空间（移除所有 CRLF 中的\r）
     let mut result = Vec::with_capacity(data.len() - crlf_count);
-    
+
     // 使用迭代器处理
     let mut iter = data.iter().peekable();
     while let Some(&byte) = iter.next() {
@@ -560,6 +603,6 @@ fn convert_crlf_to_lf(data: &[u8]) -> Vec<u8> {
             result.push(byte);
         }
     }
-    
+
     result
 }

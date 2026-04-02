@@ -7,14 +7,14 @@
 #![windows_subsystem = "windows"]
 extern crate windows_service;
 
-use wftpd::AppState;
-use wftpd::core::ipc::{IpcServer, ReloadCommand, ReloadResponse};
-use wftpd::core::windows_ipc::PIPE_NAME;
 use std::ffi::OsString;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
+use wftpd::AppState;
+use wftpd::core::ipc::{IpcServer, ReloadCommand, ReloadResponse};
+use wftpd::core::windows_ipc::PIPE_NAME;
 use windows_service::{
     define_windows_service,
     service::{
@@ -67,7 +67,9 @@ fn run_service() -> windows_service::Result<()> {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Failed to initialize: {e}");
-            return Err(windows_service::Error::Winapi(std::io::Error::other("Failed to initialize")));
+            return Err(windows_service::Error::Winapi(std::io::Error::other(
+                "Failed to initialize",
+            )));
         }
     };
 
@@ -142,7 +144,11 @@ fn run_service() -> windows_service::Result<()> {
 }
 
 /// 运行主循环（支持优雅关闭）
-fn run_main_loop_with_shutdown(state: &Arc<AppState>, ipc_server: &IpcServer, running: &Arc<AtomicBool>) {
+fn run_main_loop_with_shutdown(
+    state: &Arc<AppState>,
+    ipc_server: &IpcServer,
+    running: &Arc<AtomicBool>,
+) {
     while running.load(Ordering::SeqCst) {
         match ipc_server.accept_timeout(Duration::from_millis(100)) {
             Ok(Some(mut connection)) => {
@@ -182,7 +188,10 @@ fn run_console_application() {
         }
     };
 
-    tracing::info!("WFTPD - SFTP/FTP Server Daemon v{}", env!("CARGO_PKG_VERSION"));
+    tracing::info!(
+        "WFTPD - SFTP/FTP Server Daemon v{}",
+        env!("CARGO_PKG_VERSION")
+    );
 
     let ipc_server = match create_ipc_server() {
         Ok(s) => s,
@@ -230,16 +239,18 @@ fn setup_signal_handler(state: &Arc<AppState>) {
 
         tracing::warn!("Graceful shutdown timeout reached, forcing exit");
         std::process::exit(0);
-    }).expect("Error setting Ctrl-C handler");
+    })
+    .expect("Error setting Ctrl-C handler");
 }
 
 fn start_enabled_services(state: &Arc<AppState>) {
     let (ftp_enabled, sftp_enabled) = get_enabled_services(state);
 
     if (ftp_enabled || sftp_enabled)
-        && let Err(e) = state.start_all() {
-            tracing::error!("Failed to start services: {e}");
-        }
+        && let Err(e) = state.start_all()
+    {
+        tracing::error!("Failed to start services: {e}");
+    }
 }
 
 fn get_enabled_services(state: &Arc<AppState>) -> (bool, bool) {
@@ -252,7 +263,9 @@ fn get_enabled_services(state: &Arc<AppState>) -> (bool, bool) {
         match state.config.try_lock() {
             Some(cfg) => (cfg.ftp.enabled, cfg.sftp.enabled),
             None => {
-                tracing::error!("Cannot acquire config lock for service startup, services will not start");
+                tracing::error!(
+                    "Cannot acquire config lock for service startup, services will not start"
+                );
                 (false, false)
             }
         }

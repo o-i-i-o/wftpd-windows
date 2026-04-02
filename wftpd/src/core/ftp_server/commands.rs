@@ -17,7 +17,7 @@ pub enum FtpCommand {
     MODE(Option<String>),
     STRU(Option<String>),
     ALLO,
-    OPTS(Option<String>, Option<String>),  // (option, value)
+    OPTS(Option<String>, Option<String>), // (option, value)
     REST(Option<String>),
     PASV,
     EPSV,
@@ -84,7 +84,7 @@ impl FtpCommand {
                 } else {
                     FtpCommand::OPTS(None, None)
                 }
-            },
+            }
             "REST" => FtpCommand::REST(arg.map(|s| s.to_string())),
             "PASV" => FtpCommand::PASV,
             "EPSV" => FtpCommand::EPSV,

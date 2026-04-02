@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use std::io::{Read, Write};
 use std::os::windows::io::{AsRawHandle, RawHandle};
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use windows::Win32::Foundation::*;
 use windows::Win32::Storage::FileSystem::*;
-use windows::Win32::System::Pipes::*;
 use windows::Win32::System::IO::*;
+use windows::Win32::System::Pipes::*;
 use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 
 pub const PIPE_NAME: &str = "wftpd";
@@ -27,8 +27,11 @@ unsafe impl Sync for IpcServerInner {}
 
 impl IpcServerInner {
     pub fn new() -> Result<Self> {
-        let pipe_path: Vec<u16> = get_pipe_path().encode_utf16().chain(std::iter::once(0)).collect();
-        
+        let pipe_path: Vec<u16> = get_pipe_path()
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+
         unsafe {
             let handle = CreateNamedPipeW(
                 windows::core::PCWSTR(pipe_path.as_ptr()),
@@ -40,46 +43,62 @@ impl IpcServerInner {
                 0,
                 None,
             );
-            
+
             if handle.is_invalid() {
-                anyhow::bail!("Failed to create named pipe: {}", std::io::Error::last_os_error());
+                anyhow::bail!(
+                    "Failed to create named pipe: {}",
+                    std::io::Error::last_os_error()
+                );
             }
-            
+
             tracing::info!("Named pipe server created: {}", get_pipe_path());
-            
-            Ok(IpcServerInner { 
-                handle: AtomicPtr::new(handle.0) 
+
+            Ok(IpcServerInner {
+                handle: AtomicPtr::new(handle.0),
             })
         }
     }
-    
+
     pub fn accept(&self) -> Result<IpcStream> {
         unsafe {
             let event = CreateEventW(None, true, false, None)?;
-            let mut overlapped = OVERLAPPED { hEvent: event, ..Default::default() };
-            
+            let mut overlapped = OVERLAPPED {
+                hEvent: event,
+                ..Default::default()
+            };
+
             let current_handle = HANDLE(self.handle.load(Ordering::SeqCst));
-            
+
             let result = ConnectNamedPipe(current_handle, Some(&mut overlapped));
-            
+
             match result {
                 Ok(()) => {}
                 Err(e) if e.code() == ERROR_IO_PENDING.to_hresult() => {
                     let mut bytes_transferred: u32 = 0;
-                    let success = GetOverlappedResult(current_handle, &overlapped, &mut bytes_transferred, true);
+                    let success = GetOverlappedResult(
+                        current_handle,
+                        &overlapped,
+                        &mut bytes_transferred,
+                        true,
+                    );
                     if success.is_err() {
                         anyhow::bail!("Failed to wait for pipe connection");
                     }
                 }
-                Err(e) if e.code() == ERROR_PIPE_CONNECTED.to_hresult() => {
-                }
+                Err(e) if e.code() == ERROR_PIPE_CONNECTED.to_hresult() => {}
                 Err(e) => {
                     anyhow::bail!("Failed to connect named pipe: {:?}", e);
                 }
             }
-            
+
             let new_handle = CreateNamedPipeW(
-                windows::core::PCWSTR(get_pipe_path().encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>().as_ptr()),
+                windows::core::PCWSTR(
+                    get_pipe_path()
+                        .encode_utf16()
+                        .chain(std::iter::once(0))
+                        .collect::<Vec<u16>>()
+                        .as_ptr(),
+                ),
                 PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
                 PIPE_UNLIMITED_INSTANCES,
@@ -88,22 +107,27 @@ impl IpcServerInner {
                 0,
                 None,
             );
-            
+
             self.handle.store(new_handle.0, Ordering::SeqCst);
-            
-            Ok(IpcStream { handle: current_handle })
+
+            Ok(IpcStream {
+                handle: current_handle,
+            })
         }
     }
-    
+
     pub fn accept_timeout(&self, timeout: Duration) -> Result<Option<IpcStream>> {
         unsafe {
             let event = CreateEventW(None, true, false, None)?;
-            let mut overlapped = OVERLAPPED { hEvent: event, ..Default::default() };
-            
+            let mut overlapped = OVERLAPPED {
+                hEvent: event,
+                ..Default::default()
+            };
+
             let current_handle = HANDLE(self.handle.load(Ordering::SeqCst));
-            
+
             let result = ConnectNamedPipe(current_handle, Some(&mut overlapped));
-            
+
             match result {
                 Ok(()) => {}
                 Err(e) if e.code() == ERROR_IO_PENDING.to_hresult() => {
@@ -112,22 +136,32 @@ impl IpcServerInner {
                         CancelIo(current_handle)?;
                         return Ok(None);
                     }
-                    
+
                     let mut bytes_transferred: u32 = 0;
-                    let success = GetOverlappedResult(current_handle, &overlapped, &mut bytes_transferred, false);
+                    let success = GetOverlappedResult(
+                        current_handle,
+                        &overlapped,
+                        &mut bytes_transferred,
+                        false,
+                    );
                     if success.is_err() {
                         anyhow::bail!("Failed to wait for pipe connection");
                     }
                 }
-                Err(e) if e.code() == ERROR_PIPE_CONNECTED.to_hresult() => {
-                }
+                Err(e) if e.code() == ERROR_PIPE_CONNECTED.to_hresult() => {}
                 Err(e) => {
                     anyhow::bail!("Failed to connect named pipe: {:?}", e);
                 }
             }
-            
+
             let new_handle = CreateNamedPipeW(
-                windows::core::PCWSTR(get_pipe_path().encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>().as_ptr()),
+                windows::core::PCWSTR(
+                    get_pipe_path()
+                        .encode_utf16()
+                        .chain(std::iter::once(0))
+                        .collect::<Vec<u16>>()
+                        .as_ptr(),
+                ),
                 PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
                 PIPE_UNLIMITED_INSTANCES,
@@ -136,10 +170,12 @@ impl IpcServerInner {
                 0,
                 None,
             );
-            
+
             self.handle.store(new_handle.0, Ordering::SeqCst);
-            
-            Ok(Some(IpcStream { handle: current_handle }))
+
+            Ok(Some(IpcStream {
+                handle: current_handle,
+            }))
         }
     }
 }
@@ -163,17 +199,17 @@ unsafe impl Send for IpcStream {}
 
 impl IpcStream {
     pub fn connect() -> Result<Self> {
-        let pipe_path: Vec<u16> = get_pipe_path().encode_utf16().chain(std::iter::once(0)).collect();
-        
+        let pipe_path: Vec<u16> = get_pipe_path()
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+
         unsafe {
             let mut attempts = 0;
             const MAX_ATTEMPTS: u32 = 3;
             loop {
-                let result = WaitNamedPipeW(
-                    windows::core::PCWSTR(pipe_path.as_ptr()),
-                    500,
-                );
-                
+                let result = WaitNamedPipeW(windows::core::PCWSTR(pipe_path.as_ptr()), 500);
+
                 if !result.as_bool() {
                     attempts += 1;
                     if attempts >= MAX_ATTEMPTS {
@@ -184,7 +220,7 @@ impl IpcStream {
                 }
                 break;
             }
-            
+
             let handle = CreateFileW(
                 windows::core::PCWSTR(pipe_path.as_ptr()),
                 (GENERIC_READ | GENERIC_WRITE).0,
@@ -194,11 +230,14 @@ impl IpcStream {
                 FILE_ATTRIBUTE_NORMAL,
                 None,
             )?;
-            
+
             if handle.is_invalid() {
-                anyhow::bail!("Failed to connect to pipe: {}", std::io::Error::last_os_error());
+                anyhow::bail!(
+                    "Failed to connect to pipe: {}",
+                    std::io::Error::last_os_error()
+                );
             }
-            
+
             Ok(IpcStream { handle })
         }
     }
@@ -208,13 +247,8 @@ impl Read for &IpcStream {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         unsafe {
             let mut bytes_read: u32 = 0;
-            let result = ReadFile(
-                self.handle,
-                Some(buf),
-                Some(&mut bytes_read),
-                None,
-            );
-            
+            let result = ReadFile(self.handle, Some(buf), Some(&mut bytes_read), None);
+
             match result {
                 Ok(()) => Ok(bytes_read as usize),
                 Err(e) => Err(std::io::Error::other(e)),
@@ -227,20 +261,15 @@ impl Write for &IpcStream {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         unsafe {
             let mut bytes_written: u32 = 0;
-            let result = WriteFile(
-                self.handle,
-                Some(buf),
-                Some(&mut bytes_written),
-                None,
-            );
-            
+            let result = WriteFile(self.handle, Some(buf), Some(&mut bytes_written), None);
+
             match result {
                 Ok(()) => Ok(bytes_written as usize),
                 Err(e) => Err(std::io::Error::other(e)),
             }
         }
     }
-    
+
     fn flush(&mut self) -> std::io::Result<()> {
         unsafe {
             let result = FlushFileBuffers(self.handle);

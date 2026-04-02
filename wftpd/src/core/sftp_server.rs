@@ -1,21 +1,23 @@
 use anyhow::Result;
 use parking_lot::Mutex;
-use russh::*;
-use russh::keys::*;
-use russh::keys::ssh_key::rand_core::OsRng;
-use russh::server::Msg;
 use russh::MethodKind;
+use russh::keys::ssh_key::rand_core::OsRng;
+use russh::keys::*;
+use russh::server::Msg;
+use russh::*;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::collections::HashSet;
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::core::config::{Config, get_program_data_path};
-use crate::core::users::UserManager;
+use crate::core::path_utils::{
+    PathResolveError, path_starts_with_ignore_case, safe_resolve_path_with_cwd, to_ftp_path,
+};
 use crate::core::quota::QuotaManager;
 use crate::core::rate_limiter::RateLimiter;
-use crate::core::path_utils::{safe_resolve_path_with_cwd, to_ftp_path, PathResolveError, path_starts_with_ignore_case};
+use crate::core::users::UserManager;
 
 const SSH_FXF_READ: u32 = 0x00000001;
 const SSH_FXF_WRITE: u32 = 0x00000002;
@@ -40,10 +42,7 @@ pub struct SftpServer {
 }
 
 impl SftpServer {
-    pub fn new(
-        config: Arc<Mutex<Config>>,
-        user_manager: Arc<Mutex<UserManager>>,
-    ) -> Self {
+    pub fn new(config: Arc<Mutex<Config>>, user_manager: Arc<Mutex<UserManager>>) -> Self {
         let quota_manager = QuotaManager::new(&get_program_data_path());
 
         SftpServer {
@@ -81,16 +80,16 @@ impl SftpServer {
         let mut methods = MethodSet::empty();
         methods.push(MethodKind::Password);
         methods.push(MethodKind::PublicKey);
-        
+
         // 创建 SSH 服务器配置
         let ssh_config = russh::server::Config {
             keys: vec![host_key],
             methods,
             ..Default::default()
         };
-        
+
         // SSH 转发功能已禁用（SFTP 不需要这些功能）
-        
+
         let config = Arc::new(ssh_config);
 
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
@@ -110,13 +109,14 @@ impl SftpServer {
         let quota_manager_clone = Arc::clone(&self.quota_manager);
 
         let bind_addr = format!("{}:{}", bind_ip, sftp_port);
-        
+
         let listener = {
-            use socket2::{Domain, Protocol, Socket, Type, SockAddr};
+            use socket2::{Domain, Protocol, SockAddr, Socket, Type};
             let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
             socket.set_reuse_address(true)?;
             socket.set_nonblocking(true)?;
-            let addr: std::net::SocketAddr = bind_addr.parse()
+            let addr: std::net::SocketAddr = bind_addr
+                .parse()
                 .map_err(|e| anyhow::anyhow!("Invalid bind address: {}", e))?;
             socket.bind(&SockAddr::from(addr))?;
             socket.listen(128)?;
@@ -139,7 +139,7 @@ impl SftpServer {
                                 let user_manager = Arc::clone(&user_manager_clone);
                                 let quota_manager = Arc::clone(&quota_manager_clone);
                                 let client_ip = peer_addr.ip().to_string();
-                                
+
                                 // 检查连接数限制
                                 let config_for_check = Arc::clone(&config_clone);
                                 let ip_allowed = {
@@ -154,7 +154,7 @@ impl SftpServer {
                                     );
                                     continue;
                                 }
-                                
+
                                 // 注册连接
                                 {
                                     let cfg = config_for_check.lock();
@@ -185,7 +185,7 @@ impl SftpServer {
                                     if let Err(e) = russh::server::run_stream(ssh_config, socket, handler).await {
                                         tracing::error!("SSH connection error from {}: {}", peer_addr, e);
                                     }
-                                    
+
                                     // 连接结束时注销
                                     {
                                         let cfg = config_for_check.lock();
@@ -330,7 +330,12 @@ impl russh::server::Handler for SftpHandler {
                             self.home_dir = Some(home_canon.to_string_lossy().to_string());
                         }
                         Err(e) => {
-                            tracing::error!("SFTP auth failed: cannot canonicalize home directory '{}' for user '{}': {}", u.home_dir, user, e);
+                            tracing::error!(
+                                "SFTP auth failed: cannot canonicalize home directory '{}' for user '{}': {}",
+                                u.home_dir,
+                                user,
+                                e
+                            );
                             tracing::warn!(
                                 client_ip = %self.client_ip,
                                 username = %user,
@@ -379,7 +384,7 @@ impl russh::server::Handler for SftpHandler {
                     protocol = "SFTP",
                     "Authentication error for user {}: {}", user, e
                 );
-                Ok(server::Auth::Reject { 
+                Ok(server::Auth::Reject {
                     proceed_with_methods: None,
                     partial_success: false,
                 })
@@ -395,12 +400,19 @@ impl russh::server::Handler for SftpHandler {
         let (enabled, user_pubkey_path, home_dir) = {
             let users = self.user_manager.lock();
             if let Some(u) = users.get_user(user) {
-                (u.enabled, get_program_data_path().join(format!("keys/{}.pub", user)).to_string_lossy().to_string(), Some(u.home_dir.clone()))
+                (
+                    u.enabled,
+                    get_program_data_path()
+                        .join(format!("keys/{}.pub", user))
+                        .to_string_lossy()
+                        .to_string(),
+                    Some(u.home_dir.clone()),
+                )
             } else {
                 (false, String::new(), None)
             }
         };
-        
+
         if !enabled {
             tracing::warn!(
                 client_ip = %self.client_ip,
@@ -408,48 +420,54 @@ impl russh::server::Handler for SftpHandler {
                 action = "AUTH_FAIL",
                 "Public key auth failed for user {}: user not found or disabled", user
             );
-            return Ok(server::Auth::Reject { 
+            return Ok(server::Auth::Reject {
                 proceed_with_methods: None,
                 partial_success: false,
             });
         }
-        
+
         if let Ok(stored_key) = tokio::fs::read_to_string(&user_pubkey_path).await
             && let Ok(stored_pubkey) = keys::parse_public_key_base64(stored_key.trim())
-                && public_key == &stored_pubkey {
-                    if let Some(ref hd) = home_dir {
-                        match std::path::PathBuf::from(hd).canonicalize() {
-                            Ok(home_canon) => {
-                                self.home_dir = Some(home_canon.to_string_lossy().to_string());
-                            }
-                            Err(e) => {
-                                tracing::error!("SFTP pubkey auth failed: cannot canonicalize home directory '{}' for user '{}': {}", hd, user, e);
-                                tracing::warn!(
-                                    client_ip = %self.client_ip,
-                                    username = %user,
-                                    action = "HOME_NOT_FOUND",
-                                    "Home directory not found for user {}: {}", user, hd
-                                );
-                                return Ok(server::Auth::Reject {
-                                    proceed_with_methods: None,
-                                    partial_success: false,
-                                });
-                            }
-                        }
+            && public_key == &stored_pubkey
+        {
+            if let Some(ref hd) = home_dir {
+                match std::path::PathBuf::from(hd).canonicalize() {
+                    Ok(home_canon) => {
+                        self.home_dir = Some(home_canon.to_string_lossy().to_string());
                     }
-
-                    self.authenticated = true;
-                    self.username = Some(user.to_string());
-
-                    tracing::info!(
-                        client_ip = %self.client_ip,
-                        username = %user,
-                        action = "LOGIN",
-                        "User {} logged in via public key", user
-                    );
-
-                    return Ok(server::Auth::Accept);
+                    Err(e) => {
+                        tracing::error!(
+                            "SFTP pubkey auth failed: cannot canonicalize home directory '{}' for user '{}': {}",
+                            hd,
+                            user,
+                            e
+                        );
+                        tracing::warn!(
+                            client_ip = %self.client_ip,
+                            username = %user,
+                            action = "HOME_NOT_FOUND",
+                            "Home directory not found for user {}: {}", user, hd
+                        );
+                        return Ok(server::Auth::Reject {
+                            proceed_with_methods: None,
+                            partial_success: false,
+                        });
+                    }
                 }
+            }
+
+            self.authenticated = true;
+            self.username = Some(user.to_string());
+
+            tracing::info!(
+                client_ip = %self.client_ip,
+                username = %user,
+                action = "LOGIN",
+                "User {} logged in via public key", user
+            );
+
+            return Ok(server::Auth::Accept);
+        }
 
         tracing::warn!(
             client_ip = %self.client_ip,
@@ -458,7 +476,7 @@ impl russh::server::Handler for SftpHandler {
             "Public key auth failed for user {}: key mismatch or not found", user
         );
 
-        Ok(server::Auth::Reject { 
+        Ok(server::Auth::Reject {
             proceed_with_methods: None,
             partial_success: false,
         })
@@ -569,11 +587,11 @@ impl russh::server::Handler for SftpHandler {
         if name == "sftp" && self.authenticated {
             if let Some(ref home_dir) = self.home_dir {
                 let _ = session.channel_success(channel);
-                
+
                 self.sftp_channel = Some(channel);
-                
+
                 let username = self.username.clone();
-                
+
                 let mut state = SftpState {
                     home_dir: home_dir.clone(),
                     cwd: home_dir.clone(),
@@ -593,7 +611,7 @@ impl russh::server::Handler for SftpHandler {
                 };
                 state.cache_permissions();
                 state.init_rate_limiter();
-                
+
                 self.sftp_state = Some(Arc::new(TokioMutex::new(state)));
             } else {
                 tracing::error!("SFTP subsystem request failed: home directory not set");
@@ -612,22 +630,23 @@ impl russh::server::Handler for SftpHandler {
         session: &mut server::Session,
     ) -> Result<(), Self::Error> {
         if self.sftp_channel == Some(channel)
-            && let Some(state) = &self.sftp_state {
-                let state_clone = Arc::clone(state);
-                let handle = session.handle();
-                let data_vec = data.to_vec();
-                
-                tokio::spawn(async move {
-                    let response = {
-                        let mut state = state_clone.lock().await;
-                        state.process_sftp_data(&data_vec).await
-                    };
-                    
-                    if let Ok(resp) = response {
-                        let _ = handle.data(channel, bytes::Bytes::from(resp)).await;
-                    }
-                });
-            }
+            && let Some(state) = &self.sftp_state
+        {
+            let state_clone = Arc::clone(state);
+            let handle = session.handle();
+            let data_vec = data.to_vec();
+
+            tokio::spawn(async move {
+                let response = {
+                    let mut state = state_clone.lock().await;
+                    state.process_sftp_data(&data_vec).await
+                };
+
+                if let Ok(resp) = response {
+                    let _ = handle.data(channel, bytes::Bytes::from(resp)).await;
+                }
+            });
+        }
         Ok(())
     }
 
@@ -637,10 +656,11 @@ impl russh::server::Handler for SftpHandler {
         _session: &mut server::Session,
     ) -> Result<(), Self::Error> {
         if self.sftp_channel == Some(channel)
-            && let Some(state) = &self.sftp_state {
-                let mut state = state.lock().await;
-                state.cleanup();
-            }
+            && let Some(state) = &self.sftp_state
+        {
+            let mut state = state.lock().await;
+            state.cleanup();
+        }
         Ok(())
     }
 }
@@ -657,18 +677,25 @@ impl SftpState {
             self.buffer.clear();
             return Ok(self.build_status_packet(0, 4, "Buffer overflow", ""));
         }
-        
+
         self.buffer.extend_from_slice(data);
 
         let mut responses: Vec<u8> = Vec::new();
 
         while self.buffer.len() >= 4 {
             let packet_len = u32::from_be_bytes([
-                self.buffer[0], self.buffer[1], self.buffer[2], self.buffer[3],
+                self.buffer[0],
+                self.buffer[1],
+                self.buffer[2],
+                self.buffer[3],
             ]) as usize;
 
             if packet_len > MAX_PACKET_SIZE {
-                tracing::warn!("SFTP packet too large: {} bytes (max {})", packet_len, MAX_PACKET_SIZE);
+                tracing::warn!(
+                    "SFTP packet too large: {} bytes (max {})",
+                    packet_len,
+                    MAX_PACKET_SIZE
+                );
                 self.buffer.clear();
                 return Ok(self.build_status_packet(0, 4, "Packet too large", ""));
             }
@@ -689,16 +716,20 @@ impl SftpState {
         Ok(responses)
     }
 
-    fn check_permission(&self, check_fn: impl Fn(&crate::core::users::Permissions) -> bool) -> bool {
+    fn check_permission(
+        &self,
+        check_fn: impl Fn(&crate::core::users::Permissions) -> bool,
+    ) -> bool {
         // 检查缓存是否过期（5 秒有效期）
         if let Some(expiry) = self.cache_expiry
-            && std::time::Instant::now() < expiry {
+            && std::time::Instant::now() < expiry
+        {
             // 缓存有效，返回缓存结果
             if let Some(&result) = self.permission_cache.get("check") {
                 return result;
             }
         }
-        
+
         // 缓存失效或不存在，执行实际检查
         if let Some(perms) = &self.cached_permissions {
             check_fn(perms)
@@ -720,32 +751,35 @@ impl SftpState {
             if let Some(user) = users.get_user(username) {
                 self.cached_permissions = Some(user.permissions);
                 // 设置缓存有效期（5 秒）
-                self.cache_expiry = Some(std::time::Instant::now() + std::time::Duration::from_secs(2));
+                self.cache_expiry =
+                    Some(std::time::Instant::now() + std::time::Duration::from_secs(2));
                 // 预计算常用权限检查结果
                 self.permission_cache.insert("check".to_string(), true);
             }
         }
     }
-    
+
     fn refresh_permissions(&mut self) {
         self.cached_permissions = None;
         self.cache_permissions();
     }
-    
+
     fn init_rate_limiter(&mut self) {
         if let Some(perms) = &self.cached_permissions
-            && let Some(speed_kbps) = perms.speed_limit_kbps {
-                self.rate_limiter = Some(RateLimiter::new(speed_kbps));
+            && let Some(speed_kbps) = perms.speed_limit_kbps
+        {
+            self.rate_limiter = Some(RateLimiter::new(speed_kbps));
         }
     }
 
     fn cleanup(&mut self) {
         for (_, handle) in self.handles.drain() {
             if let SftpFileHandle::File { locked, path, .. } = handle
-                && locked {
-                    tracing::info!("Releasing lock on {:?} during cleanup", path);
-                    self.locked_files.remove(&path);
-                }
+                && locked
+            {
+                tracing::info!("Releasing lock on {:?} during cleanup", path);
+                self.locked_files.remove(&path);
+            }
         }
         self.locked_files.clear();
         tracing::info!("SFTP session cleanup completed");
@@ -793,7 +827,7 @@ impl SftpState {
         };
 
         self.sftp_version = version.min(6);
-        
+
         self.refresh_permissions();
 
         let mut payload = vec![2];
@@ -810,7 +844,10 @@ impl SftpState {
         }
 
         if self.handles.len() >= MAX_HANDLES {
-            tracing::warn!("SFTP OPENDIR denied: too many open handles ({})", self.handles.len());
+            tracing::warn!(
+                "SFTP OPENDIR denied: too many open handles ({})",
+                self.handles.len()
+            );
             return Ok(self.build_status_packet(id, 4, "Too many open handles", ""));
         }
 
@@ -831,11 +868,14 @@ impl SftpState {
         }
 
         let handle = self.generate_handle();
-        self.handles.insert(handle.clone(), SftpFileHandle::Dir {
-            path: full_path,
-            entries: Vec::new(),
-            index: 0,
-        });
+        self.handles.insert(
+            handle.clone(),
+            SftpFileHandle::Dir {
+                path: full_path,
+                entries: Vec::new(),
+                index: 0,
+            },
+        );
 
         Ok(self.build_handle_packet(id, &handle))
     }
@@ -844,18 +884,30 @@ impl SftpState {
         let id = self.parse_u32(data, 1);
         let handle = self.parse_string(data, 5)?;
 
-        if let Some(SftpFileHandle::File { path, locked, existed, written_bytes, read_bytes, pending_flush_bytes: _, mut file }) = self.handles.remove(&handle) {
+        if let Some(SftpFileHandle::File {
+            path,
+            locked,
+            existed,
+            written_bytes,
+            read_bytes,
+            pending_flush_bytes: _,
+            mut file,
+        }) = self.handles.remove(&handle)
+        {
             // 关闭前确保刷新所有未写入的数据
             use tokio::io::AsyncWriteExt;
             let _ = file.flush().await; // 忽略 flush 错误，因为可能已经关闭
-            
+
             if locked {
                 self.locked_files.remove(&path);
             }
-            
+
             if written_bytes > 0 {
-                let file_size = tokio::fs::metadata(&path).await.map(|m| m.len()).unwrap_or(written_bytes);
-                
+                let file_size = tokio::fs::metadata(&path)
+                    .await
+                    .map(|m| m.len())
+                    .unwrap_or(written_bytes);
+
                 if existed {
                     crate::file_op_log!(
                         update,
@@ -875,7 +927,6 @@ impl SftpState {
                         "SFTP"
                     );
                 }
-
             }
 
             if read_bytes > 0 {
@@ -901,20 +952,33 @@ impl SftpState {
         let entries_result = {
             let handle = self.handles.get_mut(&handle_str);
             match handle {
-                Some(SftpFileHandle::Dir { path, entries, index }) => {
+                Some(SftpFileHandle::Dir {
+                    path,
+                    entries,
+                    index,
+                }) => {
                     if entries.is_empty() && *index == 0 {
                         let mut read_entries = Vec::new();
                         match tokio::fs::read_dir(path).await {
                             Ok(mut dir) => {
                                 while let Ok(Some(entry)) = dir.next_entry().await {
                                     let name = entry.file_name().to_string_lossy().to_string();
-                                    let is_dir = entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false);
+                                    let is_dir = entry
+                                        .file_type()
+                                        .await
+                                        .map(|t| t.is_dir())
+                                        .unwrap_or(false);
                                     let size = entry.metadata().await.map(|m| m.len()).unwrap_or(0);
                                     read_entries.push((name, is_dir, size));
                                 }
                             }
                             Err(e) => {
-                                return Ok(self.build_status_packet(id, 4, &format!("Failed to read directory: {}", e), ""));
+                                return Ok(self.build_status_packet(
+                                    id,
+                                    4,
+                                    &format!("Failed to read directory: {}", e),
+                                    "",
+                                ));
                             }
                         }
                         *entries = read_entries;
@@ -925,7 +989,8 @@ impl SftpState {
                     }
 
                     let count = (entries.len() - *index).min(100);
-                    let result_entries: Vec<(String, bool, u64)> = entries[*index..*index + count].to_vec();
+                    let result_entries: Vec<(String, bool, u64)> =
+                        entries[*index..*index + count].to_vec();
                     *index += count;
                     Some(result_entries)
                 }
@@ -938,18 +1003,20 @@ impl SftpState {
                 let mut payload = vec![104];
                 payload.extend_from_slice(&id.to_be_bytes());
                 payload.extend_from_slice(&(dir_entries.len() as u32).to_be_bytes());
-                
+
                 for (name, is_dir, size) in dir_entries {
                     payload.extend_from_slice(&(name.len() as u32).to_be_bytes());
                     payload.extend_from_slice(name.as_bytes());
-                    
-                    let long_name = format!("{} 1 user user {:>10} Jan 01 00:00 {}", 
+
+                    let long_name = format!(
+                        "{} 1 user user {:>10} Jan 01 00:00 {}",
                         if is_dir { "drwxr-xr-x" } else { "-rw-r--r--" },
-                        size, name
+                        size,
+                        name
                     );
                     payload.extend_from_slice(&(long_name.len() as u32).to_be_bytes());
                     payload.extend_from_slice(long_name.as_bytes());
-                    
+
                     payload.extend_from_slice(&self.build_attrs(is_dir, size));
                 }
 
@@ -967,27 +1034,33 @@ impl SftpState {
         let len = self.parse_u32(data, offset_pos + 8) as usize;
 
         if !self.check_permission(|p| p.can_read) {
-            tracing::warn!("SFTP READ denied: no read permission for user {:?}", self.username);
+            tracing::warn!(
+                "SFTP READ denied: no read permission for user {:?}",
+                self.username
+            );
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
         let handle = self.handles.get_mut(&handle_str);
         match handle {
-            Some(SftpFileHandle::File { path, file, read_bytes, .. }) => {
-                use tokio::io::{AsyncSeekExt, AsyncReadExt};
-                
+            Some(SftpFileHandle::File {
+                path,
+                file,
+                read_bytes,
+                ..
+            }) => {
+                use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
                 if let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await {
                     tracing::error!("SFTP READ seek error for {:?}: {}", path, e);
                     return Ok(self.build_status_packet(id, 4, &format!("Seek error: {}", e), ""));
                 }
-                
+
                 let read_len = len.min(SFTP_READ_BUFFER_SIZE);
                 let mut buffer = vec![0u8; read_len];
-                
+
                 match file.read(&mut buffer).await {
-                    Ok(0) => {
-                        Ok(self.build_status_packet(id, 1, "End of file", ""))
-                    }
+                    Ok(0) => Ok(self.build_status_packet(id, 1, "End of file", "")),
                     Ok(n) => {
                         buffer.truncate(n);
                         *read_bytes += n as u64;
@@ -1020,58 +1093,88 @@ impl SftpState {
         let offset_pos = 5 + 4 + handle_len;
         let offset = self.parse_u64(data, offset_pos);
         let data_len = self.parse_u32(data, offset_pos + 8) as usize;
-        
+
         if offset_pos + 12 + data_len > data.len() {
-            tracing::error!("SFTP WRITE: invalid data length - offset_pos={}, data_len={}, packet_len={}", offset_pos, data_len, data.len());
+            tracing::error!(
+                "SFTP WRITE: invalid data length - offset_pos={}, data_len={}, packet_len={}",
+                offset_pos,
+                data_len,
+                data.len()
+            );
             return Ok(self.build_status_packet(id, 4, "Invalid data length", ""));
         }
         let write_data = &data[offset_pos + 12..offset_pos + 12 + data_len];
 
         if !self.check_permission(|p| p.can_write) {
-            tracing::warn!("SFTP WRITE denied: no write permission for user {:?}", self.username);
+            tracing::warn!(
+                "SFTP WRITE denied: no write permission for user {:?}",
+                self.username
+            );
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
         let quota_mb = self.cached_permissions.as_ref().and_then(|p| p.quota_mb);
-        
+
         if let Some(quota) = quota_mb {
-            let current_usage = self.quota_manager.get_usage(self.username.as_deref().unwrap_or("anonymous")).await;
+            let current_usage = self
+                .quota_manager
+                .get_usage(self.username.as_deref().unwrap_or("anonymous"))
+                .await;
             let quota_bytes = quota * 1024 * 1024;
             if current_usage >= quota_bytes {
-                tracing::warn!("SFTP WRITE denied: quota exceeded for user {:?}", self.username);
+                tracing::warn!(
+                    "SFTP WRITE denied: quota exceeded for user {:?}",
+                    self.username
+                );
                 return Ok(self.build_status_packet(id, 4, "Quota exceeded", ""));
             }
         }
 
         let handle = self.handles.get_mut(&handle_str);
         match handle {
-            Some(SftpFileHandle::File { path, file, written_bytes, pending_flush_bytes, .. }) => {
+            Some(SftpFileHandle::File {
+                path,
+                file,
+                written_bytes,
+                pending_flush_bytes,
+                ..
+            }) => {
                 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
-                
+
                 if let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await {
                     tracing::error!("SFTP WRITE seek error for {:?}: {}", path, e);
                     return Ok(self.build_status_packet(id, 4, &format!("Seek error: {}", e), ""));
                 }
-                
+
                 if let Err(e) = file.write_all(write_data).await {
                     tracing::error!("SFTP WRITE error for {:?}: {}", path, e);
                     return Ok(self.build_status_packet(id, 4, &format!("Write error: {}", e), ""));
                 }
-                
+
                 *written_bytes += data_len as u64;
                 *pending_flush_bytes += data_len as u64;
-                
+
                 // 优化的批量刷新：只有当累积到阈值时才 flush
                 if *pending_flush_bytes >= SFTP_WRITE_FLUSH_THRESHOLD as u64 {
                     if let Err(e) = file.flush().await {
                         tracing::error!("SFTP WRITE flush error for {:?}: {}", path, e);
-                        return Ok(self.build_status_packet(id, 4, &format!("Flush error: {}", e), ""));
+                        return Ok(self.build_status_packet(
+                            id,
+                            4,
+                            &format!("Flush error: {}", e),
+                            "",
+                        ));
                     }
                     *pending_flush_bytes = 0;
                 }
-                
-                tracing::debug!("SFTP WRITE: {} bytes to {:?} at offset {} (pending_flush: {})", 
-                    data_len, path, offset, pending_flush_bytes);
+
+                tracing::debug!(
+                    "SFTP WRITE: {} bytes to {:?} at offset {} (pending_flush: {})",
+                    data_len,
+                    path,
+                    offset,
+                    pending_flush_bytes
+                );
 
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
@@ -1161,7 +1264,7 @@ impl SftpState {
         // ✅ Windows 上需要先检查是否是符号链接
         // 符号链接目录需要用 remove_dir 而不是 remove_dir_all
         let is_symlink = full_path.is_symlink();
-        
+
         let result = if is_symlink {
             // 符号链接目录，使用 std::fs::remove_dir
             std::fs::remove_dir(&full_path)
@@ -1191,7 +1294,10 @@ impl SftpState {
         let new_path = self.parse_string(data, new_path_pos)?;
 
         if !self.check_permission(|p| p.can_rename) {
-            tracing::warn!("SFTP RENAME denied: no permission for user {:?}", self.username);
+            tracing::warn!(
+                "SFTP RENAME denied: no permission for user {:?}",
+                self.username
+            );
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
@@ -1210,16 +1316,30 @@ impl SftpState {
             }
         };
 
-        tracing::debug!("SFTP RENAME: raw_old='{}', resolved_old='{}', raw_new='{}', resolved_new='{}'", 
-            old_path, old_full.display(), new_path, new_full.display());
+        tracing::debug!(
+            "SFTP RENAME: raw_old='{}', resolved_old='{}', raw_new='{}', resolved_new='{}'",
+            old_path,
+            old_full.display(),
+            new_path,
+            new_full.display()
+        );
 
         if !old_full.exists() {
-            tracing::warn!("SFTP RENAME failed: source does not exist - {}", old_full.display());
+            tracing::warn!(
+                "SFTP RENAME failed: source does not exist - {}",
+                old_full.display()
+            );
             return Ok(self.build_status_packet(id, 2, "No such file", ""));
         }
 
-        if !path_starts_with_ignore_case(&old_full, &self.home_dir) || !path_starts_with_ignore_case(&new_full, &self.home_dir) {
-            tracing::warn!("SFTP RENAME denied: path outside home - old={}, new={}", old_full.display(), new_full.display());
+        if !path_starts_with_ignore_case(&old_full, &self.home_dir)
+            || !path_starts_with_ignore_case(&new_full, &self.home_dir)
+        {
+            tracing::warn!(
+                "SFTP RENAME denied: path outside home - old={}, new={}",
+                old_full.display(),
+                new_full.display()
+            );
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
@@ -1232,22 +1352,33 @@ impl SftpState {
                         let parent = old_full.parent().unwrap_or(Path::new(&self.home_dir));
                         parent.join(&link_target)
                     };
-                    
+
                     let canon_target = match resolved_target.canonicalize() {
                         Ok(c) => c,
                         Err(_) => {
-                            tracing::warn!("SFTP RENAME denied: cannot resolve symlink target - {}", old_full.display());
+                            tracing::warn!(
+                                "SFTP RENAME denied: cannot resolve symlink target - {}",
+                                old_full.display()
+                            );
                             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
                         }
                     };
-                    
+
                     if !path_starts_with_ignore_case(&canon_target, &self.home_dir) {
-                        tracing::warn!("SFTP RENAME denied: symlink points outside home - {} -> {}", old_full.display(), canon_target.display());
+                        tracing::warn!(
+                            "SFTP RENAME denied: symlink points outside home - {} -> {}",
+                            old_full.display(),
+                            canon_target.display()
+                        );
                         return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("SFTP RENAME failed: cannot read symlink - {}: {}", old_full.display(), e);
+                    tracing::warn!(
+                        "SFTP RENAME failed: cannot read symlink - {}: {}",
+                        old_full.display(),
+                        e
+                    );
                     return Ok(self.build_status_packet(id, 4, "Failed to read symlink", ""));
                 }
             }
@@ -1262,22 +1393,33 @@ impl SftpState {
                         let parent = new_full.parent().unwrap_or(Path::new(&self.home_dir));
                         parent.join(&link_target)
                     };
-                    
+
                     let canon_target = match resolved_target.canonicalize() {
                         Ok(c) => c,
                         Err(_) => {
-                            tracing::warn!("SFTP RENAME denied: cannot resolve destination symlink target - {}", new_full.display());
+                            tracing::warn!(
+                                "SFTP RENAME denied: cannot resolve destination symlink target - {}",
+                                new_full.display()
+                            );
                             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
                         }
                     };
-                    
+
                     if !path_starts_with_ignore_case(&canon_target, &self.home_dir) {
-                        tracing::warn!("SFTP RENAME denied: destination symlink points outside home - {} -> {}", new_full.display(), canon_target.display());
+                        tracing::warn!(
+                            "SFTP RENAME denied: destination symlink points outside home - {} -> {}",
+                            new_full.display(),
+                            canon_target.display()
+                        );
                         return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("SFTP RENAME failed: cannot read destination symlink - {}: {}", new_full.display(), e);
+                    tracing::warn!(
+                        "SFTP RENAME failed: cannot read destination symlink - {}: {}",
+                        new_full.display(),
+                        e
+                    );
                     return Ok(self.build_status_packet(id, 4, "Failed to read symlink", ""));
                 }
             }
@@ -1286,8 +1428,14 @@ impl SftpState {
         match tokio::fs::rename(&old_full, &new_full).await {
             Ok(()) => {
                 // 判断是重命名还是移动：检查父目录是否相同
-                let old_parent = old_full.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-                let new_parent = new_full.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+                let old_parent = old_full
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let new_parent = new_full
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
                 if old_parent == new_parent {
                     crate::file_op_log!(
                         rename,
@@ -1310,7 +1458,13 @@ impl SftpState {
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
             Err(e) => {
-                tracing::error!("SFTP Rename failed: {} -> {}: {} (os error {:?})", old_full.display(), new_full.display(), e, e.raw_os_error());
+                tracing::error!(
+                    "SFTP Rename failed: {} -> {}: {} (os error {:?})",
+                    old_full.display(),
+                    new_full.display(),
+                    e,
+                    e.raw_os_error()
+                );
                 Ok(self.build_status_packet(id, 4, "Failed to rename", ""))
             }
         }
@@ -1357,17 +1511,15 @@ impl SftpState {
 
         let handle = self.handles.get(&handle_str);
         match handle {
-            Some(SftpFileHandle::File { path, .. }) => {
-                match tokio::fs::metadata(path).await {
-                    Ok(metadata) => {
-                        let mut payload = vec![105];
-                        payload.extend_from_slice(&id.to_be_bytes());
-                        payload.extend_from_slice(&self.build_attrs(metadata.is_dir(), metadata.len()));
-                        Ok(self.build_packet(&payload))
-                    }
-                    Err(_) => Ok(self.build_status_packet(id, 2, "No such file", "")),
+            Some(SftpFileHandle::File { path, .. }) => match tokio::fs::metadata(path).await {
+                Ok(metadata) => {
+                    let mut payload = vec![105];
+                    payload.extend_from_slice(&id.to_be_bytes());
+                    payload.extend_from_slice(&self.build_attrs(metadata.is_dir(), metadata.len()));
+                    Ok(self.build_packet(&payload))
                 }
-            }
+                Err(_) => Ok(self.build_status_packet(id, 2, "No such file", "")),
+            },
             _ => Ok(self.build_status_packet(id, 4, "Invalid handle", "")),
         }
     }
@@ -1397,14 +1549,24 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 0, "OK", ""));
         }
 
-        match self.apply_file_attributes(&full_path, &data[attr_offset..]).await {
+        match self
+            .apply_file_attributes(&full_path, &data[attr_offset..])
+            .await
+        {
             Ok(()) => {
                 tracing::debug!("SETSTAT applied to {:?}", full_path);
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
             Err(e) => {
                 tracing::warn!("SETSTAT failed for {:?}: {}", full_path, e);
-                Ok(self.build_status_packet(id, 4, &format!("Failed to set attributes: {}", e), ""))
+                Ok(
+                    self.build_status_packet(
+                        id,
+                        4,
+                        &format!("Failed to set attributes: {}", e),
+                        "",
+                    ),
+                )
             }
         }
     }
@@ -1428,14 +1590,24 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 0, "OK", ""));
         }
 
-        match self.apply_file_attributes(&path, &data[attr_offset..]).await {
+        match self
+            .apply_file_attributes(&path, &data[attr_offset..])
+            .await
+        {
             Ok(()) => {
                 tracing::debug!("FSETSTAT applied to {:?}", path);
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
             Err(e) => {
                 tracing::warn!("FSETSTAT failed for {:?}: {}", path, e);
-                Ok(self.build_status_packet(id, 4, &format!("Failed to set attributes: {}", e), ""))
+                Ok(
+                    self.build_status_packet(
+                        id,
+                        4,
+                        &format!("Failed to set attributes: {}", e),
+                        "",
+                    ),
+                )
             }
         }
     }
@@ -1450,8 +1622,14 @@ impl SftpState {
 
         if flags & 0x00000001 != 0 && offset + 8 <= data.len() {
             let size = u64::from_be_bytes([
-                data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
-                data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7],
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
             ]);
             offset += 8;
 
@@ -1461,19 +1639,40 @@ impl SftpState {
         }
 
         if flags & 0x00000002 != 0 && offset + 4 <= data.len() {
-            let _uid = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
+            let _uid = u32::from_be_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]);
             offset += 4;
-            tracing::debug!("SETSTAT: uid change requested for {:?} (ignored on Windows)", path);
+            tracing::debug!(
+                "SETSTAT: uid change requested for {:?} (ignored on Windows)",
+                path
+            );
         }
 
         if flags & 0x00000004 != 0 && offset + 4 <= data.len() {
-            let _gid = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
+            let _gid = u32::from_be_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]);
             offset += 4;
-            tracing::debug!("SETSTAT: gid change requested for {:?} (ignored on Windows)", path);
+            tracing::debug!(
+                "SETSTAT: gid change requested for {:?} (ignored on Windows)",
+                path
+            );
         }
 
         if flags & 0x00000008 != 0 && offset + 4 <= data.len() {
-            let permissions = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
+            let permissions = u32::from_be_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]);
             offset += 4;
 
             #[cfg(unix)]
@@ -1488,30 +1687,54 @@ impl SftpState {
             }
             #[cfg(windows)]
             {
-                tracing::debug!("SETSTAT: permissions change to {:o} for {:?} (ignored on Windows)", permissions, path);
+                tracing::debug!(
+                    "SETSTAT: permissions change to {:o} for {:?} (ignored on Windows)",
+                    permissions,
+                    path
+                );
             }
         }
 
         if flags & 0x00000010 != 0 && offset + 4 <= data.len() {
-            let atime_sec = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]) as i64;
+            let atime_sec = u32::from_be_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]) as i64;
             offset += 4;
 
             if offset + 4 <= data.len() {
-                let _atime_nsec = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
+                let _atime_nsec = u32::from_be_bytes([
+                    data[offset],
+                    data[offset + 1],
+                    data[offset + 2],
+                    data[offset + 3],
+                ]);
                 offset += 4;
             }
 
             if flags & 0x00000020 != 0 && offset + 4 <= data.len() {
-                let mtime_sec = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]) as i64;
+                let mtime_sec = u32::from_be_bytes([
+                    data[offset],
+                    data[offset + 1],
+                    data[offset + 2],
+                    data[offset + 3],
+                ]) as i64;
                 offset += 4;
 
                 if offset + 4 <= data.len() {
-                    let _mtime_nsec = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
+                    let _mtime_nsec = u32::from_be_bytes([
+                        data[offset],
+                        data[offset + 1],
+                        data[offset + 2],
+                        data[offset + 3],
+                    ]);
                 }
 
                 #[cfg(windows)]
                 {
-                    use std::time::{SystemTime, Duration};
+                    use std::time::{Duration, SystemTime};
                     let mtime = SystemTime::UNIX_EPOCH + Duration::from_secs(mtime_sec as u64);
                     let atime = SystemTime::UNIX_EPOCH + Duration::from_secs(atime_sec as u64);
                     let file = tokio::fs::File::open(path).await?;
@@ -1521,12 +1744,17 @@ impl SftpState {
                         .set_modified(mtime)
                         .set_accessed(atime);
                     std_file.set_times(times)?;
-                    tracing::debug!("SETSTAT: set mtime={:?}, atime={:?} for {:?}", mtime, atime, path);
+                    tracing::debug!(
+                        "SETSTAT: set mtime={:?}, atime={:?} for {:?}",
+                        mtime,
+                        atime,
+                        path
+                    );
                 }
                 #[cfg(not(windows))]
                 {
-                    use std::time::{SystemTime, Duration};
                     use std::os::unix::fs::FileTimesExt;
+                    use std::time::{Duration, SystemTime};
                     let mtime = SystemTime::UNIX_EPOCH + Duration::from_secs(mtime_sec as u64);
                     let atime = SystemTime::UNIX_EPOCH + Duration::from_secs(atime_sec as u64);
                     let file = tokio::fs::File::open(path).await?;
@@ -1535,7 +1763,12 @@ impl SftpState {
                         .set_modified(mtime)
                         .set_accessed(atime);
                     std_file.set_times(times)?;
-                    tracing::debug!("SETSTAT: set mtime={:?}, atime={:?} for {:?}", mtime, atime, path);
+                    tracing::debug!(
+                        "SETSTAT: set mtime={:?}, atime={:?} for {:?}",
+                        mtime,
+                        atime,
+                        path
+                    );
                 }
             }
         }
@@ -1602,7 +1835,12 @@ impl SftpState {
         if offset + 4 > data.len() {
             return 0;
         }
-        u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]])
+        u32::from_be_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ])
     }
 
     fn parse_u64(&self, data: &[u8], offset: usize) -> u64 {
@@ -1610,8 +1848,14 @@ impl SftpState {
             return 0;
         }
         u64::from_be_bytes([
-            data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
-            data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7],
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+            data[offset + 4],
+            data[offset + 5],
+            data[offset + 6],
+            data[offset + 7],
         ])
     }
 
@@ -1684,9 +1928,9 @@ impl SftpState {
         attrs.extend_from_slice(&gid.to_be_bytes());
         // SFTP permissions 格式：高 16 位包含文件类型 (S_IFDIR = 0o40000, S_IFREG = 0o10000)
         let permissions = if is_dir {
-            0o40755u32  // S_IFDIR | 0755
+            0o40755u32 // S_IFDIR | 0755
         } else {
-            0o100644u32  // S_IFREG | 0644
+            0o100644u32 // S_IFREG | 0644
         };
         attrs.extend_from_slice(&permissions.to_be_bytes());
         let now = std::time::SystemTime::now()
@@ -1712,17 +1956,25 @@ impl SftpState {
         let need_excl = pflags & SSH_FXF_EXCL != 0;
 
         if !self.check_permission(|p| {
-            (!need_read || p.can_read) &&
-            (!need_write || p.can_write) &&
-            (!need_append || p.can_append)
+            (!need_read || p.can_read)
+                && (!need_write || p.can_write)
+                && (!need_append || p.can_append)
         }) {
-            tracing::warn!("SFTP OPEN denied: no permission for user {:?} (read={}, write={}, append={})", 
-                self.username, need_read, need_write, need_append);
+            tracing::warn!(
+                "SFTP OPEN denied: no permission for user {:?} (read={}, write={}, append={})",
+                self.username,
+                need_read,
+                need_write,
+                need_append
+            );
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
         if self.handles.len() >= MAX_HANDLES {
-            tracing::warn!("SFTP OPEN denied: too many open handles ({})", self.handles.len());
+            tracing::warn!(
+                "SFTP OPEN denied: too many open handles ({})",
+                self.handles.len()
+            );
             return Ok(self.build_status_packet(id, 4, "Too many open handles", ""));
         }
 
@@ -1735,38 +1987,53 @@ impl SftpState {
         };
         let file_existed = full_path.exists();
 
-        tracing::debug!("SFTP OPEN: raw='{}', resolved='{}', existed={}, flags=0x{:08X} (read={}, write={}, append={}, creat={}, trunc={}, excl={})", 
-            path, full_path.display(), file_existed, pflags, need_read, need_write, need_append, need_creat, need_trunc, need_excl);
+        tracing::debug!(
+            "SFTP OPEN: raw='{}', resolved='{}', existed={}, flags=0x{:08X} (read={}, write={}, append={}, creat={}, trunc={}, excl={})",
+            path,
+            full_path.display(),
+            file_existed,
+            pflags,
+            need_read,
+            need_write,
+            need_append,
+            need_creat,
+            need_trunc,
+            need_excl
+        );
 
         let file_result = if need_write {
             if need_excl && need_creat && file_existed {
                 return Ok(self.build_status_packet(id, 4, "File already exists", ""));
             }
-            
+
             if need_append {
                 tokio::fs::OpenOptions::new()
                     .write(true)
                     .create(need_creat)
                     .append(true)
-                    .open(&full_path).await
+                    .open(&full_path)
+                    .await
             } else if need_trunc {
                 tokio::fs::OpenOptions::new()
                     .write(true)
                     .create(need_creat)
                     .truncate(true)
-                    .open(&full_path).await
+                    .open(&full_path)
+                    .await
             } else if need_creat {
                 tokio::fs::OpenOptions::new()
                     .read(need_read)
                     .write(true)
                     .create(true)
                     .truncate(false)
-                    .open(&full_path).await
+                    .open(&full_path)
+                    .await
             } else {
                 tokio::fs::OpenOptions::new()
                     .read(need_read)
                     .write(true)
-                    .open(&full_path).await
+                    .open(&full_path)
+                    .await
             }
         } else {
             tokio::fs::File::open(&full_path).await
@@ -1775,15 +2042,18 @@ impl SftpState {
         match file_result {
             Ok(file) => {
                 let handle = self.generate_handle();
-                self.handles.insert(handle.clone(), SftpFileHandle::File {
-                    path: full_path,
-                    file,
-                    locked: false,
-                    existed: file_existed,
-                    written_bytes: 0,
-                    read_bytes: 0,
-                    pending_flush_bytes: 0,
-                });
+                self.handles.insert(
+                    handle.clone(),
+                    SftpFileHandle::File {
+                        path: full_path,
+                        file,
+                        locked: false,
+                        existed: file_existed,
+                        written_bytes: 0,
+                        read_bytes: 0,
+                        pending_flush_bytes: 0,
+                    },
+                );
                 tracing::debug!("SFTP OPEN: handle '{}' created for {}", handle, path);
                 Ok(self.build_handle_packet(id, &handle))
             }
@@ -1851,7 +2121,12 @@ impl SftpState {
         // 安全检查：确保链接路径和目标都在主目录内
         let home_path = std::path::Path::new(&self.home_dir);
         if !path_starts_with_ignore_case(&full_link, home_path) {
-            return Ok(self.build_status_packet(id, 3, "Permission denied: link path outside home", ""));
+            return Ok(self.build_status_packet(
+                id,
+                3,
+                "Permission denied: link path outside home",
+                "",
+            ));
         }
 
         // 额外安全检查：验证目标路径规范化后仍在 home 内（防止通过相对路径逃逸）
@@ -1859,12 +2134,23 @@ impl SftpState {
             if !path_starts_with_ignore_case(&canon_target, home_path) {
                 tracing::warn!(
                     "SFTP SYMLINK denied: canonicalized target outside home - {} -> {:?}",
-                    full_link.display(), canon_target
+                    full_link.display(),
+                    canon_target
                 );
-                return Ok(self.build_status_packet(id, 3, "Permission denied: target path outside home", ""));
+                return Ok(self.build_status_packet(
+                    id,
+                    3,
+                    "Permission denied: target path outside home",
+                    "",
+                ));
             }
         } else if !full_target.starts_with(home_path) {
-            return Ok(self.build_status_packet(id, 3, "Permission denied: target path outside home", ""));
+            return Ok(self.build_status_packet(
+                id,
+                3,
+                "Permission denied: target path outside home",
+                "",
+            ));
         }
 
         // Windows 上额外检测：禁止目标为 junction point（junction 可能指向任意位置）
@@ -1880,18 +2166,27 @@ impl SftpState {
                     "SFTP SYMLINK denied: target is a junction/reparse point - {:?}",
                     full_target
                 );
-                return Ok(self.build_status_packet(id, 3, "Permission denied: junction points not allowed", ""));
+                return Ok(self.build_status_packet(
+                    id,
+                    3,
+                    "Permission denied: junction points not allowed",
+                    "",
+                ));
             }
         }
 
         let symlink_result = std::os::windows::fs::symlink_file(&full_target, &full_link);
-        
+
         if symlink_result.is_ok() {
             crate::file_op_log!(
                 self.username.as_deref().unwrap_or("anonymous"),
                 &self.client_ip,
                 "SYMLINK",
-                &format!("{} -> {}", full_link.to_string_lossy(), full_target.to_string_lossy()),
+                &format!(
+                    "{} -> {}",
+                    full_link.to_string_lossy(),
+                    full_target.to_string_lossy()
+                ),
                 0,
                 "SFTP",
                 true,
@@ -1913,7 +2208,9 @@ impl SftpState {
 
         let handle = self.handles.get_mut(&handle_str);
         match handle {
-            Some(SftpFileHandle::File { path, file, locked, .. }) => {
+            Some(SftpFileHandle::File {
+                path, file, locked, ..
+            }) => {
                 if *locked {
                     return Ok(self.build_status_packet(id, 0, "Already locked", ""));
                 }
@@ -1944,7 +2241,9 @@ impl SftpState {
 
         let handle = self.handles.get_mut(&handle_str);
         match handle {
-            Some(SftpFileHandle::File { path, file, locked, .. }) => {
+            Some(SftpFileHandle::File {
+                path, file, locked, ..
+            }) => {
                 if !*locked {
                     return Ok(self.build_status_packet(id, 0, "Not locked", ""));
                 }
@@ -1977,12 +2276,17 @@ impl SftpState {
             "limits@openssh.com" => self.handle_limits(id).await,
             "statvfs@openssh.com" => self.handle_statvfs(id, data).await,
             "md5sum@openssh.com" | "md5-hash@openssh.com" => self.handle_md5sum(id, data).await,
-            "sha256sum@openssh.com" | "sha256-hash@openssh.com" => self.handle_sha256sum(id, data).await,
+            "sha256sum@openssh.com" | "sha256-hash@openssh.com" => {
+                self.handle_sha256sum(id, data).await
+            }
             "copy-file" => self.handle_copy_file(id, data).await,
             "hardlink@openssh.com" => self.handle_hardlink(id, data).await,
-            _ => {
-                Ok(self.build_status_packet(id, 8, &format!("Unsupported extension: {}", ext_name), ""))
-            }
+            _ => Ok(self.build_status_packet(
+                id,
+                8,
+                &format!("Unsupported extension: {}", ext_name),
+                "",
+            )),
         }
     }
 
@@ -2035,9 +2339,15 @@ impl SftpState {
                     Some(&mut free_bytes_available),
                     Some(&mut total_bytes),
                     Some(&mut total_free_bytes),
-                ).is_err()
+                )
+                .is_err()
                 {
-                    return Ok(self.build_status_packet(id, 4, "Failed to get disk space info", ""));
+                    return Ok(self.build_status_packet(
+                        id,
+                        4,
+                        "Failed to get disk space info",
+                        "",
+                    ));
                 }
             }
 
@@ -2076,8 +2386,8 @@ impl SftpState {
 
         #[cfg(not(windows))]
         {
-            use std::ffi::CString;
             use libc::statvfs;
+            use std::ffi::CString;
 
             let path_cstr = match CString::new(full_path.to_string_lossy().as_bytes()) {
                 Ok(s) => s,
@@ -2088,7 +2398,12 @@ impl SftpState {
 
             unsafe {
                 if statvfs(path_cstr.as_ptr(), &mut vfs) != 0 {
-                    return Ok(self.build_status_packet(id, 4, "Failed to get filesystem info", ""));
+                    return Ok(self.build_status_packet(
+                        id,
+                        4,
+                        "Failed to get filesystem info",
+                        "",
+                    ));
                 }
             }
 
@@ -2143,7 +2458,7 @@ impl SftpState {
 
         match tokio::fs::File::open(&full_path).await {
             Ok(mut file) => {
-                use md5::{Md5, Digest};
+                use md5::{Digest, Md5};
                 use tokio::io::AsyncReadExt;
                 let mut hasher = Md5::new();
                 let mut buffer = [0u8; 8192];
@@ -2184,7 +2499,7 @@ impl SftpState {
 
         match tokio::fs::File::open(&full_path).await {
             Ok(mut file) => {
-                use sha2::{Sha256, Digest};
+                use sha2::{Digest, Sha256};
                 use tokio::io::AsyncReadExt;
                 let mut hasher = Sha256::new();
                 let mut buffer = [0u8; 8192];
@@ -2240,7 +2555,11 @@ impl SftpState {
                     self.username.as_deref().unwrap_or("anonymous"),
                     &self.client_ip,
                     "COPY",
-                    &format!("{} -> {}", src_full.to_string_lossy(), dst_full.to_string_lossy()),
+                    &format!(
+                        "{} -> {}",
+                        src_full.to_string_lossy(),
+                        dst_full.to_string_lossy()
+                    ),
                     size,
                     "SFTP",
                     true,
@@ -2261,7 +2580,6 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
-        
         let src_full = match self.resolve_path(&src_path) {
             Ok(p) => p,
             Err(e) => {
@@ -2283,7 +2601,11 @@ impl SftpState {
                     self.username.as_deref().unwrap_or("anonymous"),
                     &self.client_ip,
                     "HARDLINK",
-                    &format!("{} -> {}", src_full.to_string_lossy(), dst_full.to_string_lossy()),
+                    &format!(
+                        "{} -> {}",
+                        src_full.to_string_lossy(),
+                        dst_full.to_string_lossy()
+                    ),
                     0,
                     "SFTP",
                     true,

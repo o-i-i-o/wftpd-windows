@@ -1,5 +1,5 @@
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
-use std::sync::atomic::{AtomicU64, AtomicI64, Ordering};
 
 const BUCKET_CAPACITY: u64 = 64 * 1024;
 const REFILL_INTERVAL_MS: u64 = 10;
@@ -52,14 +52,15 @@ impl RateLimiter {
         let last = self.last_refill.load(Ordering::Acquire);
 
         if now - last >= REFILL_INTERVAL_MS as i64
-            && self.last_refill.compare_exchange(
-                last,
-                now,
-                Ordering::SeqCst,
-                Ordering::Acquire,
-            ).is_ok() {
+            && self
+                .last_refill
+                .compare_exchange(last, now, Ordering::SeqCst, Ordering::Acquire)
+                .is_ok()
+        {
             let current = self.tokens.load(Ordering::Acquire);
-            let new_tokens = current.saturating_add(self.tokens_per_interval).min(BUCKET_CAPACITY);
+            let new_tokens = current
+                .saturating_add(self.tokens_per_interval)
+                .min(BUCKET_CAPACITY);
             self.tokens.store(new_tokens, Ordering::Release);
         }
     }
@@ -77,8 +78,12 @@ impl RateLimiter {
 
             let current = self.tokens.load(Ordering::Acquire);
             if current == 0 {
-                let wait_ms = ((remaining as f64 / self.bytes_per_second as f64) * 1000.0).ceil() as u64;
-                tokio::time::sleep(Duration::from_millis(wait_ms.clamp(REFILL_INTERVAL_MS, 100))).await;
+                let wait_ms =
+                    ((remaining as f64 / self.bytes_per_second as f64) * 1000.0).ceil() as u64;
+                tokio::time::sleep(Duration::from_millis(
+                    wait_ms.clamp(REFILL_INTERVAL_MS, 100),
+                ))
+                .await;
                 continue;
             }
 
@@ -156,7 +161,9 @@ impl RateLimitConfig {
     }
 
     pub fn unlimited() -> Self {
-        RateLimitConfig { speed_limit_kbps: 0 }
+        RateLimitConfig {
+            speed_limit_kbps: 0,
+        }
     }
 
     pub fn create_limiter(&self) -> RateLimiter {

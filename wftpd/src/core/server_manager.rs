@@ -3,9 +3,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::core::config::Config;
-use crate::core::users::UserManager;
 use crate::core::ftp_server::FtpServer;
 use crate::core::sftp_server::SftpServer;
+use crate::core::users::UserManager;
 
 struct FtpState {
     server: Option<FtpServer>,
@@ -46,7 +46,11 @@ impl ServerManager {
         user_manager: Arc<Mutex<UserManager>>,
     ) -> anyhow::Result<()> {
         // 使用 CAS 操作防止并发启动竞态
-        if self.ftp_starting.compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed).is_err() {
+        if self
+            .ftp_starting
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
+            .is_err()
+        {
             tracing::debug!("FTP server is already starting or running");
             return Ok(());
         }
@@ -64,10 +68,7 @@ impl ServerManager {
             .enable_all()
             .build()?;
 
-        let server = FtpServer::new(
-            config,
-            user_manager,
-        );
+        let server = FtpServer::new(config, user_manager);
 
         runtime.block_on(server.start())?;
 
@@ -107,7 +108,11 @@ impl ServerManager {
         user_manager: Arc<Mutex<UserManager>>,
     ) -> anyhow::Result<()> {
         // 使用 CAS 操作防止并发启动竞态
-        if self.sftp_starting.compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed).is_err() {
+        if self
+            .sftp_starting
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
+            .is_err()
+        {
             tracing::debug!("SFTP server is already starting or running");
             return Ok(());
         }
@@ -125,10 +130,7 @@ impl ServerManager {
             .enable_all()
             .build()?;
 
-        let server = SftpServer::new(
-            config,
-            user_manager,
-        );
+        let server = SftpServer::new(config, user_manager);
 
         runtime.block_on(server.start())?;
 

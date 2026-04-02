@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -64,14 +64,30 @@ impl Permissions {
 impl fmt::Display for Permissions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut perms = Vec::new();
-        if self.can_read { perms.push("读"); }
-        if self.can_write { perms.push("写"); }
-        if self.can_delete { perms.push("删"); }
-        if self.can_list { perms.push("列表"); }
-        if self.can_mkdir { perms.push("建目录"); }
-        if self.can_rmdir { perms.push("删目录"); }
-        if self.can_rename { perms.push("重命名"); }
-        if self.can_append { perms.push("追加"); }
+        if self.can_read {
+            perms.push("读");
+        }
+        if self.can_write {
+            perms.push("写");
+        }
+        if self.can_delete {
+            perms.push("删");
+        }
+        if self.can_list {
+            perms.push("列表");
+        }
+        if self.can_mkdir {
+            perms.push("建目录");
+        }
+        if self.can_rmdir {
+            perms.push("删目录");
+        }
+        if self.can_rename {
+            perms.push("重命名");
+        }
+        if self.can_append {
+            perms.push("追加");
+        }
         write!(f, "{}", perms.join(","))
     }
 }
@@ -186,7 +202,7 @@ impl UserManager {
 
     fn validate_and_prepare_home_dir(home_dir: &str) -> Result<()> {
         let path = std::path::Path::new(home_dir);
-        
+
         if home_dir.trim().is_empty() {
             anyhow::bail!("用户主目录不能为空");
         }
@@ -252,11 +268,7 @@ impl UserManager {
         Ok(())
     }
 
-    pub fn update_permissions(
-        &mut self,
-        username: &str,
-        permissions: Permissions,
-    ) -> Result<()> {
+    pub fn update_permissions(&mut self, username: &str, permissions: Permissions) -> Result<()> {
         let user = self
             .users
             .get_mut(username)

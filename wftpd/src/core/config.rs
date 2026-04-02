@@ -1,4 +1,4 @@
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
@@ -48,26 +48,26 @@ impl ServerConfig {
             connection_count_per_ip: parking_lot::Mutex::new(std::collections::HashMap::new()),
         }
     }
-    
+
     pub fn increment_global(&self) -> usize {
         self.global_connection_count.fetch_add(1, Ordering::SeqCst)
     }
-    
+
     pub fn decrement_global(&self) {
         self.global_connection_count.fetch_sub(1, Ordering::SeqCst);
     }
-    
+
     pub fn get_global_count(&self) -> usize {
         self.global_connection_count.load(Ordering::SeqCst)
     }
-    
+
     pub fn increment_ip(&self, ip: &str) -> usize {
         let mut map = self.connection_count_per_ip.lock();
         let count = map.entry(ip.to_string()).or_insert(0);
         *count += 1;
         *count
     }
-    
+
     pub fn decrement_ip(&self, ip: &str) {
         let mut map = self.connection_count_per_ip.lock();
         if let Some(count) = map.get_mut(ip) {
@@ -79,7 +79,7 @@ impl ServerConfig {
             }
         }
     }
-    
+
     pub fn get_ip_count(&self, ip: &str) -> usize {
         let map = self.connection_count_per_ip.lock();
         *map.get(ip).unwrap_or(&0)
@@ -92,8 +92,13 @@ impl ServerConfig {
     }
 
     /// 从快照恢复连接计数（用于 Config::clone 保留状态）
-    pub fn restore_counts(&self, global_count: usize, ip_counts: &std::collections::HashMap<String, usize>) {
-        self.global_connection_count.store(global_count, Ordering::SeqCst);
+    pub fn restore_counts(
+        &self,
+        global_count: usize,
+        ip_counts: &std::collections::HashMap<String, usize>,
+    ) {
+        self.global_connection_count
+            .store(global_count, Ordering::SeqCst);
         let mut map = self.connection_count_per_ip.lock();
         map.clear();
         for (ip, count) in ip_counts {
@@ -277,10 +282,13 @@ pub fn get_program_data_path() -> PathBuf {
 
 fn get_default_paths() -> (String, String) {
     let base_path = get_program_data_path();
-    
+
     let log_dir = base_path.join("logs").to_string_lossy().to_string();
-    let host_key_path = base_path.join("ssh\\ssh_host_rsa_key").to_string_lossy().to_string();
-    
+    let host_key_path = base_path
+        .join("ssh\\ssh_host_rsa_key")
+        .to_string_lossy()
+        .to_string();
+
     (log_dir, host_key_path)
 }
 
@@ -288,9 +296,15 @@ impl Default for Config {
     fn default() -> Self {
         let (log_dir, host_key_path) = get_default_paths();
         let base_path = get_program_data_path();
-        let cert_path = base_path.join("certs\\server.crt").to_string_lossy().to_string();
-        let key_path = base_path.join("certs\\server.key").to_string_lossy().to_string();
-        
+        let cert_path = base_path
+            .join("certs\\server.crt")
+            .to_string_lossy()
+            .to_string();
+        let key_path = base_path
+            .join("certs\\server.key")
+            .to_string_lossy()
+            .to_string();
+
         Config {
             server: ServerConfig::new(),
             ftp: FtpConfig {
@@ -356,32 +370,31 @@ impl Config {
             }
             return Ok(config);
         }
-        
-        let content = fs::read_to_string(path)
-            .context("Failed to read config file")?;
-        
-        let config: Config = toml::from_str(&content)
-            .context("Failed to parse config file")?;
-        
+
+        let content = fs::read_to_string(path).context("Failed to read config file")?;
+
+        let config: Config = toml::from_str(&content).context("Failed to parse config file")?;
+
         Ok(config)
     }
 
     pub fn validate_paths(&self) -> Vec<String> {
         let mut warnings = Vec::new();
-        
+
         if self.ftp.allow_anonymous {
             match &self.ftp.anonymous_home {
                 None => {
                     warnings.push("匿名用户已启用，但未配置匿名用户主目录".to_string());
                 }
                 Some(anon_home) => {
-                    if let Err(e) = Self::validate_home_path(anon_home, "FTP匿名用户主目录") {
+                    if let Err(e) = Self::validate_home_path(anon_home, "FTP匿名用户主目录")
+                    {
                         warnings.push(e);
                     }
                 }
             }
         }
-        
+
         if self.ftp.ftps.enabled {
             // 证书会自动生成，不需要检查是否存在
             if let Some(cert_path) = &self.ftp.ftps.cert_path {
@@ -391,7 +404,7 @@ impl Config {
             } else {
                 warnings.push("FTPS 已启用，但未配置证书路径".to_string());
             }
-            
+
             if let Some(key_path) = &self.ftp.ftps.key_path {
                 if key_path.is_empty() {
                     warnings.push("FTPS 已启用，但未配置私钥路径".to_string());
@@ -419,7 +432,7 @@ impl Config {
                 }
             }
         }
-        
+
         warnings
     }
 
@@ -436,50 +449,51 @@ impl Config {
         }
         Ok(())
     }
-    
+
     pub fn save(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .context("Failed to create config directory")?;
+            fs::create_dir_all(parent).context("Failed to create config directory")?;
         }
-        
-        let content = toml::to_string_pretty(self)
-            .context("Failed to serialize config")?;
-        
-        fs::write(path, content)
-            .context("Failed to write config file")?;
-        
+
+        let content = toml::to_string_pretty(self).context("Failed to serialize config")?;
+
+        fs::write(path, content).context("Failed to write config file")?;
+
         Ok(())
     }
-    
+
     pub fn get_config_path() -> PathBuf {
         get_program_data_path().join("config.toml")
     }
-    
+
     pub fn get_users_path() -> PathBuf {
         get_program_data_path().join("users.json")
     }
-    
+
     pub fn is_ip_allowed(&self, ip: &str) -> bool {
-        if self.security.denied_ips.iter().any(|cidr| {
-            ip_matches_cidr(ip, cidr).unwrap_or(false)
-        }) {
+        if self
+            .security
+            .denied_ips
+            .iter()
+            .any(|cidr| ip_matches_cidr(ip, cidr).unwrap_or(false))
+        {
             return false;
         }
-        
+
         if self.security.allowed_ips.is_empty() {
             return true;
         }
-        
-        self.security.allowed_ips.iter().any(|cidr| {
-            ip_matches_cidr(ip, cidr).unwrap_or(false)
-        })
+
+        self.security
+            .allowed_ips
+            .iter()
+            .any(|cidr| ip_matches_cidr(ip, cidr).unwrap_or(false))
     }
-    
+
     pub fn check_connection_limits(&self, client_ip: &str) -> bool {
         let global_count = self.server.get_global_count();
         let ip_count = self.server.get_ip_count(client_ip);
-        
+
         if global_count >= self.security.max_connections {
             tracing::warn!(
                 "Connection limit reached: {} global connections (max: {})",
@@ -488,7 +502,7 @@ impl Config {
             );
             return false;
         }
-        
+
         if ip_count >= self.security.max_connections_per_ip {
             tracing::warn!(
                 "Per-IP connection limit reached for {}: {} connections (max: {})",
@@ -498,10 +512,10 @@ impl Config {
             );
             return false;
         }
-        
+
         true
     }
-    
+
     pub fn register_connection(&self, client_ip: &str) {
         self.server.increment_global();
         self.server.increment_ip(client_ip);
@@ -543,7 +557,7 @@ impl Config {
         self.register_connection(client_ip);
         true
     }
-    
+
     pub fn unregister_connection(&self, client_ip: &str) {
         self.server.decrement_global();
         self.server.decrement_ip(client_ip);
@@ -557,22 +571,24 @@ impl Config {
 }
 
 fn ip_matches_cidr(ip: &str, cidr: &str) -> Result<bool> {
-    use std::net::{Ipv4Addr, Ipv6Addr};
     use ipnet::{Ipv4Net, Ipv6Net};
-    
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
     if cidr == "0.0.0.0/0" || cidr == "::/0" {
         return Ok(true);
     }
-    
+
     if let Ok(ipv4) = ip.parse::<Ipv4Addr>()
-        && let Ok(net) = cidr.parse::<Ipv4Net>() {
-            return Ok(net.contains(&ipv4));
-        }
-    
+        && let Ok(net) = cidr.parse::<Ipv4Net>()
+    {
+        return Ok(net.contains(&ipv4));
+    }
+
     if let Ok(ipv6) = ip.parse::<Ipv6Addr>()
-        && let Ok(net) = cidr.parse::<Ipv6Net>() {
-            return Ok(net.contains(&ipv6));
-        }
-    
+        && let Ok(net) = cidr.parse::<Ipv6Net>()
+    {
+        return Ok(net.contains(&ipv6));
+    }
+
     Ok(ip == cidr)
 }

@@ -1,8 +1,8 @@
-mod session;
 mod commands;
 mod passive;
-mod transfer;
+mod session;
 mod tls;
+mod transfer;
 
 mod ftps_listener;
 
@@ -12,8 +12,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::core::config::{Config, get_program_data_path};
-use crate::core::users::UserManager;
 use crate::core::quota::QuotaManager;
+use crate::core::users::UserManager;
 
 use crate::core::ftp_server::tls::TlsConfig;
 
@@ -28,16 +28,17 @@ pub struct FtpServer {
 }
 
 impl FtpServer {
-    pub fn new(
-        config: Arc<Mutex<Config>>,
-        user_manager: Arc<Mutex<UserManager>>,
-    ) -> Self {
+    pub fn new(config: Arc<Mutex<Config>>, user_manager: Arc<Mutex<UserManager>>) -> Self {
         let tls_config = {
             let cfg = config.lock();
             if cfg.ftp.ftps.enabled {
                 let cert_path = cfg.ftp.ftps.cert_path.as_deref();
                 let key_path = cfg.ftp.ftps.key_path.as_deref();
-                Some(TlsConfig::new(cert_path, key_path, cfg.ftp.ftps.require_ssl))
+                Some(TlsConfig::new(
+                    cert_path,
+                    key_path,
+                    cfg.ftp.ftps.require_ssl,
+                ))
             } else {
                 None
             }
@@ -79,13 +80,14 @@ impl FtpServer {
 
         let bind_addr = format!("{}:{}", bind_ip, ftp_port);
         tracing::info!("FTP server starting on {}", bind_addr);
-        
+
         let listener = {
-            use socket2::{Domain, Protocol, Socket, Type, SockAddr};
+            use socket2::{Domain, Protocol, SockAddr, Socket, Type};
             let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
             socket.set_reuse_address(true)?;
             socket.set_nonblocking(true)?;
-            let addr: std::net::SocketAddr = bind_addr.parse()
+            let addr: std::net::SocketAddr = bind_addr
+                .parse()
                 .map_err(|e| anyhow::anyhow!("Invalid bind address: {}", e))?;
             socket.bind(&SockAddr::from(addr))?;
             socket.listen(128)?;
@@ -119,14 +121,14 @@ impl FtpServer {
                     let mut tx = self.ftps_shutdown_tx.lock().await;
                     *tx = Some(ftps_shutdown_tx);
                 }
-                
+
                 let ftps_bind_addr = format!("{}:{}", bind_ip, ftps_port);
                 tracing::info!("FTPS implicit SSL server starting on {}", ftps_bind_addr);
-                
+
                 let config_clone = Arc::clone(&config);
                 let user_manager_clone = Arc::clone(&user_manager);
                 let quota_manager_clone = Arc::clone(&quota_manager);
-                
+
                 tokio::spawn(async move {
                     if let Err(e) = ftps_listener::start_ftps_implicit_server(
                         config_clone,
@@ -134,7 +136,9 @@ impl FtpServer {
                         quota_manager_clone,
                         tls_cfg,
                         ftps_shutdown_rx,
-                    ).await {
+                    )
+                    .await
+                    {
                         tracing::error!("FTPS implicit SSL server error: {}", e);
                     }
                 });
@@ -152,13 +156,13 @@ impl FtpServer {
                             Ok((socket, peer_addr)) => {
                                 let client_ip = peer_addr.ip().to_string();
                                 let config_arc = Arc::clone(&config);
-                                
+
                                 // 原子化检查+注册连接
                                 let ip_allowed = {
                                     let cfg = config_arc.lock();
                                     cfg.try_register_connection(&client_ip)
                                 };
-                                
+
                                 if !ip_allowed {
                                     tracing::warn!(
                                         "Connection rejected from {}: connection limit exceeded",
@@ -194,7 +198,7 @@ impl FtpServer {
                                     ).await {
                                         tracing::debug!("FTP session error: {}", e);
                                     }
-                                    
+
                                     // 连接结束时注销
                                     {
                                         let cfg = config_arc.lock();
