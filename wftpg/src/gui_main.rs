@@ -137,6 +137,7 @@ struct WftpgApp {
     init_start_time: Instant,
     cached_styles:  CachedStyles,
     config_watcher: Option<ConfigWatcher>,
+    pending_unset_topmost: bool,  // 标记是否需要在首次交互后取消置顶
 }
 
 impl WftpgApp {
@@ -193,6 +194,7 @@ impl WftpgApp {
             init_start_time: Instant::now(),
             cached_styles:  CachedStyles::new(),
             config_watcher: None,
+            pending_unset_topmost: false,  // 初始化为 false
         }
     }
     
@@ -250,8 +252,17 @@ impl WftpgApp {
                         self.init_state = InitState::Ready;
                         // 初始化配置监听器
                         self.init_config_watcher();
+                        
+                        // 显示窗口并设置启动时置顶（可被其他窗口挤占）
                         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                        tracing::info!("应用初始化完成，配置监听器已启动");
+                        // 方案 1: 使用 AlwaysOnTop + 后续手动降级（推荐，兼容性最好）
+                        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+                            egui::WindowLevel::AlwaysOnTop
+                        ));
+                        // 标记需要在首次交互后取消置顶
+                        self.pending_unset_topmost = true;
+                        
+                        tracing::info!("应用初始化完成，配置监听器已启动，窗口已置顶");
                     }
                     Err(e) => {
                         self.init_error = Some(e);
@@ -454,6 +465,20 @@ impl App for WftpgApp {
         if let Some(watcher) = &mut self.config_watcher
             && watcher.check_and_reload() {
             tracing::info!("Configuration auto-reloaded, refreshing UI...");
+        }
+        
+        // 如果标记了需要取消置顶，在检测到用户交互时执行
+        if self.pending_unset_topmost {
+            // 检测是否有输入事件（鼠标或键盘）
+            let has_input = ctx.input(|i| !i.events.is_empty());
+            if has_input {
+                // 有事件发生，取消置顶
+                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+                    egui::WindowLevel::Normal
+                ));
+                self.pending_unset_topmost = false;
+                tracing::debug!("窗口已降级为普通窗口（用户交互后）");
+            }
         }
         
         match self.init_state {
@@ -695,6 +720,7 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([900.0, 650.0])
             .with_resizable(true)
             .with_visible(false)
+            .with_active(true)
             .with_icon(icon),
         persist_window: true,
         persistence_path: Some(persistence_path),

@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_error_conversion() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+        let io_err = std::io::Error::other("test");
         let app_err: AppError = io_err.into();
         assert!(matches!(app_err, AppError::Io(_)));
         
