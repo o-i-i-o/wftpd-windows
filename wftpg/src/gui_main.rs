@@ -451,11 +451,9 @@ impl App for WftpgApp {
         let ctx = ui.ctx().clone();
         
         // 检查配置文件变更并自动重载
-        if let Some(watcher) = &mut self.config_watcher {
-            if watcher.check_and_reload() {
-                // 配置已重新加载，更新所有相关的 UI 状态
-                tracing::info!("Configuration auto-reloaded, refreshing UI...");
-            }
+        if let Some(watcher) = &mut self.config_watcher
+            && watcher.check_and_reload() {
+            tracing::info!("Configuration auto-reloaded, refreshing UI...");
         }
         
         match self.init_state {

@@ -45,80 +45,7 @@ pub const SPACING_MD: f32               = 12.0;
 pub const SPACING_SM: f32               = 8.0;
 pub const SPACING_XS: f32               = 4.0;
 
-pub struct FontScale {
-    pub base: f32,
-    pub scale: f32,
-}
-
-impl FontScale {
-    pub fn new(base: f32, scale: f32) -> Self {
-        Self { base, scale }
-    }
-    
-    pub fn default_scale() -> Self {
-        Self::new(BASE_FONT_SIZE, FONT_SCALE)
-    }
-    
-    pub fn scaled(&self, multiplier: f32) -> f32 {
-        self.base * self.scale * multiplier
-    }
-    
-    pub fn xl(&self) -> f32 { self.scaled(1.71) }
-    pub fn lg(&self) -> f32 { self.scaled(1.29) }
-    pub fn md(&self) -> f32 { self.scaled(1.07) }
-    pub fn sm(&self) -> f32 { self.scaled(0.93) }
-    pub fn xs(&self) -> f32 { self.scaled(0.79) }
-}
-
-pub struct ThemeColors {
-    pub primary: Color32,
-    pub primary_light: Color32,
-    pub success: Color32,
-    pub success_light: Color32,
-    pub danger: Color32,
-    pub danger_light: Color32,
-    pub warning: Color32,
-    pub warning_light: Color32,
-    pub info: Color32,
-    pub info_light: Color32,
-    pub text_primary: Color32,
-    pub text_secondary: Color32,
-    pub text_muted: Color32,
-    pub bg_primary: Color32,
-    pub bg_secondary: Color32,
-    pub bg_card: Color32,
-    pub border: Color32,
-}
-
-impl Default for ThemeColors {
-    fn default() -> Self {
-        Self {
-            primary: PRIMARY_COLOR,
-            primary_light: PRIMARY_LIGHT,
-            success: SUCCESS_COLOR,
-            success_light: SUCCESS_LIGHT,
-            danger: DANGER_COLOR,
-            danger_light: DANGER_LIGHT,
-            warning: WARNING_COLOR,
-            warning_light: WARNING_LIGHT,
-            info: INFO_COLOR,
-            info_light: INFO_LIGHT,
-            text_primary: TEXT_PRIMARY_COLOR,
-            text_secondary: TEXT_SECONDARY_COLOR,
-            text_muted: TEXT_MUTED_COLOR,
-            bg_primary: BG_PRIMARY,
-            bg_secondary: BG_SECONDARY,
-            bg_card: BG_CARD,
-            border: BORDER_COLOR,
-        }
-    }
-}
-
 pub fn get_custom_style() -> Style {
-    get_custom_style_with_scale(FontScale::default_scale())
-}
-
-pub fn get_custom_style_with_scale(font_scale: FontScale) -> Style {
     let mut style = Style::default();
     let mut visuals = Visuals::light();
 
@@ -172,19 +99,19 @@ pub fn get_custom_style_with_scale(font_scale: FontScale) -> Style {
     
     style.text_styles.insert(
         egui::TextStyle::Heading,
-        egui::FontId::new(font_scale.lg(), egui::FontFamily::Proportional),
+        egui::FontId::new(FONT_SIZE_LG, egui::FontFamily::Proportional),
     );
     style.text_styles.insert(
         egui::TextStyle::Body,
-        egui::FontId::new(font_scale.md(), egui::FontFamily::Proportional),
+        egui::FontId::new(FONT_SIZE_MD, egui::FontFamily::Proportional),
     );
     style.text_styles.insert(
         egui::TextStyle::Button,
-        egui::FontId::new(font_scale.md(), egui::FontFamily::Proportional),
+        egui::FontId::new(FONT_SIZE_MD, egui::FontFamily::Proportional),
     );
     style.text_styles.insert(
         egui::TextStyle::Small,
-        egui::FontId::new(font_scale.sm(), egui::FontFamily::Proportional),
+        egui::FontId::new(FONT_SIZE_SM, egui::FontFamily::Proportional),
     );
     
     style
@@ -362,26 +289,4 @@ pub fn table_column_percent(available_width: f32, percent: f32, min_width: f32) 
 
 pub fn table_column_remainder(min_width: f32) -> egui_extras::Column {
     egui_extras::Column::remainder().at_least(min_width)
-}
-
-pub fn scaled_font_size(scale: f32) -> f32 {
-    BASE_FONT_SIZE * FONT_SCALE * scale
-}
-
-pub fn get_font_sizes(scale: f32) -> FontSizes {
-    FontSizes {
-        xl: scaled_font_size(scale * 1.71),
-        lg: scaled_font_size(scale * 1.29),
-        md: scaled_font_size(scale * 1.07),
-        sm: scaled_font_size(scale * 0.93),
-        xs: scaled_font_size(scale * 0.79),
-    }
-}
-
-pub struct FontSizes {
-    pub xl: f32,
-    pub lg: f32,
-    pub md: f32,
-    pub sm: f32,
-    pub xs: f32,
 }
