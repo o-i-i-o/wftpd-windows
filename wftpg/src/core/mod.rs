@@ -10,3 +10,7 @@ pub mod ipc;
 pub mod windows_ipc;
 pub mod server_manager;
 pub mod config_manager;
+pub mod error;
+pub mod config_watcher;
+
+pub use error::{AppError, Result};

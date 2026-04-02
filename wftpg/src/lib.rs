@@ -1,6 +1,13 @@
 //! WFTPG - SFTP/FTP Management Frontend
 //!
 //! This library provides the core functionality for the WFTPG management frontend.
+//!
+//! # Architecture
+//! 
+//! - Configuration management with hot-reload support
+//! - User management with Argon2 password hashing
+//! - Comprehensive logging with tracing
+//! - Windows service integration
 
 pub mod core;
 pub mod gui_egui;
@@ -52,6 +59,7 @@ impl AppState {
     
     pub fn reload_config(&self) -> anyhow::Result<()> {
         self.config_manager.reload_from_file(&self.config_path)
+            .map_err(|e| anyhow::anyhow!("Failed to reload config: {}", e))
     }
 
     pub fn reload_users(&self) -> anyhow::Result<()> {

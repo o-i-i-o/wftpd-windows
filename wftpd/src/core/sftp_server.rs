@@ -1838,12 +1838,40 @@ impl SftpState {
             }
         };
 
+        // 安全检查：确保链接路径和目标都在主目录内
         let home_path = std::path::Path::new(&self.home_dir);
-        if !full_link.starts_with(home_path) {
+        if !path_starts_with_ignore_case(&full_link, home_path) {
             return Ok(self.build_status_packet(id, 3, "Permission denied: link path outside home", ""));
         }
-        if !full_target.starts_with(home_path) {
+
+        // 额外安全检查：验证目标路径规范化后仍在 home 内（防止通过相对路径逃逸）
+        if let Ok(canon_target) = full_target.canonicalize() {
+            if !path_starts_with_ignore_case(&canon_target, home_path) {
+                tracing::warn!(
+                    "SFTP SYMLINK denied: canonicalized target outside home - {} -> {:?}",
+                    full_link.display(), canon_target
+                );
+                return Ok(self.build_status_packet(id, 3, "Permission denied: target path outside home", ""));
+            }
+        } else if !full_target.starts_with(home_path) {
             return Ok(self.build_status_packet(id, 3, "Permission denied: target path outside home", ""));
+        }
+
+        // Windows 上额外检测：禁止目标为 junction point（junction 可能指向任意位置）
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if full_target.exists()
+                && let Ok(metadata) = std::fs::metadata(&full_target)
+                && metadata.file_attributes() & 0x400 != 0
+            {
+                // FILE_ATTRIBUTE_REPARSE_POINT
+                tracing::warn!(
+                    "SFTP SYMLINK denied: target is a junction/reparse point - {:?}",
+                    full_target
+                );
+                return Ok(self.build_status_packet(id, 3, "Permission denied: junction points not allowed", ""));
+            }
         }
 
         let symlink_result = std::os::windows::fs::symlink_file(&full_target, &full_link);

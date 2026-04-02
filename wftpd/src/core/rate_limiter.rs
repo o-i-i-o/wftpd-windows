@@ -2,7 +2,6 @@ use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const BUCKET_CAPACITY: u64 = 64 * 1024;
-const REFILL_INTERVAL_MS: u64 = 100;
 
 /// 高性能限流器：使用原子操作减少锁竞争
 pub struct RateLimiter {
@@ -29,49 +28,51 @@ impl RateLimiter {
         self.bytes_per_second == u64::MAX
     }
 
-    /// 优化的 acquire：优先使用原子操作，减少锁竞争
+    /// 优化的 acquire：使用自适应等待减少 CPU 忙循环
     pub async fn acquire(&self, bytes: usize) {
         if self.is_unlimited() {
             return;
         }
-        
+
         let mut remaining = bytes as u64;
-        
+        let mut backoff_ms: u64 = 1;
+
         while remaining > 0 {
-            // 快速路径：尝试使用原子操作获取 tokens
-            let current_tokens = self.tokens.load(Ordering::Relaxed);
-            
+            let current_tokens = self.tokens.load(Ordering::Acquire);
+
             if current_tokens > 0 {
                 let to_consume = remaining.min(current_tokens);
-                // 尝试原子扣减
-                if self.tokens.compare_exchange(
+                match self.tokens.compare_exchange_weak(
                     current_tokens,
                     current_tokens - to_consume,
                     Ordering::SeqCst,
-                    Ordering::Relaxed
-                ).is_ok() {
-                    remaining -= to_consume;
-                    continue;
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => {
+                        remaining -= to_consume;
+                        backoff_ms = 1; // 成功后重置退避
+                        continue;
+                    }
+                    Err(_) => {
+                        // CAS 失败，短暂退避后重试
+                        tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                        backoff_ms = (backoff_ms * 2).min(8); // 指数退避，最大 8ms
+                    }
                 }
-                // CAS 失败，重试
-            }
-            
-            // 慢速路径：需要补充 tokens
-            // 计算需要等待的时间
-            let tokens_per_interval = self.bytes_per_second / (1000 / REFILL_INTERVAL_MS);
-            let refill_amount = tokens_per_interval.min(BUCKET_CAPACITY);
-            let wait_ms = if self.bytes_per_second > 0 {
-                (refill_amount as f64 / self.bytes_per_second as f64 * 1000.0) as u64
             } else {
-                REFILL_INTERVAL_MS
-            };
-            
-            tokio::time::sleep(Duration::from_millis(wait_ms.max(1))).await;
-            
-            // 补充 tokens
-            let current = self.tokens.load(Ordering::Relaxed);
-            let new_tokens = current.saturating_add(refill_amount).min(BUCKET_CAPACITY);
-            self.tokens.store(new_tokens, Ordering::Relaxed);
+                // 无可用 token，计算精确等待时间
+                let wait_ms = ((remaining as f64 / self.bytes_per_second as f64) * 1000.0).ceil() as u64;
+                let actual_wait = wait_ms.max(backoff_ms).min(100); // 限制最大等待时间
+
+                tokio::time::sleep(Duration::from_millis(actual_wait)).await;
+
+                // 补充 tokens（基于等待时间）
+                let tokens_per_ms = self.bytes_per_second / 1000;
+                let refill_amount = (tokens_per_ms * actual_wait).min(BUCKET_CAPACITY);
+                let _ = self.tokens.fetch_add(refill_amount, Ordering::Relaxed);
+
+                backoff_ms = (backoff_ms * 2).min(16); // 增加退避时间
+            }
         }
     }
 

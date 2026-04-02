@@ -768,7 +768,6 @@ mod tests {
             buffer.push(LogEntry {
                 timestamp: Local::now(),
                 level: LogLevel::Info,
-                target: format!("test{}", i),
                 fields: LogFields {
                     message: format!("message{}", i),
                     client_ip: None,
@@ -794,7 +793,6 @@ mod tests {
             buffer.push(LogEntry {
                 timestamp: Local::now(),
                 level: LogLevel::Info,
-                target: "file_op".to_string(),
                 fields: LogFields {
                     message: "test".to_string(),
                     client_ip: Some("127.0.0.1".to_string()),
@@ -816,7 +814,6 @@ mod tests {
         let entry = LogEntry {
             timestamp: Local::now(),
             level: LogLevel::Info,
-            target: "test".to_string(),
             fields: LogFields {
                 message: "Test message".to_string(),
                 client_ip: Some("192.168.1.1".to_string()),
@@ -844,7 +841,6 @@ mod tests {
         let entry = LogEntry {
             timestamp: Local::now(),
             level: LogLevel::Info,
-            target: "file_op".to_string(),
             fields: LogFields {
                 message: "Upload successful".to_string(),
                 client_ip: Some("192.168.1.1".to_string()),

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use parking_lot::Mutex;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -296,6 +297,9 @@ pub async fn handle_session(
             }
         }
 
+        // 定期清理超时的被动监听端口
+        state.passive_manager.cleanup_expired();
+
         let timeout_result = tokio::time::timeout(
             std::time::Duration::from_secs(conn_timeout),
             control_stream.read(&mut read_buffer)
@@ -325,19 +329,23 @@ pub async fn handle_session(
                     let arg = parts.get(1).map(|s| s.trim());
 
                     let ftp_cmd = FtpCommand::parse(&cmd, arg);
-                    
+
+                    let ctx = CommandContext {
+                        config: &config,
+                        user_manager: &user_manager,
+                        quota_manager: &quota_manager,
+                        client_ip: &client_ip,
+                        allow_anonymous: &session_config.allow_anonymous,
+                        anonymous_home: &session_config.anonymous_home,
+                        tls_config: &session_config.tls_config,
+                        require_ssl: session_config.require_ssl,
+                    };
+
                     if !handle_command(
                         &mut control_stream,
                         &ftp_cmd,
                         &mut state,
-                        &config,
-                        &user_manager,
-                        &quota_manager,
-                        &client_ip,
-                        &session_config.allow_anonymous,
-                        &session_config.anonymous_home,
-                        &session_config.tls_config,
-                        session_config.require_ssl,
+                        &ctx,
                     ).await? {
                         return Ok(());
                     }
@@ -383,6 +391,21 @@ pub async fn handle_session_tls(
     state.encoding = session_config.encoding;
     state.tls_enabled = true;
 
+    // 一次性读取会话配置（与普通 FTP 会话保持一致）
+    let (allow_anonymous, anonymous_home, tls_config, require_ssl) = {
+        let cfg = config.lock();
+        (
+            cfg.ftp.allow_anonymous,
+            cfg.ftp.anonymous_home.clone(),
+            TlsConfig::new(
+                cfg.ftp.ftps.cert_path.as_deref(),
+                cfg.ftp.ftps.key_path.as_deref(),
+                cfg.ftp.ftps.require_ssl
+            ),
+            cfg.ftp.ftps.enabled && cfg.ftp.ftps.require_ssl,
+        )
+    };
+
     let mut cmd_buffer: Vec<u8> = Vec::with_capacity(MAX_COMMAND_LENGTH);
     let mut read_buffer = [0u8; 4096];
     let mut last_activity = std::time::Instant::now();
@@ -401,6 +424,9 @@ pub async fn handle_session_tls(
                 break;
             }
         }
+
+        // 定期清理超时的被动监听端口
+        state.passive_manager.cleanup_expired();
 
         let timeout_result = tokio::time::timeout(
             std::time::Duration::from_secs(conn_timeout),
@@ -435,34 +461,23 @@ pub async fn handle_session_tls(
                         let arg = parts.get(1).map(|s| s.trim());
                         FtpCommand::parse(&cmd_str, arg)
                     };
-                    
-                    let (allow_anonymous, anonymous_home, tls_config, require_ssl) = {
-                        let cfg = config.lock();
-                        (
-                            cfg.ftp.allow_anonymous,
-                            cfg.ftp.anonymous_home.clone(),
-                            TlsConfig::new(
-                                cfg.ftp.ftps.cert_path.as_deref(),
-                                cfg.ftp.ftps.key_path.as_deref(),
-                                cfg.ftp.ftps.require_ssl
-                            ),
-                            // 只有当 FTPS 启用时才强制要求 SSL
-                            cfg.ftp.ftps.enabled && cfg.ftp.ftps.require_ssl
-                        )
+
+                    let ctx = CommandContext {
+                        config: &config,
+                        user_manager: &user_manager,
+                        quota_manager: &quota_manager,
+                        client_ip: &client_ip,
+                        allow_anonymous: &allow_anonymous,
+                        anonymous_home: &anonymous_home,
+                        tls_config: &tls_config,
+                        require_ssl,
                     };
-                    
+
                     let should_continue = handle_command(
                         &mut control_stream,
                         &cmd,
                         &mut state,
-                        &config,
-                        &user_manager,
-                        &quota_manager,
-                        &client_ip,
-                        &allow_anonymous,
-                        &anonymous_home,
-                        &tls_config,
-                        require_ssl,
+                        &ctx,
                     ).await?;
                     
                     if !should_continue {
@@ -480,19 +495,23 @@ pub async fn handle_session_tls(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+/// 命令处理上下文，聚合 handle_command 所需的所有参数
+struct CommandContext<'a> {
+    config: &'a Arc<Mutex<Config>>,
+    user_manager: &'a Arc<Mutex<UserManager>>,
+    quota_manager: &'a Arc<QuotaManager>,
+    client_ip: &'a str,
+    allow_anonymous: &'a bool,
+    anonymous_home: &'a Option<String>,
+    tls_config: &'a TlsConfig,
+    require_ssl: bool,
+}
+
 async fn handle_command(
     control_stream: &mut ControlStream,
     cmd: &FtpCommand,
     state: &mut SessionState,
-    config: &Arc<Mutex<Config>>,
-    user_manager: &Arc<Mutex<UserManager>>,
-    quota_manager: &Arc<QuotaManager>,
-    client_ip: &str,
-    allow_anonymous: &bool,
-    anonymous_home: &Option<String>,
-    tls_config: &TlsConfig,
-    require_ssl: bool,
+    ctx: &CommandContext<'_>,
 ) -> Result<bool> {
     use super::commands::FtpCommand::*;
 
@@ -501,15 +520,15 @@ async fn handle_command(
             let tls_type = tls_type.as_deref().unwrap_or("TLS");
             let tls_upper = tls_type.to_uppercase();
             
-            if tls_config.is_tls_available() {
+            if ctx.tls_config.is_tls_available() {
                 if tls_upper == "TLS" || tls_upper == "TLS-C" || tls_upper == "SSL" {
                     control_stream.write_response(b"234 AUTH command OK; starting TLS connection\r\n", "FTP response").await;
-                    
-                    if let Some(acceptor) = &tls_config.acceptor {
+
+                    if let Some(acceptor) = &ctx.tls_config.acceptor {
                         match control_stream.upgrade_to_tls(acceptor).await {
                             Ok(()) => {
                                 state.tls_enabled = true;
-                                tracing::info!("TLS connection established for {}", client_ip);
+                                tracing::info!("TLS connection established for {}", ctx.client_ip);
                             }
                             Err(e) => {
                                 tracing::error!("TLS upgrade failed: {}", e);
@@ -643,14 +662,14 @@ async fn handle_command(
 
         USER(username) => {
             // 只有在 FTPS 启用时才检查 SSL 要求
-            if require_ssl && !state.tls_enabled {
+            if ctx.require_ssl && !state.tls_enabled {
                 control_stream.write_response(b"530 SSL required for login\r\n", "FTP response").await;
                 return Ok(true);
             }
-            
+
             let username_lower = username.to_lowercase();
             if username_lower == "anonymous" || username_lower == "ftp" {
-                if *allow_anonymous {
+                if *ctx.allow_anonymous {
                     state.current_user = Some("anonymous".to_string());
                     control_stream.write_response(b"331 Anonymous login okay, send email as password\r\n", "FTP response").await;
                 } else {
@@ -663,15 +682,15 @@ async fn handle_command(
         }
 
         PASS(password) => {
-            if require_ssl && !state.tls_enabled {
+            if ctx.require_ssl && !state.tls_enabled {
                 control_stream.write_response(b"530 SSL required for login\r\n", "FTP response").await;
                 return Ok(true);
             }
-            
+
             if let Some(ref username) = state.current_user {
                 if username == "anonymous" {
-                    if *allow_anonymous {
-                        if let Some(anon_home) = anonymous_home {
+                    if *ctx.allow_anonymous {
+                        if let Some(anon_home) = ctx.anonymous_home {
                             match PathBuf::from(anon_home).canonicalize() {
                                 Ok(home_canon) => {
                                     state.cwd = home_canon.to_string_lossy().to_string();
@@ -679,7 +698,7 @@ async fn handle_command(
                                     state.authenticated = true;
                                     control_stream.write_response(b"230 Anonymous user logged in\r\n", "FTP response").await;
                                     tracing::info!(
-                                        client_ip = %client_ip,
+                                        client_ip = %ctx.client_ip,
                                         username = "anonymous",
                                         action = "LOGIN",
                                         protocol = "FTP",
@@ -703,7 +722,7 @@ async fn handle_command(
                 } else {
                     let password = password.as_deref().unwrap_or("");
                     let (auth_result, home_dir_opt) = {
-                        let mut users = user_manager.lock();
+                        let mut users = ctx.user_manager.lock();
                         if users.get_user(username).is_none() {
                             let _ = users.reload(&Config::get_users_path());
                         }
@@ -732,7 +751,7 @@ async fn handle_command(
                             }
                             control_stream.write_response(b"230 User logged in\r\n", "FTP response").await;
                             tracing::info!(
-                                client_ip = %client_ip,
+                                client_ip = %ctx.client_ip,
                                 username = %username,
                                 action = "LOGIN",
                                 protocol = "FTP",
@@ -741,7 +760,7 @@ async fn handle_command(
                         }
                         Ok(false) => {
                             tracing::warn!(
-                                client_ip = %client_ip,
+                                client_ip = %ctx.client_ip,
                                 username = %username,
                                 action = "AUTH_FAIL",
                                 protocol = "FTP",
@@ -751,7 +770,7 @@ async fn handle_command(
                         }
                         Err(e) => {
                             tracing::error!(
-                                client_ip = %client_ip,
+                                client_ip = %ctx.client_ip,
                                 username = %username,
                                 action = "AUTH_ERROR",
                                 "Authentication error for user {}: {}", username, e
@@ -772,7 +791,7 @@ async fn handle_command(
 
         SYST => {
             let hide_version = {
-                let cfg = config.lock();
+                let cfg = ctx.config.lock();
                 cfg.ftp.hide_version_info
             };
             if hide_version {
@@ -784,7 +803,7 @@ async fn handle_command(
 
         FEAT => {
             let hide_version = {
-                let cfg = config.lock();
+                let cfg = ctx.config.lock();
                 cfg.ftp.hide_version_info
             };
             // 基础功能列表（不包含可能泄露版本信息的特性）
@@ -793,7 +812,7 @@ async fn handle_command(
             } else {
                 "211-Features:\r\n SIZE\r\n MDTM\r\n REST STREAM\r\n PASV\r\n EPSV\r\n EPRT\r\n PORT\r\n MLST\r\n MLSD\r\n MODE S\r\n STRU F\r\n UTF8\r\n TVFS\r\n".to_string()
             };
-            if tls_config.is_tls_available() {
+            if ctx.tls_config.is_tls_available() {
                 features.push_str(" AUTH TLS\r\n PBSZ\r\n PROT\r\n CCC\r\n");
                 // RFC 2228 Security Extensions
                 features.push_str(" MIC\r\n CONF\r\n ENC\r\n");
@@ -993,7 +1012,7 @@ async fn handle_command(
                     state.rest_offset = offset;
                     control_stream.write_response(format!("350 Restarting at {}\r\n", offset).as_bytes(), "FTP response").await;
                     tracing::debug!(
-                        client_ip = %client_ip,
+                        client_ip = %ctx.client_ip,
                         username = ?state.current_user.as_deref(),
                         action = "REST",
                         "REST command: offset {}", offset
@@ -1009,7 +1028,7 @@ async fn handle_command(
 
         PASV => {
             let ((port_min, port_max), bind_ip, passive_ip_override, masquerade_address) = {
-                let cfg = config.lock();
+                let cfg = ctx.config.lock();
                 (cfg.ftp.passive_ports, cfg.ftp.bind_ip.clone(), cfg.ftp.passive_ip_override.clone(), cfg.ftp.masquerade_address.clone())
             };
 
@@ -1033,8 +1052,31 @@ async fn handle_command(
                 } else {
                     // 非空字符串，检查是否是域名或 IP
                     Some(if is_domain_name(masq_addr.as_str()) {
-                        // 如果是域名，异步解析
-                        resolve_domain_to_ip(masq_addr).await.unwrap_or_else(|| masq_addr.clone())
+                        // 如果是域名，异步解析并校验结果
+                        match resolve_domain_to_ip(masq_addr).await {
+                            Some(resolved) => {
+                                // 校验解析到的 IP 是否有效
+                                if let Ok(ip) = std::net::IpAddr::from_str(&resolved) {
+                                    let client_ip_addr: std::net::IpAddr = ctx.client_ip.parse().unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+                                    if ip.is_loopback() && !client_ip_addr.is_loopback() {
+                                        tracing::warn!(
+                                            "PASV: DNS resolved to loopback {} but client is from {}, using bind_ip",
+                                            resolved, ctx.client_ip
+                                        );
+                                        bind_ip.clone()
+                                    } else {
+                                        resolved
+                                    }
+                                } else {
+                                    tracing::warn!("PASV: invalid DNS resolution '{}', falling back", resolved);
+                                    bind_ip.clone()
+                                }
+                            }
+                            None => {
+                                tracing::warn!("PASV: DNS resolution failed for '{}', using bind_ip", masq_addr);
+                                bind_ip.clone()
+                            }
+                        }
                     } else {
                         // 直接是 IP 地址
                         masq_addr.clone()
@@ -1056,7 +1098,7 @@ async fn handle_command(
             }).unwrap_or_else(|| {
                 // 如果都未配置，使用 bind_ip 或 client_ip
                 if bind_ip == "0.0.0.0" || bind_ip.is_empty() {
-                    client_ip.to_string()
+                    ctx.client_ip.to_string()
                 } else {
                     bind_ip.clone()
                 }
@@ -1076,10 +1118,10 @@ async fn handle_command(
                     "227 Entering Passive Mode ({},{},{},{},{},{}).\r\n",
                     ip_parts[0], ip_parts[1], ip_parts[2], ip_parts[3], p1, p2
                 )
-            .as_bytes(), "PASV response").await;
+                .as_bytes(), "PASV response").await;
 
             tracing::info!(
-                client_ip = %client_ip,
+                client_ip = %ctx.client_ip,
                 username = ?state.current_user.as_deref(),
                 action = "PASV",
                 protocol = "FTP",
@@ -1089,7 +1131,7 @@ async fn handle_command(
 
         EPSV => {
             let ((port_min, port_max), bind_ip) = {
-                let cfg = config.lock();
+                let cfg = ctx.config.lock();
                 (cfg.ftp.passive_ports, cfg.ftp.bind_ip.clone())
             };
 
@@ -1289,7 +1331,7 @@ async fn handle_command(
         STAT => {
             if let Some(ref username) = state.current_user {
                 control_stream.write_response(b"211-FTP server status:\r\n", "FTP response").await;
-                control_stream.write_response(format!("211-Connected to: {}\r\n", client_ip).as_bytes(), "FTP response").await;
+                control_stream.write_response(format!("211-Connected to: {}\r\n", ctx.client_ip).as_bytes(), "FTP response").await;
                 control_stream.write_response(format!("211-Logged in as: {}\r\n", username).as_bytes(), "FTP response").await;
                 control_stream.write_response(format!("211-Current directory: {}\r\n", state.cwd).as_bytes(), "FTP response").await;
                 control_stream.write_response(format!("211-Transfer mode: {}\r\n", if state.passive_mode { "Passive" } else { "Active" }).as_bytes(), "FTP response").await;
@@ -1408,7 +1450,7 @@ async fn handle_command(
             let can_list = if state.current_user.as_deref() == Some("anonymous") {
                 true
             } else {
-                let users = user_manager.lock();
+                let users = ctx.user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                 user.is_some_and(|u| u.permissions.can_list)
             };
@@ -1451,7 +1493,7 @@ async fn handle_command(
                 state.passive_mode,
                 state.data_port,
                 &state.data_addr,
-                client_ip,
+                ctx.client_ip,
                 &mut state.passive_manager,
             ).await {
                 let is_nlst = matches!(cmd, NLST(_));
@@ -1481,7 +1523,7 @@ async fn handle_command(
             }
 
             let can_list = {
-                let users = user_manager.lock();
+                let users = ctx.user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                 user.is_none_or(|u| u.permissions.can_list)
             };
@@ -1535,7 +1577,7 @@ async fn handle_command(
                     state.passive_mode,
                     state.data_port,
                     &state.data_addr,
-                    client_ip,
+                    ctx.client_ip,
                     &mut state.passive_manager,
                 ).await
                     && let Err(e) = transfer::send_mlsd_listing(
@@ -1583,10 +1625,10 @@ async fn handle_command(
                 }
 
                 let (can_read, speed_limit_kbps) = {
-                    let users = user_manager.lock();
+                    let users = ctx.user_manager.lock();
                     let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                     let global_speed_limit = {
-                        let cfg = config.lock();
+                        let cfg = ctx.config.lock();
                         if cfg.ftp.max_speed_kbps > 0 {
                             Some(cfg.ftp.max_speed_kbps)
                         } else {
@@ -1636,7 +1678,7 @@ async fn handle_command(
                     state.passive_mode,
                     state.data_port,
                     &state.data_addr,
-                    client_ip,
+                    ctx.client_ip,
                     &mut state.passive_manager,
                 ).await {
                     let abort = Arc::clone(&state.abort_flag);
@@ -1656,7 +1698,7 @@ async fn handle_command(
                 crate::file_op_log!(
                     download,
                     state.current_user.as_deref().unwrap_or("anonymous"),
-                    client_ip,
+                    ctx.client_ip,
                     &file_path.to_string_lossy(),
                     final_size,
                     "FTP"
@@ -1674,10 +1716,10 @@ async fn handle_command(
 
             if let Some(filename) = filename {
                 let (can_write, quota_mb, speed_limit_kbps) = {
-                    let users = user_manager.lock();
+                    let users = ctx.user_manager.lock();
                     let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                     let global_speed_limit = {
-                        let cfg = config.lock();
+                        let cfg = ctx.config.lock();
                         if cfg.ftp.max_speed_kbps > 0 {
                             Some(cfg.ftp.max_speed_kbps)
                         } else {
@@ -1727,12 +1769,12 @@ async fn handle_command(
                 }
 
                 if let Some(quota) = quota_mb {
-                    let current_usage = quota_manager.get_usage(state.current_user.as_deref().unwrap_or("anonymous")).await;
+                    let current_usage = ctx.quota_manager.get_usage(state.current_user.as_deref().unwrap_or("anonymous")).await;
                     let quota_bytes = quota * 1024 * 1024;
                     if current_usage >= quota_bytes {
                         control_stream.write_response(b"552 Quota exceeded\r\n", "FTP response").await;
                         tracing::warn!(
-                            client_ip = %client_ip,
+                            client_ip = %ctx.client_ip,
                             username = ?state.current_user.as_deref(),
                             action = "QUOTA_EXCEEDED",
                             "Upload denied: quota exceeded for user {}", state.current_user.as_deref().unwrap_or("unknown")
@@ -1753,7 +1795,7 @@ async fn handle_command(
                     state.passive_mode,
                     state.data_port,
                     &state.data_addr,
-                    client_ip,
+                    ctx.client_ip,
                     &mut state.passive_manager,
                 ).await {
                     let abort = Arc::clone(&state.abort_flag);
@@ -1789,15 +1831,15 @@ async fn handle_command(
                     let uploaded_size = tokio::fs::metadata(&file_path).await.map(|m| m.len()).unwrap_or(total_written);
                     
                     if quota_mb.is_some()
-                        && let Err(e) = quota_manager.add_usage(state.current_user.as_deref().unwrap_or("anonymous"), uploaded_size).await {
+                        && let Err(e) = ctx.quota_manager.add_usage(state.current_user.as_deref().unwrap_or("anonymous"), uploaded_size).await {
                             tracing::error!("Failed to update quota usage: {}", e);
                     }
-                    
+
                     if file_existed {
                         crate::file_op_log!(
                             update,
                             state.current_user.as_deref().unwrap_or("anonymous"),
-                            client_ip,
+                            ctx.client_ip,
                             &file_path.to_string_lossy(),
                             uploaded_size,
                             "FTP"
@@ -1806,7 +1848,7 @@ async fn handle_command(
                         crate::file_op_log!(
                             upload,
                             state.current_user.as_deref().unwrap_or("anonymous"),
-                            client_ip,
+                            ctx.client_ip,
                             &file_path.to_string_lossy(),
                             uploaded_size,
                             "FTP"
@@ -1817,7 +1859,7 @@ async fn handle_command(
                     crate::file_op_log!(
                         failed,
                         state.current_user.as_deref().unwrap_or("anonymous"),
-                        client_ip,
+                        ctx.client_ip,
                         "UPLOAD",
                         &file_path.to_string_lossy(),
                         "FTP",
@@ -1839,7 +1881,7 @@ async fn handle_command(
 
             if let Some(filename) = filename {
                 let can_append = {
-                    let users = user_manager.lock();
+                    let users = ctx.user_manager.lock();
                     let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                     user.is_some_and(|u| u.permissions.can_append)
                 };
@@ -1869,7 +1911,7 @@ async fn handle_command(
                     state.passive_mode,
                     state.data_port,
                     &state.data_addr,
-                    client_ip,
+                    ctx.client_ip,
                     &mut state.passive_manager,
                 ).await {
                     let abort = Arc::clone(&state.abort_flag);
@@ -1888,7 +1930,7 @@ async fn handle_command(
                 let appended_size = tokio::fs::metadata(&file_path).await.map(|m| m.len()).unwrap_or(0);
                 crate::file_op_log!(
                     state.current_user.as_deref().unwrap_or("anonymous"),
-                    client_ip,
+                    ctx.client_ip,
                     "APPEND",
                     &file_path.to_string_lossy(),
                     appended_size,
@@ -1906,7 +1948,7 @@ async fn handle_command(
             }
 
             let can_delete = {
-                let users = user_manager.lock();
+                let users = ctx.user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                 user.is_some_and(|u| u.permissions.can_delete)
             };
@@ -1940,7 +1982,7 @@ async fn handle_command(
                     crate::file_op_log!(
                         delete,
                         state.current_user.as_deref().unwrap_or("anonymous"),
-                        client_ip,
+                        ctx.client_ip,
                         &file_path.to_string_lossy(),
                         "FTP"
                     );
@@ -1957,7 +1999,7 @@ async fn handle_command(
             }
 
             let can_mkdir = {
-                let users = user_manager.lock();
+                let users = ctx.user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                 user.is_some_and(|u| u.permissions.can_mkdir)
             };
@@ -1993,7 +2035,7 @@ async fn handle_command(
                     crate::file_op_log!(
                         mkdir,
                         state.current_user.as_deref().unwrap_or("anonymous"),
-                        client_ip,
+                        ctx.client_ip,
                         &dir_path.to_string_lossy(),
                         "FTP"
                     );
@@ -2010,7 +2052,7 @@ async fn handle_command(
             }
 
             let can_rmdir = {
-                let users = user_manager.lock();
+                let users = ctx.user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                 user.is_some_and(|u| u.permissions.can_rmdir)
             };
@@ -2051,7 +2093,7 @@ async fn handle_command(
                     crate::file_op_log!(
                         rmdir,
                         state.current_user.as_deref().unwrap_or("anonymous"),
-                        client_ip,
+                        ctx.client_ip,
                         &dir_path.to_string_lossy(),
                         "FTP"
                     );
@@ -2068,7 +2110,7 @@ async fn handle_command(
             }
 
             let can_rename = {
-                let users = user_manager.lock();
+                let users = ctx.user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                 user.is_some_and(|u| u.permissions.can_rename)
             };
@@ -2093,7 +2135,7 @@ async fn handle_command(
                     state.rename_from = Some(from_path.to_string_lossy().to_string());
                     control_stream.write_response(b"350 File exists, ready for destination name\r\n", "FTP response").await;
                     tracing::debug!(
-                        client_ip = %client_ip,
+                        client_ip = %ctx.client_ip,
                         username = ?state.current_user.as_deref(),
                         action = "RNFR",
                         "RNFR: {}", from_path.display()
@@ -2137,7 +2179,7 @@ async fn handle_command(
                                 crate::file_op_log!(
                                     rename,
                                     state.current_user.as_deref().unwrap_or("anonymous"),
-                                    client_ip,
+                                    ctx.client_ip,
                                     from_path,
                                     &to_path.to_string_lossy(),
                                     "FTP"
@@ -2146,7 +2188,7 @@ async fn handle_command(
                                 crate::file_op_log!(
                                     move,
                                     state.current_user.as_deref().unwrap_or("anonymous"),
-                                    client_ip,
+                                    ctx.client_ip,
                                     from_path,
                                     &to_path.to_string_lossy(),
                                     "FTP"
@@ -2227,7 +2269,7 @@ async fn handle_command(
             }
 
             let can_write = {
-                let users = user_manager.lock();
+                let users = ctx.user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
                 user.is_some_and(|u| u.permissions.can_write)
             };
@@ -2258,7 +2300,7 @@ async fn handle_command(
                 state.passive_mode,
                 state.data_port,
                 &state.data_addr,
-                client_ip,
+                ctx.client_ip,
                 &mut state.passive_manager,
             ).await {
                 let abort = Arc::clone(&state.abort_flag);
@@ -2278,7 +2320,7 @@ async fn handle_command(
             crate::file_op_log!(
                 upload,
                 state.current_user.as_deref().unwrap_or("anonymous"),
-                client_ip,
+                ctx.client_ip,
                 &file_path.to_string_lossy(),
                 uploaded_size,
                 "FTP"

@@ -9,6 +9,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use wftpg::core::config::Config;
 use wftpg::core::server_manager::ServerManager;
 use wftpg::core::config_manager::ConfigManager;
+use wftpg::core::config_watcher::ConfigWatcher;
 use wftpg::gui_egui::{about_tab, file_log_tab, log_tab, security_tab, server_tab, service_tab, styles, user_tab};
 
 #[cfg(windows)]
@@ -135,6 +136,7 @@ struct WftpgApp {
     init_receiver:  Option<mpsc::Receiver<Result<InitResult, String>>>,
     init_start_time: Instant,
     cached_styles:  CachedStyles,
+    config_watcher: Option<ConfigWatcher>,
 }
 
 impl WftpgApp {
@@ -190,6 +192,7 @@ impl WftpgApp {
             init_receiver:  Some(init_rx),
             init_start_time: Instant::now(),
             cached_styles:  CachedStyles::new(),
+            config_watcher: None,
         }
     }
     
@@ -210,6 +213,18 @@ impl WftpgApp {
         Ok(InitResult {
             show_service_dialog,
         })
+    }
+    
+    /// 初始化配置文件监听器
+    fn init_config_watcher(&mut self) {
+        let config_path = Config::get_config_path();
+        self.config_watcher = Some(
+            ConfigWatcher::new(
+                &config_path,
+                self.config_manager.clone(),
+            )
+        );
+        tracing::info!("Configuration watcher initialized");
     }
     
     fn check_init_result(&mut self, ctx: &egui::Context) {
@@ -233,8 +248,10 @@ impl WftpgApp {
                     Ok(init_result) => {
                         self.show_service_install_dialog = init_result.show_service_dialog;
                         self.init_state = InitState::Ready;
+                        // 初始化配置监听器
+                        self.init_config_watcher();
                         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                        tracing::info!("应用初始化完成");
+                        tracing::info!("应用初始化完成，配置监听器已启动");
                     }
                     Err(e) => {
                         self.init_error = Some(e);
@@ -432,6 +449,14 @@ impl WftpgApp {
 impl App for WftpgApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut Frame) {
         let ctx = ui.ctx().clone();
+        
+        // 检查配置文件变更并自动重载
+        if let Some(watcher) = &mut self.config_watcher {
+            if watcher.check_and_reload() {
+                // 配置已重新加载，更新所有相关的 UI 状态
+                tracing::info!("Configuration auto-reloaded, refreshing UI...");
+            }
+        }
         
         match self.init_state {
             InitState::Loading => {

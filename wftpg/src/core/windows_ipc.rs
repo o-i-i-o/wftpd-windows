@@ -220,7 +220,7 @@ impl Read for &IpcStream {
         unsafe {
             // 创建事件用于通知 IO 完成
             let event = CreateEventW(None, true, false, None)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                .map_err(std::io::Error::other)?;
             
             let mut overlapped = OVERLAPPED {
                 hEvent: event,
@@ -266,7 +266,7 @@ impl Write for &IpcStream {
         unsafe {
             // 创建事件用于通知 IO 完成
             let event = CreateEventW(None, true, false, None)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                .map_err(std::io::Error::other)?;
             
             let mut overlapped = OVERLAPPED {
                 hEvent: event,

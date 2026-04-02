@@ -153,10 +153,10 @@ impl FtpServer {
                                 let client_ip = peer_addr.ip().to_string();
                                 let config_arc = Arc::clone(&config);
                                 
-                                // 检查连接数限制
+                                // 原子化检查+注册连接
                                 let ip_allowed = {
                                     let cfg = config_arc.lock();
-                                    cfg.check_connection_limits(&client_ip)
+                                    cfg.try_register_connection(&client_ip)
                                 };
                                 
                                 if !ip_allowed {
@@ -170,12 +170,6 @@ impl FtpServer {
                                         b"421 Too many connections - please try again later\r\n"
                                     ).await;
                                     continue;
-                                }
-                                
-                                // 注册连接
-                                {
-                                    let cfg = config_arc.lock();
-                                    cfg.register_connection(&client_ip);
                                 }
 
                                 let user_manager = Arc::clone(&user_manager);

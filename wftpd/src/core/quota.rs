@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 use std::fs;
 
@@ -20,16 +21,18 @@ pub struct QuotaData {
 pub struct QuotaManager {
     data_path: PathBuf,
     data: Arc<Mutex<QuotaData>>,
+    dirty: AtomicBool,
 }
 
 impl QuotaManager {
     pub fn new(data_dir: &Path) -> Self {
         let data_path = data_dir.join("quota.json");
         let data = Self::load_data(&data_path).unwrap_or_default();
-        
+
         QuotaManager {
             data_path,
             data: Arc::new(Mutex::new(data)),
+            dirty: AtomicBool::new(false),
         }
     }
 
@@ -54,7 +57,22 @@ impl QuotaManager {
         }
         let content = serde_json::to_string_pretty(&*data)?;
         fs::write(&self.data_path, content)?;
+        self.dirty.store(false, Ordering::Release);
         Ok(())
+    }
+
+    /// 仅在数据被修改时才刷盘（用于定时调用或显式保存）
+    pub async fn flush_if_dirty(&self) -> Result<()> {
+        if self.dirty.load(Ordering::Acquire) {
+            self.save_data().await
+        } else {
+            Ok(())
+        }
+    }
+
+    /// 强制立即刷盘（忽略脏标记）
+    pub async fn force_flush(&self) -> Result<()> {
+        self.save_data().await
     }
 
     pub async fn get_usage(&self, username: &str) -> u64 {
@@ -88,7 +106,7 @@ impl QuotaManager {
             usage.used_bytes = usage.used_bytes.saturating_add(bytes);
             usage.last_updated = chrono::Utc::now();
         }
-        self.save_data().await?;
+        self.dirty.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -100,7 +118,7 @@ impl QuotaManager {
                 usage.last_updated = chrono::Utc::now();
             }
         }
-        self.save_data().await?;
+        self.dirty.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -109,7 +127,7 @@ impl QuotaManager {
             let mut data = self.data.lock().await;
             data.users.remove(username);
         }
-        self.save_data().await?;
+        self.dirty.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -121,7 +139,7 @@ impl QuotaManager {
             usage.used_bytes = total_size;
             usage.last_updated = chrono::Utc::now();
         }
-        self.save_data().await?;
+        self.dirty.store(true, Ordering::Release);
         Ok(total_size)
     }
 

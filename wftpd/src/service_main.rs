@@ -211,8 +211,24 @@ fn create_ipc_server() -> anyhow::Result<IpcServer> {
 fn setup_signal_handler(state: &Arc<AppState>) {
     let state_clone = Arc::clone(state);
     ctrlc::set_handler(move || {
-        tracing::info!("Shutting down...");
+        tracing::info!("Shutting down gracefully...");
         state_clone.stop_all();
+
+        // 等待活跃连接优雅关闭（最多等待 10 秒）
+        let mut waited = 0u32;
+        while waited < 100 {
+            {
+                let cfg = state_clone.config.lock();
+                if cfg.server.get_global_count() == 0 {
+                    tracing::info!("All connections closed, shutting down");
+                    std::process::exit(0);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            waited += 1;
+        }
+
+        tracing::warn!("Graceful shutdown timeout reached, forcing exit");
         std::process::exit(0);
     }).expect("Error setting Ctrl-C handler");
 }
@@ -230,7 +246,16 @@ fn get_enabled_services(state: &Arc<AppState>) -> (bool, bool) {
     if let Some(cfg) = state.config.try_lock() {
         (cfg.ftp.enabled, cfg.sftp.enabled)
     } else {
-        (false, false)
+        tracing::warn!("Failed to acquire config lock for service startup check, retrying...");
+        // 短暂等待后重试一次
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        match state.config.try_lock() {
+            Some(cfg) => (cfg.ftp.enabled, cfg.sftp.enabled),
+            None => {
+                tracing::error!("Cannot acquire config lock for service startup, services will not start");
+                (false, false)
+            }
+        }
     }
 }
 

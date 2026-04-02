@@ -16,13 +16,20 @@ pub struct Config {
 
 impl Clone for Config {
     fn clone(&self) -> Self {
-        Config {
+        let global_count = self.server.get_global_count();
+        let ip_counts = self.server.get_all_ip_counts();
+
+        let new_config = Config {
             server: ServerConfig::new(),
             ftp: self.ftp.clone(),
             sftp: self.sftp.clone(),
             security: self.security.clone(),
             logging: self.logging.clone(),
-        }
+        };
+
+        // 恢复连接计数（避免 reload 时丢失活跃连接统计）
+        new_config.server.restore_counts(global_count, &ip_counts);
+        new_config
     }
 }
 
@@ -76,6 +83,24 @@ impl ServerConfig {
     pub fn get_ip_count(&self, ip: &str) -> usize {
         let map = self.connection_count_per_ip.lock();
         *map.get(ip).unwrap_or(&0)
+    }
+
+    /// 获取所有 IP 的连接计数快照
+    pub fn get_all_ip_counts(&self) -> std::collections::HashMap<String, usize> {
+        let map = self.connection_count_per_ip.lock();
+        map.clone()
+    }
+
+    /// 从快照恢复连接计数（用于 Config::clone 保留状态）
+    pub fn restore_counts(&self, global_count: usize, ip_counts: &std::collections::HashMap<String, usize>) {
+        self.global_connection_count.store(global_count, Ordering::SeqCst);
+        let mut map = self.connection_count_per_ip.lock();
+        map.clear();
+        for (ip, count) in ip_counts {
+            if *count > 0 {
+                map.insert(ip.clone(), *count);
+            }
+        }
     }
 }
 
@@ -486,6 +511,37 @@ impl Config {
             self.server.get_global_count(),
             self.server.get_ip_count(client_ip)
         );
+    }
+
+    /// 原子化操作：同时检查连接限制并注册连接（避免 TOCTOU 竞态）
+    /// 返回 true 表示注册成功，false 表示超过限制
+    pub fn try_register_connection(&self, client_ip: &str) -> bool {
+        let global_count = self.server.get_global_count();
+        let ip_count = self.server.get_ip_count(client_ip);
+
+        if global_count >= self.security.max_connections {
+            tracing::warn!(
+                "Connection limit reached: {} global connections (max: {}) - rejected {}",
+                global_count,
+                self.security.max_connections,
+                client_ip
+            );
+            return false;
+        }
+
+        if ip_count >= self.security.max_connections_per_ip {
+            tracing::warn!(
+                "Per-IP connection limit reached for {}: {} connections (max: {}) - rejected",
+                client_ip,
+                ip_count,
+                self.security.max_connections_per_ip
+            );
+            return false;
+        }
+
+        // 检查通过，执行注册
+        self.register_connection(client_ip);
+        true
     }
     
     pub fn unregister_connection(&self, client_ip: &str) {

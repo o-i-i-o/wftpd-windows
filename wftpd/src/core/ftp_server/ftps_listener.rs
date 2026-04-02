@@ -53,9 +53,24 @@ pub async fn start_ftps_implicit_server(
                     Ok((socket, peer_addr)) => {
                         let client_ip = peer_addr.ip().to_string();
 
+                        // 原子化检查+注册连接（与普通 FTP 服务器一致）
+                        let ip_allowed = {
+                            let cfg = config.lock();
+                            cfg.try_register_connection(&client_ip)
+                        };
+
+                        if !ip_allowed {
+                            tracing::warn!(
+                                "FTPS Connection rejected from {}: connection limit exceeded",
+                                client_ip
+                            );
+                            continue;
+                        }
+
                         tracing::info!(
                             client_ip = %client_ip,
                             action = "CONNECT",
+                            protocol = "FTPS",
                             "FTPS client connected from {}", client_ip
                         );
 
@@ -67,19 +82,27 @@ pub async fn start_ftps_implicit_server(
                             }
                         };
 
-                        let config = Arc::clone(&config);
+                        let config_for_session = Arc::clone(&config);
+                        let config_for_cleanup = Arc::clone(&config);
                         let user_manager = Arc::clone(&user_manager);
                         let quota_manager = Arc::clone(&quota_manager);
+                        let client_ip_clone = client_ip.clone();
 
                         tokio::spawn(async move {
                             if let Err(e) = crate::core::ftp_server::session::handle_session_tls(
                                 tls_stream,
-                                config,
+                                config_for_session,
                                 user_manager,
                                 quota_manager,
                                 client_ip,
                             ).await {
                                 tracing::debug!("FTPS session error: {}", e);
+                            }
+
+                            // 连接结束时注销
+                            {
+                                let cfg = config_for_cleanup.lock();
+                                cfg.unregister_connection(&client_ip_clone);
                             }
                         });
                     }

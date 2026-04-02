@@ -268,24 +268,39 @@ impl SecurityTab {
 
     fn save_async(&mut self, ctx: &egui::Context) {
         if self.is_saving {
+            tracing::warn!("保存操作正在进行中");
             return;
         }
             
-        if let Some(rx) = &self.save_receiver
-            && rx.try_recv().is_err()
-        {
-            tracing::warn!("前一次保存操作尚未完成，忽略本次保存请求");
-            return;
+        // 检查是否有未完成的接收器
+        if let Some(rx) = &self.save_receiver {
+            match rx.try_recv() {
+                Ok(_) => {
+                    // 有未完成的结果，先处理它
+                    self.check_save_result();
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    // 通道为空，继续
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    // 发送器已断开，重置
+                    self.save_receiver = None;
+                    self.save_sender = None;
+                }
+            }
         }
             
         if !self.validate_all() {
             self.status_message = Some(("输入验证失败，请检查红色标记的字段".to_string(), false));
+            tracing::warn!("验证失败，停止保存");
             return;
         }
             
         self.apply_buffers_to_config();
             
         self.is_saving = true;
+        self.status_message = Some(("正在保存配置...".to_string(), true));
+        
         // 使用 config_manager 保存配置
         let config_manager = self.config_manager.clone();
             
@@ -296,30 +311,45 @@ impl SecurityTab {
         let ctx_clone = ctx.clone();
             
         std::thread::spawn(move || {
+            tracing::info!("开始保存安全配置...");
             let result = match config_manager.save(&Config::get_config_path()) {
                 Ok(_) => {
+                    tracing::info!("配置保存成功，检查后端服务状态...");
                     if IpcClient::is_server_running() {
+                        tracing::info!("后端服务运行中，发送重新加载通知...");
                         match IpcClient::notify_reload() {
                             Ok(response) => {
                                 if response.success {
+                                    tracing::info!("后端重新加载成功");
                                     SaveResult::Success("安全配置已保存，后端服务已重新加载配置".to_string())
                                 } else {
+                                    tracing::warn!("后端重新加载失败：{}", response.message);
                                     SaveResult::Success(format!("配置已保存，但后端重新加载失败：{}", response.message))
                                 }
                             }
                             Err(e) => {
+                                tracing::error!("通知后端失败：{}", e);
                                 SaveResult::Success(format!("配置已保存，但通知后端失败：{}。请手动重启服务。", e))
                             }
                         }
                     } else {
+                        tracing::warn!("后端服务未运行");
                         SaveResult::Success("安全配置已保存（后端服务未运行）".to_string())
                     }
                 }
-                Err(e) => SaveResult::Error(format!("保存失败：{}", e)),
+                Err(e) => {
+                    tracing::error!("保存失败：{}", e);
+                    SaveResult::Error(format!("保存失败：{}", e))
+                }
             };
-            let _ = tx.send(result);
+            
+            if let Err(e) = tx.send(result) {
+                tracing::error!("发送保存结果失败：{}", e);
+            }
             ctx_clone.request_repaint();
         });
+        
+        tracing::info!("保存线程已启动");
     }
 
     fn check_save_result(&mut self) {
