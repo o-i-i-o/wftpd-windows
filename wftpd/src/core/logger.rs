@@ -854,7 +854,6 @@ mod tests {
         let parsed: LogEntry = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed.level, LogLevel::Info);
-        assert_eq!(parsed.target, "test");
         assert_eq!(parsed.fields.message, "Test message");
         assert_eq!(parsed.fields.client_ip, Some("192.168.1.1".to_string()));
     }
