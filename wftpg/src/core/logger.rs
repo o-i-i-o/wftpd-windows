@@ -167,10 +167,6 @@ impl<T: Clone> LogBuffer<T> {
     pub fn is_empty(&self) -> bool {
         self.buffer.read().is_empty()
     }
-
-    pub fn clone_inner(&self) -> Arc<RwLock<VecDeque<T>>> {
-        Arc::clone(&self.buffer)
-    }
 }
 
 impl<T: Clone> Clone for LogBuffer<T> {
@@ -402,6 +398,9 @@ pub struct TracingLogger {
 impl TracingLogger {
     pub fn init(log_dir: &str, _max_size: u64, max_files: usize, log_level: &str) -> Result<Self, String> {
         if let Some(global) = GLOBAL_LOGGER.get() {
+            // 检查是否需要重新初始化（日志目录或级别发生变化）
+            // 注意：由于 tracing subscriber 已经设置，无法动态更改日志级别和目录
+            // 这里仅返回现有实例的引用，确保行为一致
             return Ok(TracingLogger {
                 buffer: global.buffer.clone(),
                 file_op_buffer: global.file_op_buffer.clone(),
@@ -471,10 +470,19 @@ impl TracingLogger {
             .with(file_op_buffer_layer)
             .with(fmt_layer)
             .with(file_op_fmt_layer);
-
+        
         tracing::subscriber::set_global_default(subscriber)
-            .map_err(|e| format!("设置 tracing 日志失败: {}", e))?;
-
+            .map_err(|e| format!("设置 tracing 日志失败：{}", e))?;
+        
+        // 记录初始化参数，便于调试
+        tracing::debug!(
+            target: "system",
+            log_dir = %path.display(),
+            log_level = %log_level,
+            max_log_files = max_files,
+            "TracingLogger 初始化完成"
+        );
+        
         let _ = GLOBAL_LOGGER.set(GlobalLogger {
             buffer: buffer.clone(),
             file_op_buffer: file_op_buffer.clone(),

@@ -1,10 +1,9 @@
 use egui::{RichText, Ui};
 use crate::core::config::Config;
 use crate::core::ipc::IpcClient;
+use crate::core::config_manager::ConfigManager;
 use crate::gui_egui::styles;
 use std::sync::mpsc;
-use std::sync::Arc;
-use parking_lot::RwLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigLoadState {
@@ -15,8 +14,8 @@ pub enum ConfigLoadState {
 
 #[derive(Debug)]
 pub struct ServerTab {
-    pub config: Arc<RwLock<Config>>,
-    pub status_message: Option<(String, bool)>,
+    config_manager: ConfigManager,
+    status_message: Option<(String, bool)>,
     config_load_state: ConfigLoadState,
     config_load_error: Option<String>,
     save_receiver: Option<mpsc::Receiver<Result<String, String>>>,
@@ -24,9 +23,9 @@ pub struct ServerTab {
 }
 
 impl ServerTab {
-    pub fn with_config(config: Arc<RwLock<Config>>) -> Self {
+    pub fn new(config_manager: ConfigManager) -> Self {
         Self {
-            config,
+            config_manager,
             status_message: None,
             config_load_state: ConfigLoadState::Loaded,
             config_load_error: None,
@@ -35,18 +34,102 @@ impl ServerTab {
         }
     }
 
+    /// 验证配置的有效性
+    fn validate_config(config: &Config) -> Vec<String> {
+        let mut errors = Vec::new();
+
+        // FTP 配置验证
+        if config.ftp.enabled {
+            if config.ftp.port == 0 {
+                errors.push("FTP 端口不能为 0".to_string());
+            }
+            
+            if config.ftp.passive_ports.0 > config.ftp.passive_ports.1 {
+                errors.push(format!(
+                    "被动端口范围无效：{} - {}",
+                    config.ftp.passive_ports.0,
+                    config.ftp.passive_ports.1
+                ));
+            }
+
+            if config.ftp.allow_anonymous {
+                if let Some(ref home) = config.ftp.anonymous_home {
+                    if home.trim().is_empty() {
+                        errors.push("匿名用户主目录不能为空".to_string());
+                    }
+                } else {
+                    errors.push("匿名用户已启用但未配置主目录".to_string());
+                }
+            }
+
+            // FTPS 配置验证
+            if config.ftp.ftps.enabled {
+                if config.ftp.ftps.cert_path.as_ref().is_none_or(|p| p.trim().is_empty()) {
+                    errors.push("FTPS 已启用但未配置证书路径".to_string());
+                }
+                if config.ftp.ftps.key_path.as_ref().is_none_or(|p| p.trim().is_empty()) {
+                    errors.push("FTPS 已启用但未配置私钥路径".to_string());
+                }
+            }
+        }
+
+        // SFTP 配置验证
+        if config.sftp.enabled {
+            if config.sftp.port == 0 {
+                errors.push("SFTP 端口不能为 0".to_string());
+            }
+            
+            if config.sftp.host_key_path.trim().is_empty() {
+                errors.push("SFTP 主机密钥路径不能为空".to_string());
+            }
+
+            if config.sftp.max_auth_attempts == 0 {
+                errors.push("SFTP 最大认证次数必须大于 0".to_string());
+            }
+        }
+
+        // 日志配置验证
+        if config.logging.log_dir.trim().is_empty() {
+            errors.push("日志目录不能为空".to_string());
+        }
+
+        if config.logging.max_log_size == 0 {
+            errors.push("单个日志文件最大大小必须大于 0".to_string());
+        }
+
+        if config.logging.max_log_files == 0 {
+            errors.push("最大日志文件数必须大于 0".to_string());
+        }
+
+        errors
+    }
+
     pub fn save_config_async(&mut self, ctx: &egui::Context, config: Config) {
         if self.is_saving {
             return;
         }
 
+        // 先验证配置
+        let validation_errors = Self::validate_config(&config);
+        if !validation_errors.is_empty() {
+            self.status_message = Some((
+                format!("配置验证失败:\n{}", validation_errors.join("\n")),
+                false,
+            ));
+            self.is_saving = false;
+            return;
+        }
+
         self.is_saving = true;
+        
+        // 使用 config_manager 保存配置
+        let config_manager = self.config_manager.clone();
         let (tx, rx) = mpsc::channel();
         self.save_receiver = Some(rx);
 
         let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
-            let result = match config.save(&Config::get_config_path()) {
+            let result = match config_manager.save(&Config::get_config_path()) {
                 Ok(_) => {
                     tracing::info!("服务器配置保存成功");
 
@@ -150,8 +233,8 @@ impl ServerTab {
         }
 
         let mut config = {
-            let cfg = self.config.read();
-            cfg.clone()
+            let cfg = self.config_manager.read();
+            (*cfg).clone()
         };
 
         let is_saving = self.is_saving;
@@ -170,7 +253,8 @@ impl ServerTab {
                 };
 
                 if ui.add(save_btn).clicked() && !is_saving {
-                    let config_to_save = self.config.read().clone();
+                    // 直接使用 config_manager 的配置
+                    let config_to_save = (*self.config_manager.read()).clone();
                     self.save_config_async(ui.ctx(), config_to_save);
                 }
 
@@ -796,6 +880,6 @@ impl ServerTab {
                 });
         });
 
-        *self.config.write() = config;
+        *self.config_manager.write() = config;
     }
 }

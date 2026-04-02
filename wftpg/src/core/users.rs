@@ -180,6 +180,12 @@ impl UserManager {
         Ok(())
     }
 
+    /// 验证并准备用户主目录
+    /// 
+    /// 验证逻辑：
+    /// 1. 目录不能为空
+    /// 2. 如果目录存在，验证是有效目录且路径可规范化
+    /// 3. 如果目录不存在，尝试创建（确保父目录存在）
     fn validate_and_prepare_home_dir(home_dir: &str) -> Result<()> {
         let path = std::path::Path::new(home_dir);
         
@@ -189,27 +195,20 @@ impl UserManager {
 
         if path.exists() {
             if !path.is_dir() {
-                anyhow::bail!("用户主目录不是有效目录: {}", home_dir);
+                anyhow::bail!("用户主目录不是有效目录：{}", home_dir);
             }
             match path.canonicalize() {
                 Ok(_) => Ok(()),
                 Err(e) => anyhow::bail!("用户主目录路径无效 '{}': {}", home_dir, e),
             }
         } else {
-            if let Some(parent) = path.parent() {
-                if parent.exists() || parent.to_string_lossy().is_empty() {
-                    match std::fs::create_dir_all(path) {
-                        Ok(_) => {
-                            tracing::info!("已创建用户主目录: {}", home_dir);
-                            Ok(())
-                        }
-                        Err(e) => anyhow::bail!("无法创建用户主目录 '{}': {}", home_dir, e),
-                    }
-                } else {
-                    anyhow::bail!("用户主目录的父目录不存在: {}", parent.to_string_lossy());
+            // 目录不存在时尝试创建
+            match std::fs::create_dir_all(path) {
+                Ok(_) => {
+                    tracing::info!("已创建用户主目录：{}", home_dir);
+                    Ok(())
                 }
-            } else {
-                anyhow::bail!("用户主目录路径无效: {}", home_dir);
+                Err(e) => anyhow::bail!("无法创建用户主目录 '{}': {}", home_dir, e),
             }
         }
     }

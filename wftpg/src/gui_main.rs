@@ -5,11 +5,10 @@ use egui::{CentralPanel, RichText, Color32, IconData};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tracing_subscriber::layer::SubscriberExt;
-use std::sync::Arc;
-use parking_lot::RwLock;
 
 use wftpg::core::config::Config;
 use wftpg::core::server_manager::ServerManager;
+use wftpg::core::config_manager::ConfigManager;
 use wftpg::gui_egui::{about_tab, file_log_tab, log_tab, security_tab, server_tab, service_tab, styles, user_tab};
 
 #[cfg(windows)]
@@ -119,7 +118,7 @@ impl CachedStyles {
 
 struct WftpgApp {
     current_tab:    usize,
-    config:         Arc<RwLock<Config>>,
+    config_manager: ConfigManager,
     server_tab:     Option<server_tab::ServerTab>,
     user_tab:       Option<user_tab::UserTab>,
     security_tab:   Option<security_tab::SecurityTab>,
@@ -142,7 +141,8 @@ impl WftpgApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         cc.egui_ctx.set_global_style(styles::get_custom_style());
         
-        let config = Arc::new(RwLock::new(Config::load(&Config::get_config_path()).unwrap_or_default()));
+        let config = Config::load(&Config::get_config_path()).unwrap_or_default();
+        let config_manager = ConfigManager::new(config);
         
         let (init_tx, init_rx) = mpsc::channel();
         let ctx_clone = cc.egui_ctx.clone();
@@ -173,7 +173,7 @@ impl WftpgApp {
         
         Self {
             current_tab:    0,
-            config:         config.clone(),
+            config_manager: config_manager.clone(),
             server_tab:     None,
             user_tab:       None,
             security_tab:   None,
@@ -279,13 +279,13 @@ impl WftpgApp {
     fn ensure_tab_initialized(&mut self, tab_idx: usize) {
         match tab_idx {
             0 if self.server_tab.is_none() => {
-                self.server_tab = Some(server_tab::ServerTab::with_config(self.config.clone()));
+                self.server_tab = Some(server_tab::ServerTab::new(self.config_manager.clone()));
             }
             1 if self.user_tab.is_none() => {
                 self.user_tab = Some(user_tab::UserTab::new());
             }
             2 if self.security_tab.is_none() => {
-                self.security_tab = Some(security_tab::SecurityTab::with_config(self.config.clone()));
+                self.security_tab = Some(security_tab::SecurityTab::new(self.config_manager.clone()));
             }
             3 if self.service_tab.is_none() => {
                 self.service_tab = Some(service_tab::ServiceTab::new());

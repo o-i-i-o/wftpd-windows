@@ -9,3 +9,4 @@ pub mod path_utils;
 pub mod ipc;
 pub mod windows_ipc;
 pub mod server_manager;
+pub mod config_manager;

@@ -1,10 +1,9 @@
 use egui::RichText;
 use crate::core::config::Config;
 use crate::core::ipc::IpcClient;
+use crate::core::config_manager::ConfigManager;
 use crate::gui_egui::styles;
 use std::sync::mpsc;
-use std::sync::Arc;
-use parking_lot::RwLock;
 use std::time::Instant;
 
 #[derive(Debug, Clone)]
@@ -80,6 +79,11 @@ fn is_valid_ipv6(ip: &str) -> bool {
         return false;
     }
     
+    // 检查是否包含非法字符（只允许 0-9, a-f, A-F, :）
+    if !ip.chars().all(|c| c.is_ascii_hexdigit() || c == ':') {
+        return false;
+    }
+    
     let parts: Vec<&str> = ip.split("::").collect();
     if parts.len() > 2 {
         return false;
@@ -93,7 +97,29 @@ fn is_valid_ipv6(ip: &str) -> bool {
         ip.split(':').count()
     };
     
-    total_groups <= 8
+    if total_groups > 8 {
+        return false;
+    }
+    
+    // 验证每个 hextet（16 位值，0-FFFF）
+    for part in ip.split(':') {
+        if !part.is_empty() && !part.starts_with("::") && !part.ends_with("::") {
+            // 跳过空的部分（由 :: 产生）
+            if part.is_empty() {
+                continue;
+            }
+            // 检查长度（最多 4 个十六进制字符）
+            if part.len() > 4 {
+                return false;
+            }
+            // 尝试解析为 u16
+            if u16::from_str_radix(part, 16).is_err() {
+                return false;
+            }
+        }
+    }
+    
+    true
 }
 
 enum SaveResult {
@@ -102,7 +128,7 @@ enum SaveResult {
 }
 
 pub struct SecurityTab {
-    config: Arc<RwLock<Config>>,
+    config_manager: ConfigManager,
     max_login_attempts_buf: String,
     ban_duration_buf: String,
     max_connections_buf: String,
@@ -122,8 +148,8 @@ pub struct SecurityTab {
 }
 
 impl SecurityTab {
-    pub fn with_config(config: Arc<RwLock<Config>>) -> Self {
-        let cfg = config.read();
+    pub fn new(config_manager: ConfigManager) -> Self {
+        let cfg = config_manager.read();
         let max_login_attempts_buf = cfg.security.max_login_attempts.to_string();
         let ban_duration_buf = cfg.security.ban_duration.to_string();
         let max_connections_buf = cfg.security.max_connections.to_string();
@@ -135,7 +161,7 @@ impl SecurityTab {
         let (tx, rx) = mpsc::channel();
         
         Self {
-            config,
+            config_manager,
             max_login_attempts_buf,
             ban_duration_buf,
             max_connections_buf,
@@ -212,7 +238,7 @@ impl SecurityTab {
     }
 
     fn apply_buffers_to_config(&mut self) {
-        let mut cfg = self.config.write();
+        let mut cfg = self.config_manager.write();
         if let Ok(v) = self.max_login_attempts_buf.parse::<u32>() {
             cfg.security.max_login_attempts = v;
         }
@@ -260,7 +286,8 @@ impl SecurityTab {
         self.apply_buffers_to_config();
             
         self.is_saving = true;
-        let config = self.config.read().clone();
+        // 使用 config_manager 保存配置
+        let config_manager = self.config_manager.clone();
             
         let (tx, rx) = mpsc::channel();
         self.save_sender = Some(tx.clone());
@@ -269,7 +296,7 @@ impl SecurityTab {
         let ctx_clone = ctx.clone();
             
         std::thread::spawn(move || {
-            let result = match config.save(&Config::get_config_path()) {
+            let result = match config_manager.save(&Config::get_config_path()) {
                 Ok(_) => {
                     if IpcClient::is_server_running() {
                         match IpcClient::notify_reload() {

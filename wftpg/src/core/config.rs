@@ -17,7 +17,12 @@ pub struct Config {
 impl Clone for Config {
     fn clone(&self) -> Self {
         Config {
-            server: ServerConfig::new(),
+            server: ServerConfig {
+                global_connection_count: AtomicUsize::new(self.server.get_global_count()),
+                connection_count_per_ip: parking_lot::Mutex::new(
+                    self.server.connection_count_per_ip.lock().clone()
+                ),
+            },
             ftp: self.ftp.clone(),
             sftp: self.sftp.clone(),
             security: self.security.clone(),
