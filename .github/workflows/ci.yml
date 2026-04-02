@@ -33,7 +33,10 @@ jobs:
           wftpd -> ./wftpd
       
     - name: 检查代码格式
-      run: cargo fmt --check
+      run: |
+        cargo fmt --check
+        cd ../wftpd
+        cargo fmt --check
       working-directory: wftpg
     
     - name: 构建 wftpg (GUI)
