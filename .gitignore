@@ -1,5 +1,6 @@
 target/
-
+wftpg/target/
+wftpd/target/
 # 测试结果文件
 test_result.json
 test_*.log

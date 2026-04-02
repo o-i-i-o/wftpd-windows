@@ -1,8 +1,0 @@
-// WFTPG Application Resource File
-// 包含应用程序图标和管理员权限清单
-
-// 应用程序图标 - 支持多种尺寸（16x16, 32x32, 48x48, 256x256）
-IDI_ICON1 ICON "ui/wftpg.ico"
-
-// 应用程序清单 - 请求管理员权限
-1 RT_MANIFEST "wftpg.manifest"
