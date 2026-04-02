@@ -172,14 +172,29 @@ impl ServerManager {
                 .context("无法打开服务控制管理器")?;
             
             let service_name_wide: Vec<u16> = SERVICE_NAME.encode_utf16().chain(std::iter::once(0)).collect();
-            let service = OpenServiceW(manager, PCWSTR(service_name_wide.as_ptr()), SERVICE_START)
+            let service = OpenServiceW(manager, PCWSTR(service_name_wide.as_ptr()), SERVICE_START | SERVICE_QUERY_STATUS)
                 .context("无法打开服务")?;
+            
+            let _ = CloseServiceHandle(manager);
             
             StartServiceW(service, None)
                 .context("无法启动服务")?;
             
+            let mut status = SERVICE_STATUS::default();
+            for _ in 0..30 {
+                if QueryServiceStatus(service, &mut status).is_ok() {
+                    if status.dwCurrentState == SERVICE_RUNNING {
+                        break;
+                    }
+                    if status.dwCurrentState == SERVICE_STOPPED {
+                        let _ = CloseServiceHandle(service);
+                        anyhow::bail!("服务启动后立即停止，请检查服务配置");
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            
             let _ = CloseServiceHandle(service);
-            let _ = CloseServiceHandle(manager);
             
             tracing::info!("服务启动成功：{}", SERVICE_NAME);
             Ok(())
@@ -196,12 +211,22 @@ impl ServerManager {
             let service = OpenServiceW(manager, PCWSTR(service_name_wide.as_ptr()), SERVICE_STOP | SERVICE_QUERY_STATUS)
                 .context("无法打开服务")?;
             
+            let _ = CloseServiceHandle(manager);
+            
             let mut status = SERVICE_STATUS::default();
             ControlService(service, SERVICE_CONTROL_STOP, &mut status)
                 .context("无法停止服务")?;
             
+            for _ in 0..30 {
+                if QueryServiceStatus(service, &mut status).is_ok() {
+                    if status.dwCurrentState == SERVICE_STOPPED {
+                        break;
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            
             let _ = CloseServiceHandle(service);
-            let _ = CloseServiceHandle(manager);
             
             tracing::info!("服务停止成功：{}", SERVICE_NAME);
             Ok(())
