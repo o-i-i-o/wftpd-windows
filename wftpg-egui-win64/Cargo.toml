@@ -1,0 +1,84 @@
+[package]
+name = "wftpg"
+version = "3.2.6"
+edition = "2024"
+authors = ["boss@oi-io.cc"]
+description = "SFTP+FTP GUI Management Tool for Windows (Rust + egui)"
+build = "build.rs"
+
+[dependencies]
+egui = "0.34.0"
+eframe = "0.34.0"
+egui_extras = "0.34.0"
+rfd = "0.17.2"
+ico = "0.5"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "io-util", "fs", "signal"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1.1"
+argon2 = "0.5.3"
+rand = "0.9.2"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+thiserror = "2"
+ipnet = "2"
+sha2 = "0.11"
+md-5 = "0.10"
+hex = "0.4"
+rsa = { version = "0.9", features = ["pem"] }
+pkcs8 = { version = "0.10", features = ["pem"] }
+russh = "0.58.1"
+async-trait = "0.1"
+bytes = "1"
+fs2 = "0.4"
+socket2 = "0.6"
+polling = "3.11.0"
+rustls = "0.23.37"
+pem = "3.0.6"
+tokio-rustls = "0.26.4"
+rcgen = "0.14.7"
+time = { version = "0.3", features = ["serde"] }
+
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Pipes",
+    "Win32_System_IO",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Services",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+ctrlc = "3.5.2"
+windows-service = "0.8.0"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "json", "time", "chrono"] }
+tracing = "0.1.44"
+tracing-appender = "0.2.4"
+parking_lot = "0.12.5"
+
+[build-dependencies]
+embed-resource = "3.0.8"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.release.package."*"]
+opt-level = 3
+
+[[bin]]
+name = "wftpg"
+path = "src/gui_main.rs"
+
+[[bin]]
+name = "wftpd"
+path = "src/service_main.rs"
+
+[lib]
+name = "wftpg"
+path = "src/lib.rs"

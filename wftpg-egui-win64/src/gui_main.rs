@@ -5,11 +5,9 @@ use egui::{CentralPanel, RichText, Color32, IconData};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tracing_subscriber::layer::SubscriberExt;
-use std::sync::Arc;
-use parking_lot::RwLock;
 
-use wftpg::core::config::Config;
 use wftpg::core::server_manager::ServerManager;
+
 use wftpg::gui_egui::{about_tab, file_log_tab, log_tab, security_tab, server_tab, service_tab, styles, user_tab};
 
 #[cfg(windows)]
@@ -119,14 +117,13 @@ impl CachedStyles {
 
 struct WftpgApp {
     current_tab:    usize,
-    config:         Arc<RwLock<Config>>,
-    server_tab:     Option<server_tab::ServerTab>,
-    user_tab:       Option<user_tab::UserTab>,
-    security_tab:   Option<security_tab::SecurityTab>,
-    service_tab:    Option<service_tab::ServiceTab>,
-    log_tab:        Option<log_tab::LogTab>,
-    file_log_tab:   Option<file_log_tab::FileLogTab>,
-    about_tab:      Option<about_tab::AboutTab>,
+    server_tab:     server_tab::ServerTab,
+    user_tab:       user_tab::UserTab,
+    security_tab:   security_tab::SecurityTab,
+    service_tab:    service_tab::ServiceTab,
+    log_tab:        log_tab::LogTab,
+    file_log_tab:   file_log_tab::FileLogTab,
+    about_tab:      about_tab::AboutTab,
     show_service_install_dialog: bool,
     service_install_status: ServiceInstallStatus,
     service_install_receiver: Option<mpsc::Receiver<Result<(), String>>>,
@@ -141,8 +138,6 @@ struct WftpgApp {
 impl WftpgApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         cc.egui_ctx.set_global_style(styles::get_custom_style());
-        
-        let config = Arc::new(RwLock::new(Config::load(&Config::get_config_path()).unwrap_or_default()));
         
         let (init_tx, init_rx) = mpsc::channel();
         let ctx_clone = cc.egui_ctx.clone();
@@ -173,14 +168,13 @@ impl WftpgApp {
         
         Self {
             current_tab:    0,
-            config:         config.clone(),
-            server_tab:     None,
-            user_tab:       None,
-            security_tab:   None,
-            service_tab:    None,
-            log_tab:        None,
-            file_log_tab:   None,
-            about_tab:      None,
+            server_tab:     server_tab::ServerTab::new(),
+            user_tab:       user_tab::UserTab::new(),
+            security_tab:   security_tab::SecurityTab::new(),
+            service_tab:    service_tab::ServiceTab::new(),
+            log_tab:        log_tab::LogTab::new(),
+            file_log_tab:   file_log_tab::FileLogTab::new(),
+            about_tab:      about_tab::AboutTab::new(),
             show_service_install_dialog: false,
             service_install_status: ServiceInstallStatus::None,
             service_install_receiver: None,
@@ -275,33 +269,6 @@ impl WftpgApp {
                 }
             }
     }
-    
-    fn ensure_tab_initialized(&mut self, tab_idx: usize) {
-        match tab_idx {
-            0 if self.server_tab.is_none() => {
-                self.server_tab = Some(server_tab::ServerTab::with_config(self.config.clone()));
-            }
-            1 if self.user_tab.is_none() => {
-                self.user_tab = Some(user_tab::UserTab::new());
-            }
-            2 if self.security_tab.is_none() => {
-                self.security_tab = Some(security_tab::SecurityTab::with_config(self.config.clone()));
-            }
-            3 if self.service_tab.is_none() => {
-                self.service_tab = Some(service_tab::ServiceTab::new());
-            }
-            4 if self.log_tab.is_none() => {
-                self.log_tab = Some(log_tab::LogTab::new());
-            }
-            5 if self.file_log_tab.is_none() => {
-                self.file_log_tab = Some(file_log_tab::FileLogTab::new());
-            }
-            6 if self.about_tab.is_none() => {
-                self.about_tab = Some(about_tab::AboutTab::new());
-            }
-            _ => {}
-        }
-    }
 }
 
 impl WftpgApp {
@@ -322,7 +289,7 @@ impl WftpgApp {
             
             let final_result = match result {
                 Ok(Ok(_)) => Ok(()),
-                Ok(Err(e)) => Err(format!("服务安装失败：{}。请以管理员身份运行程序。", e)),
+                Ok(Err(e)) => Err(format!("服务安装失败: {}。请以管理员身份运行程序。", e)),
                 Err(panic_info) => {
                     let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
                         s.to_string()
@@ -426,8 +393,6 @@ impl WftpgApp {
             });
     }
 }
-
-
 
 impl App for WftpgApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut Frame) {
@@ -536,16 +501,15 @@ impl App for WftpgApp {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        self.ensure_tab_initialized(self.current_tab);
                         match self.current_tab {
-                            0 => self.server_tab.as_mut().unwrap().ui(ui),
-                            1 => self.user_tab.as_mut().unwrap().ui(ui),
-                            2 => self.security_tab.as_mut().unwrap().ui(ui),
-                            3 => self.service_tab.as_mut().unwrap().ui(ui),
-                            4 => self.log_tab.as_mut().unwrap().ui(ui),
-                            5 => self.file_log_tab.as_mut().unwrap().ui(ui),
-                            6 => self.about_tab.as_mut().unwrap().ui(ui),
-                            _ => self.server_tab.as_mut().unwrap().ui(ui),
+                            0 => self.server_tab.ui(ui),
+                            1 => self.user_tab.ui(ui),
+                            2 => self.security_tab.ui(ui),
+                            3 => self.service_tab.ui(ui),
+                            4 => self.log_tab.ui(ui),
+                            5 => self.file_log_tab.ui(ui),
+                            6 => self.about_tab.ui(ui),
+                            _ => self.server_tab.ui(ui),
                         }
                     });
                     
@@ -554,8 +518,10 @@ impl App for WftpgApp {
     }
     
     /// 在应用程序退出前调用，用于清理 egui 资源
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn on_exit(&mut self) {
         tracing::info!("GUI 应用程序即将关闭，正在清理 egui 资源...");
+        // egui/eframe 会自动清理大部分资源
+        // 这里可以清理一些自定义的资源（如果有）
     }
 }
 
@@ -581,10 +547,10 @@ fn setup_fonts(ctx: &egui::Context) {
                 if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
                     family.push((*name).into());
                 }
-                tracing::info!("成功加载字体：{}", name);
+                tracing::info!("成功加载字体: {}", name);
             }
             Err(e) => {
-                tracing::warn!("加载字体 {} 失败：{}", path, e);
+                tracing::warn!("加载字体 {} 失败: {}", path, e);
             }
         }
     }
@@ -675,7 +641,6 @@ fn main() -> eframe::Result<()> {
             .with_icon(icon),
         persist_window: true,
         persistence_path: Some(persistence_path),
-        renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
 
