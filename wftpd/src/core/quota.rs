@@ -132,7 +132,12 @@ impl QuotaManager {
     }
 
     pub async fn recalculate_usage(&self, username: &str, home_dir: &Path) -> Result<u64> {
-        let total_size = Self::calculate_dir_size(home_dir)?;
+        let home_dir = home_dir.to_path_buf();
+        let total_size = tokio::task::spawn_blocking(move || {
+            Self::calculate_dir_size(&home_dir)
+        }).await
+            .map_err(|e| anyhow::anyhow!("spawn_blocking error: {}", e))??;
+
         {
             let mut data = self.data.lock().await;
             let usage = data.users.entry(username.to_string()).or_default();

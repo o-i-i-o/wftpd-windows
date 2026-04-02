@@ -1,4 +1,4 @@
-﻿use anyhow::{Context, Result};
+use anyhow::{Context, Result};
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
@@ -127,8 +127,12 @@ impl UserManager {
     }
 
     fn hash_password(password: &str) -> Result<String> {
+        use argon2::Params;
+
         let salt = SaltString::generate(&mut OsRng);
-        let argon2 = Argon2::default();
+        let params = Params::new(65536, 3, 4, Some(32))
+            .map_err(|e| anyhow::anyhow!("Failed to create Argon2 params: {}", e))?;
+        let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
         let hash = argon2
             .hash_password(password.as_bytes(), &salt)
             .map_err(|e| anyhow::anyhow!("Failed to hash password: {}", e))?

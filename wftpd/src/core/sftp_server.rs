@@ -26,9 +26,9 @@ const SSH_FXF_EXCL: u32 = 0x00000020;
 
 const MAX_PACKET_SIZE: usize = 256 * 1024;
 const MAX_BUFFER_SIZE: usize = 10 * 1024 * 1024;
-// 优化的缓冲区大小配置
-const SFTP_READ_BUFFER_SIZE: usize = 128 * 1024; // 128KB (从 32KB 提升)
-const SFTP_WRITE_FLUSH_THRESHOLD: usize = 64 * 1024; // 64KB 刷新阈值
+const MAX_HANDLES: usize = 256;
+const SFTP_READ_BUFFER_SIZE: usize = 128 * 1024;
+const SFTP_WRITE_FLUSH_THRESHOLD: usize = 64 * 1024;
 
 #[derive(Clone)]
 pub struct SftpServer {
@@ -720,7 +720,7 @@ impl SftpState {
             if let Some(user) = users.get_user(username) {
                 self.cached_permissions = Some(user.permissions);
                 // 设置缓存有效期（5 秒）
-                self.cache_expiry = Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
+                self.cache_expiry = Some(std::time::Instant::now() + std::time::Duration::from_secs(2));
                 // 预计算常用权限检查结果
                 self.permission_cache.insert("check".to_string(), true);
             }
@@ -807,6 +807,11 @@ impl SftpState {
 
         if !self.check_permission(|p| p.can_list) {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
+        }
+
+        if self.handles.len() >= MAX_HANDLES {
+            tracing::warn!("SFTP OPENDIR denied: too many open handles ({})", self.handles.len());
+            return Ok(self.build_status_packet(id, 4, "Too many open handles", ""));
         }
 
         let full_path = match self.resolve_path(&path) {
@@ -1714,6 +1719,11 @@ impl SftpState {
             tracing::warn!("SFTP OPEN denied: no permission for user {:?} (read={}, write={}, append={})", 
                 self.username, need_read, need_write, need_append);
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
+        }
+
+        if self.handles.len() >= MAX_HANDLES {
+            tracing::warn!("SFTP OPEN denied: too many open handles ({})", self.handles.len());
+            return Ok(self.build_status_packet(id, 4, "Too many open handles", ""));
         }
 
         let full_path = match self.resolve_path(&path) {

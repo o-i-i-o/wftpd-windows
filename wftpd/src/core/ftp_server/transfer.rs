@@ -11,7 +11,9 @@ use super::passive::PassiveManager;
 use crate::core::rate_limiter::RateLimiter;
 
 // 动态缓冲区大小：根据传输场景自动调整
-const DEFAULT_BUFFER_SIZE: usize = 128 * 1024; // 128KB 默认值
+const DEFAULT_BUFFER_SIZE: usize = 128 * 1024;
+const MAX_ENTRIES_PER_BATCH: usize = 2000;
+const MAX_LISTING_SIZE: usize = 4 * 1024 * 1024; // 128KB 默认值
 
 pub async fn get_data_connection(
     passive_mode: bool,
@@ -359,7 +361,7 @@ pub async fn send_file_with_limits(
     Ok(())
 }
 
-/// 优化的目录列表发送（批量缓冲）
+/// 优化的目录列表发送（批量缓冲 + 内存限制）
 pub async fn send_directory_listing(
     data_stream: &mut TcpStream,
     dir_path: &Path,
@@ -367,15 +369,23 @@ pub async fn send_directory_listing(
     is_nlst: bool,
     _is_ascii: bool,
 ) -> Result<()> {
-    // 先收集所有条目，然后批量发送
     let mut entries_data = Vec::new();
-    
+    let mut entry_count = 0usize;
+
     let mut dir = tokio::fs::read_dir(dir_path).await?;
-    
+
     while let Ok(Some(entry)) = dir.next_entry().await {
+        if entry_count >= MAX_ENTRIES_PER_BATCH {
+            tracing::warn!(
+                "Directory listing truncated: {} entries limit reached for {:?}",
+                MAX_ENTRIES_PER_BATCH, dir_path
+            );
+            break;
+        }
+
         if let Ok(metadata) = entry.metadata().await {
             let name = entry.file_name().to_string_lossy().to_string();
-            
+
             if is_nlst {
                 let line = format!("{}\r\n", name);
                 entries_data.extend_from_slice(line.as_bytes());
@@ -395,10 +405,18 @@ pub async fn send_directory_listing(
                 );
                 entries_data.extend_from_slice(line.as_bytes());
             }
+
+            entry_count += 1;
+
+            // 分批发送，避免内存峰值
+            if entries_data.len() >= MAX_LISTING_SIZE {
+                data_stream.write_all(&entries_data).await?;
+                entries_data.clear();
+            }
         }
     }
 
-    // 批量发送所有数据，减少网络往返
+    // 发送剩余数据
     if !entries_data.is_empty() {
         data_stream.write_all(&entries_data).await?;
     }
@@ -411,21 +429,35 @@ pub async fn send_mlsd_listing(
     dir_path: &Path,
     owner: &str,
 ) -> Result<()> {
-    // 优化的 MLSD 列表发送（批量缓冲）
     let mut entries_data = Vec::new();
-    
+    let mut entry_count = 0usize;
+
     let mut dir = tokio::fs::read_dir(dir_path).await?;
-    
+
     while let Ok(Some(entry)) = dir.next_entry().await {
+        if entry_count >= MAX_ENTRIES_PER_BATCH {
+            tracing::warn!(
+                "MLSD listing truncated: {} entries limit reached for {:?}",
+                MAX_ENTRIES_PER_BATCH, dir_path
+            );
+            break;
+        }
+
         if let Ok(metadata) = entry.metadata().await {
             let name = entry.file_name().to_string_lossy().to_string();
             let facts = build_mlst_facts(&metadata, owner);
             let line = format!("{} {}\r\n", facts, name);
             entries_data.extend_from_slice(line.as_bytes());
+
+            entry_count += 1;
+
+            if entries_data.len() >= MAX_LISTING_SIZE {
+                data_stream.write_all(&entries_data).await?;
+                entries_data.clear();
+            }
         }
     }
 
-    // 批量发送所有数据，减少网络往返
     if !entries_data.is_empty() {
         data_stream.write_all(&entries_data).await?;
     }
