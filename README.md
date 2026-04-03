@@ -143,12 +143,6 @@ cargo build --release
 - **配置文件**: `C:\ProgramData\wftpg\config.toml`
 - **用户配置**: `C:\ProgramData\wftpg\users.toml`
 
-### 测试账户
-
-首次运行时会自动创建测试账户：
-- **用户名**: `123`
-- **密码**: `123123`
-
 ### FTP/SFTP 客户端连接示例
 
 #### Windows (FileZilla)
@@ -404,6 +398,7 @@ A:
 1. 确保防火墙开放了被动端口范围（默认 50000-50100）
 2. 在路由器上配置端口转发（如果在内网）
 3. 在"⚙ 服务器"标签页调整被动端口范围
+4. nat IP配置正确
 
 ### Q: 如何备份配置？
 A: 备份 `C:\ProgramData\wftpg\` 目录下的所有文件：

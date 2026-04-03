@@ -104,8 +104,8 @@ jobs:
         New-Item -ItemType Directory -Force -Path "release"
         Copy-Item "wftpg/target/release/wftpg.exe" "release/"
         Copy-Item "wftpd/target/release/wftpd.exe" "release/"
-        Copy-Item "..\安装.cmd" "release/"
-        Copy-Item "..\卸载.cmd" "release/"
+        Copy-Item "安装.cmd" "release/"
+        Copy-Item "卸载.cmd" "release/"
         Compress-Archive -Path "release/*" -DestinationPath "WFTPG-$version-windows-x64.zip"
         Write-Output "Created WFTPG-$version-windows-x64.zip"
       shell: pwsh
