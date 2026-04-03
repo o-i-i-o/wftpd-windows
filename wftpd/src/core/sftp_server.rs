@@ -140,16 +140,16 @@ impl SftpServer {
                                 let quota_manager = Arc::clone(&quota_manager_clone);
                                 let client_ip = peer_addr.ip().to_string();
 
-                                // 检查连接数限制
+                                // 检查 IP 黑白名单和连接数限制
                                 let config_for_check = Arc::clone(&config_clone);
                                 let ip_allowed = {
                                     let cfg = config_for_check.lock();
-                                    cfg.check_connection_limits(&client_ip)
+                                    cfg.is_ip_allowed(&client_ip) && cfg.check_connection_limits(&client_ip)
                                 };
 
                                 if !ip_allowed {
                                     tracing::warn!(
-                                        "Connection rejected from {}: connection limit exceeded",
+                                        "SFTP connection rejected from {}: IP not allowed or connection limit exceeded",
                                         client_ip
                                     );
                                     continue;
