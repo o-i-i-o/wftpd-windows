@@ -3,6 +3,7 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 
 use crate::core::config::Config;
+use crate::core::fail2ban::Fail2BanManager;
 use crate::core::ftp_server::tls::TlsConfig;
 use crate::core::quota::QuotaManager;
 use crate::core::users::UserManager;
@@ -11,6 +12,7 @@ pub async fn start_ftps_implicit_server(
     config: Arc<Mutex<Config>>,
     user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
+    fail2ban_manager: Arc<Fail2BanManager>,
     tls_config: TlsConfig,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<()> {
@@ -87,6 +89,7 @@ pub async fn start_ftps_implicit_server(
                         let config_for_cleanup = Arc::clone(&config);
                         let user_manager = Arc::clone(&user_manager);
                         let quota_manager = Arc::clone(&quota_manager);
+                        let fail2ban_manager = Arc::clone(&fail2ban_manager);
                         let client_ip_clone = client_ip.clone();
 
                         tokio::spawn(async move {
@@ -95,6 +98,7 @@ pub async fn start_ftps_implicit_server(
                                 config_for_session,
                                 user_manager,
                                 quota_manager,
+                                fail2ban_manager,
                                 client_ip,
                             ).await {
                                 tracing::debug!("FTPS session error: {}", e);

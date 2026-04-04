@@ -54,6 +54,13 @@ tracing-appender = "0.2.4"
 parking_lot = "0.12.5"
 notify = "8.2.0"
 
+# UPnP/IGD 支持
+igd-next = "0.16.1"
+
+# Prometheus metrics
+prometheus = "0.13"
+lazy_static = "1.5"
+
 [build-dependencies]
 embed-resource = "3.0.8"
 

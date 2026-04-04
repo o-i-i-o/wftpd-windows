@@ -13,6 +13,7 @@ use crate::core::path_utils::{
 };
 use crate::core::quota::QuotaManager;
 use crate::core::users::UserManager;
+use crate::core::fail2ban::Fail2BanManager;
 
 use super::commands::FtpCommand;
 use super::passive::PassiveManager;
@@ -96,6 +97,7 @@ pub struct SessionState {
     pub data_port: Option<u16>,
     pub data_addr: Option<String>,
     pub client_ip: String,
+    pub server_local_ip: String,  // 新增：服务器本地 IP（客户端连接的目标 IP）
     pub tls_enabled: bool,
     pub data_protection: bool,
     pub pbsz_set: bool,
@@ -118,7 +120,7 @@ pub enum TransferModeType {
 }
 
 impl SessionState {
-    pub fn new(client_ip: &str) -> Self {
+    pub fn new(client_ip: &str, server_local_ip: &str) -> Self {
         SessionState {
             current_user: None,
             authenticated: false,
@@ -134,6 +136,7 @@ impl SessionState {
             data_port: None,
             data_addr: None,
             client_ip: client_ip.to_string(),
+            server_local_ip: server_local_ip.to_string(),
             tls_enabled: false,
             data_protection: false,
             pbsz_set: false,
@@ -275,8 +278,13 @@ pub async fn handle_session(
     config: Arc<Mutex<Config>>,
     user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
+    fail2ban_manager: Arc<Fail2BanManager>,
     client_ip: String,
 ) -> Result<()> {
+    // 获取客户端连接的服务器本地 IP 地址（用于 NAT 场景）
+    let local_addr = socket.local_addr()?;
+    let server_local_ip = local_addr.ip().to_string();
+    
     let session_config = {
         let cfg = config.lock();
         SessionConfig::from_config(&cfg, &client_ip)
@@ -301,7 +309,7 @@ pub async fn handle_session(
         )
         .await;
 
-    let mut state = SessionState::new(&client_ip);
+    let mut state = SessionState::new(&client_ip, &server_local_ip);
     state.transfer_mode = session_config.default_transfer_mode;
     state.passive_mode = session_config.default_passive_mode;
     state.encoding = session_config.encoding;
@@ -369,6 +377,7 @@ pub async fn handle_session(
                         config: &config,
                         user_manager: &user_manager,
                         quota_manager: &quota_manager,
+                        fail2ban_manager: &fail2ban_manager,
                         client_ip: &client_ip,
                         allow_anonymous: &session_config.allow_anonymous,
                         anonymous_home: &session_config.anonymous_home,
@@ -402,8 +411,13 @@ pub async fn handle_session_tls(
     config: Arc<Mutex<Config>>,
     user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
+    fail2ban_manager: Arc<Fail2BanManager>,
     client_ip: String,
 ) -> Result<()> {
+    // 获取客户端连接的服务器本地 IP 地址（用于 NAT 场景）
+    let local_addr = socket.get_ref().0.local_addr()?;
+    let server_local_ip = local_addr.ip().to_string();
+    
     let session_config = {
         let cfg = config.lock();
         SessionConfig::from_config(&cfg, &client_ip)
@@ -422,7 +436,7 @@ pub async fn handle_session_tls(
         )
         .await;
 
-    let mut state = SessionState::new(&client_ip);
+    let mut state = SessionState::new(&client_ip, &server_local_ip);
     state.transfer_mode = session_config.default_transfer_mode;
     state.passive_mode = session_config.default_passive_mode;
     state.encoding = session_config.encoding;
@@ -508,6 +522,7 @@ pub async fn handle_session_tls(
                         config: &config,
                         user_manager: &user_manager,
                         quota_manager: &quota_manager,
+                        fail2ban_manager: &fail2ban_manager,
                         client_ip: &client_ip,
                         allow_anonymous: &allow_anonymous,
                         anonymous_home: &anonymous_home,
@@ -540,6 +555,7 @@ struct CommandContext<'a> {
     config: &'a Arc<Mutex<Config>>,
     user_manager: &'a Arc<Mutex<UserManager>>,
     quota_manager: &'a Arc<QuotaManager>,
+    fail2ban_manager: &'a Arc<Fail2BanManager>,
     client_ip: &'a str,
     allow_anonymous: &'a bool,
     anonymous_home: &'a Option<String>,
@@ -909,6 +925,9 @@ async fn handle_command(
 
                     match auth_result {
                         Ok(true) => {
+                            // 认证成功，重置 Fail2Ban 计数
+                            ctx.fail2ban_manager.reset_failures(ctx.client_ip).await;
+                            
                             state.authenticated = true;
                             if let Some(home_dir) = home_dir_opt {
                                 match PathBuf::from(&home_dir).canonicalize() {
@@ -946,6 +965,9 @@ async fn handle_command(
                             );
                         }
                         Ok(false) => {
+                            // 记录失败尝试到 Fail2Ban
+                            ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
+                            
                             tracing::warn!(
                                 client_ip = %ctx.client_ip,
                                 username = %username,
@@ -961,6 +983,9 @@ async fn handle_command(
                                 .await;
                         }
                         Err(e) => {
+                            // 记录失败尝试到 Fail2Ban
+                            ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
+                            
                             tracing::error!(
                                 client_ip = %ctx.client_ip,
                                 username = %username,
@@ -1019,6 +1044,8 @@ async fn handle_command(
                 // RFC 2228 Security Extensions
                 features.push_str(" MIC\r\n CONF\r\n ENC\r\n");
             }
+            // 添加 SITE 命令支持
+            features.push_str(" SITE SYMLINK\r\n SITE WHO\r\n");
             features.push_str("211 End\r\n");
             control_stream
                 .write_response(features.as_bytes(), "FTP response")
@@ -1356,12 +1383,11 @@ async fn handle_command(
         }
 
         PASV => {
-            let ((port_min, port_max), bind_ip, passive_ip_override, masquerade_address) = {
+            let ((port_min, port_max), bind_ip, masquerade_address) = {
                 let cfg = ctx.config.lock();
                 (
                     cfg.ftp.passive_ports,
                     cfg.ftp.bind_ip.clone(),
-                    cfg.ftp.passive_ip_override.clone(),
                     cfg.ftp.masquerade_address.clone(),
                 )
             };
@@ -1386,15 +1412,16 @@ async fn handle_command(
             state.passive_mode = true;
             state.data_port = Some(passive_port);
 
-            // 优先级：masquerade_address > passive_ip_override > bind_ip/client_ip
-            // 注意：需要检查空字符串，因为配置文件中可能设置为 ""
+            // 智能 MASQUERADE_IP 逻辑：
+            // 1. 如果配置了 masquerade_address 且非空，优先使用（支持域名或 IP）
+            // 2. 否则使用 server_local_ip（客户端连接的目标 IP）
             let response_ip = if let Some(ref masq_addr) = masquerade_address {
                 if masq_addr.is_empty() {
-                    // 空字符串视为未配置
-                    None
+                    // 空字符串视为未配置，使用 server_local_ip
+                    state.server_local_ip.clone()
                 } else {
                     // 非空字符串，检查是否是域名或 IP
-                    Some(if is_domain_name(masq_addr.as_str()) {
+                    if is_domain_name(masq_addr.as_str()) {
                         // 如果是域名，异步解析并校验结果
                         match resolve_domain_to_ip(masq_addr).await {
                             Some(resolved) => {
@@ -1403,49 +1430,32 @@ async fn handle_command(
                                     let client_ip_addr: std::net::IpAddr = ctx.client_ip.parse().unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
                                     if ip.is_loopback() && !client_ip_addr.is_loopback() {
                                         tracing::warn!(
-                                            "PASV: DNS resolved to loopback {} but client is from {}, using bind_ip",
+                                            "PASV: DNS resolved to loopback {} but client is from {}, using server_local_ip",
                                             resolved, ctx.client_ip
                                         );
-                                        bind_ip.clone()
+                                        state.server_local_ip.clone()
                                     } else {
                                         resolved
                                     }
                                 } else {
-                                    tracing::warn!("PASV: invalid DNS resolution '{}', falling back", resolved);
-                                    bind_ip.clone()
+                                    tracing::warn!("PASV: invalid DNS resolution '{}', falling back to server_local_ip", resolved);
+                                    state.server_local_ip.clone()
                                 }
                             }
                             None => {
-                                tracing::warn!("PASV: DNS resolution failed for '{}', using bind_ip", masq_addr);
-                                bind_ip.clone()
+                                tracing::warn!("PASV: DNS resolution failed for '{}', using server_local_ip", masq_addr);
+                                state.server_local_ip.clone()
                             }
                         }
                     } else {
-                        // 直接是 IP 地址
+                        // 直接是 IP 地址，使用配置的 IP
                         masq_addr.clone()
-                    })
+                    }
                 }
             } else {
-                None
-            }.or_else(|| {
-                // 如果 masquerade_address 未配置，检查 passive_ip_override
-                if let Some(ref override_ip) = passive_ip_override {
-                    if override_ip.is_empty() {
-                        None
-                    } else {
-                        Some(override_ip.clone())
-                    }
-                } else {
-                    None
-                }
-            }).unwrap_or_else(|| {
-                // 如果都未配置，使用 bind_ip 或 client_ip
-                if bind_ip == "0.0.0.0" || bind_ip.is_empty() {
-                    ctx.client_ip.to_string()
-                } else {
-                    bind_ip.clone()
-                }
-            });
+                // 未配置 masquerade_address，使用 server_local_ip（客户端实际连接的 IP）
+                state.server_local_ip.clone()
+            };
 
             let ip_parts: Vec<&str> = response_ip.split('.').collect();
             if ip_parts.len() != 4 {
@@ -1631,10 +1641,28 @@ async fn handle_command(
         }
 
         ABOR => {
+            // 完整的 ABOR 中止逻辑：
+            // 1. 设置中止标志，通知传输线程停止
+            // 2. 关闭数据连接（如果有）
+            // 3. 重置传输相关状态
             state
                 .abort_flag
                 .store(true, std::sync::atomic::Ordering::Relaxed);
+            
+            // 关闭数据端口监听器
+            if let Some(port) = state.data_port {
+                state.passive_manager.remove_listener(port);
+                tracing::debug!("ABOR: Removed passive listener on port {}", port);
+            }
+            
+            // 重置传输状态
             state.rest_offset = 0;
+            state.data_port = None;
+            state.data_addr = None;
+            
+            // RFC 959: ABOR 应该返回两个响应码
+            // 426 表示数据连接关闭
+            // 226 表示中止成功
             control_stream
                 .write_response(
                     b"426 Connection closed; transfer aborted\r\n",
@@ -1644,22 +1672,65 @@ async fn handle_command(
             control_stream
                 .write_response(b"226 Abort successful\r\n", "FTP response")
                 .await;
+            
+            tracing::info!(
+                client_ip = %ctx.client_ip,
+                username = ?state.current_user.as_deref(),
+                action = "ABOR",
+                protocol = "FTP",
+                "Data transfer aborted"
+            );
         }
 
         REIN => {
+            // 完整的 REIN 重新初始化逻辑：
+            // 根据 RFC 959，REIN 应该：
+            // - 重置所有会话参数
+            // - 保持控制连接不断开
+            // - 用户需要重新认证
+            // - 保留 TLS 状态（如果已启用加密）
+            
+            let tls_was_enabled = state.tls_enabled;
+            let tls_config_preserved = state.data_protection;
+            
+            // 重置用户认证状态
             state.authenticated = false;
             state.current_user = None;
+            
+            // 重置目录状态
             state.cwd = String::new();
             state.home_dir = String::new();
+            
+            // 重置数据传输状态
             state.data_port = None;
             state.data_addr = None;
             state.rest_offset = 0;
             state.rename_from = None;
-            state.data_protection = false;
+            state.abort_flag.store(false, std::sync::atomic::Ordering::Relaxed);
+            
+            // 重置文件结构和传输模式为默认值
+            state.file_structure = FileStructure::File;
+            state.transfer_mode_type = TransferModeType::Stream;
+            state.transfer_mode = state.encoding.clone();
+            
+            // 保留 TLS 状态（RFC 2228 允许在 REIN 后保持加密）
+            state.tls_enabled = tls_was_enabled;
+            state.data_protection = tls_config_preserved;
+            // PBSZ 需要重新设置
             state.pbsz_set = false;
+            
             control_stream
                 .write_response(b"220 Service ready for new user\r\n", "FTP response")
                 .await;
+            
+            tracing::info!(
+                client_ip = %ctx.client_ip,
+                previous_user = ?state.current_user,
+                tls_preserved = tls_was_enabled,
+                action = "REIN",
+                protocol = "FTP",
+                "Connection reinitialized"
+            );
         }
 
         ACCT => {
@@ -1771,7 +1842,7 @@ async fn handle_command(
                         "214 NOOP: No operation, returns 200 OK. Used to keep connection alive.\r\n"
                     }
                     "SITE" => {
-                        "214 SITE <command>: Execute server-specific commands (CHMOD, IDLE, HELP).\r\n"
+                        "214 SITE <command>: Execute server-specific commands (CHMOD, IDLE, HELP, WHO, WHOIS, SYMLINK).\r\n"
                     }
                     "AUTH" => {
                         "214 AUTH <type>: Initiate TLS/SSL authentication. Type can be TLS, TLS-C, or SSL.\r\n"
@@ -2020,7 +2091,7 @@ async fn handle_command(
                             )
                             .await;
                         control_stream
-                            .write_response(b"214-CHMOD IDLE HELP\r\n", "FTP response")
+                            .write_response(b"214-CHMOD IDLE HELP WHO WHOIS SYMLINK\r\n", "FTP response")
                             .await;
                         control_stream
                             .write_response(b"214 End\r\n", "FTP response")
@@ -2045,6 +2116,192 @@ async fn handle_command(
                             control_stream
                                 .write_response(
                                     b"501 SITE IDLE requires time parameter\r\n",
+                                    "FTP response",
+                                )
+                                .await;
+                        }
+                    }
+                    "WHO" | "WHOIS" => {
+                        // SITE WHO - 显示当前用户信息
+                        if !state.authenticated {
+                            control_stream
+                                .write_response(b"530 Not logged in\r\n", "FTP response")
+                                .await;
+                            return Ok(true);
+                        }
+
+                        if let Some(username) = &state.current_user {
+                            let user_info = {
+                                let users = ctx.user_manager.lock();
+                                users.get_user(username).map(|u| {
+                                    format!(
+                                        "User: {}\r\nHome: {}\r\nPermissions: {}{}{}{}{}{}",
+                                        u.username,
+                                        u.home_dir,
+                                        if u.permissions.can_read { "R" } else { "-" },
+                                        if u.permissions.can_write { "W" } else { "-" },
+                                        if u.permissions.can_delete { "D" } else { "-" },
+                                        if u.permissions.can_list { "L" } else { "-" },
+                                        if u.permissions.can_mkdir { "C" } else { "-" },
+                                        if u.permissions.can_rename { "M" } else { "-" },
+                                    )
+                                })
+                            };
+
+                            if let Some(info) = user_info {
+                                control_stream
+                                    .write_response(
+                                        format!("200-User information for {}:\r\n200 {}\r\n", username, info)
+                                            .as_bytes(),
+                                        "FTP response",
+                                    )
+                                    .await;
+                            } else {
+                                control_stream
+                                    .write_response(b"550 User not found\r\n", "FTP response")
+                                    .await;
+                            }
+                        } else {
+                            control_stream
+                                .write_response(b"550 Not authenticated\r\n", "FTP response")
+                                .await;
+                        }
+                    }
+                    "SYMLINK" => {
+                        // SITE SYMLINK - 创建符号链接（Windows 需要管理员权限）
+                        if !state.authenticated {
+                            control_stream
+                                .write_response(b"530 Not logged in\r\n", "FTP response")
+                                .await;
+                            return Ok(true);
+                        }
+
+                        // 检查写权限
+                        let can_write = if state.current_user.as_deref() == Some("anonymous") {
+                            false
+                        } else {
+                            let users = ctx.user_manager.lock();
+                            state.current_user.as_ref()
+                                .and_then(|u| users.get_user(u))
+                                .is_some_and(|u| u.permissions.can_write)
+                        };
+
+                        if !can_write {
+                            control_stream
+                                .write_response(b"550 Permission denied\r\n", "FTP response")
+                                .await;
+                            return Ok(true);
+                        }
+
+                        // 解析参数：target link_name
+                        if let Some(symlink_args) = site_arg {
+                            let symlink_parts: Vec<&str> = symlink_args.splitn(2, ' ').collect();
+                            if symlink_parts.len() == 2 {
+                                let target = symlink_parts[0];
+                                let link_name = symlink_parts[1];
+
+                                let link_path = match state.resolve_path(link_name) {
+                                    Ok(p) => p,
+                                    Err(e) => {
+                                        control_stream
+                                            .write_response(
+                                                format!("550 {}\r\n", e).as_bytes(),
+                                                "FTP response",
+                                            )
+                                            .await;
+                                        return Ok(true);
+                                    }
+                                };
+
+                                if !path_starts_with_ignore_case(&link_path, &state.home_dir) {
+                                    control_stream
+                                        .write_response(
+                                            b"550 Permission denied\r\n",
+                                            "FTP response",
+                                        )
+                                        .await;
+                                    return Ok(true);
+                                }
+
+                                #[cfg(windows)]
+                                {
+                                    use std::os::windows::fs::symlink_file;
+                                    
+                                    // Windows 需要管理员权限才能创建符号链接
+                                    match symlink_file(target, &link_path) {
+                                        Ok(()) => {
+                                            control_stream
+                                                .write_response(
+                                                    format!("200 Symbolic link created: {} -> {}\r\n", link_name, target)
+                                                        .as_bytes(),
+                                                    "FTP response",
+                                                )
+                                                .await;
+                                            tracing::info!(
+                                                client_ip = %ctx.client_ip,
+                                                username = ?state.current_user.as_deref(),
+                                                action = "SITE SYMLINK",
+                                                protocol = "FTP",
+                                                "Created symlink: {} -> {}",
+                                                link_path.display(),
+                                                target
+                                            );
+                                        }
+                                        Err(e) => {
+                                            control_stream
+                                                .write_response(
+                                                    format!("550 Failed to create symlink: {}\r\n", e)
+                                                        .as_bytes(),
+                                                    "FTP response",
+                                                )
+                                                .await;
+                                            tracing::warn!(
+                                                client_ip = %ctx.client_ip,
+                                                action = "SITE SYMLINK",
+                                                "Failed to create symlink: {}",
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                                
+                                #[cfg(not(windows))]
+                                {
+                                    use std::os::unix::fs::symlink;
+                                    
+                                    match symlink(target, &link_path) {
+                                        Ok(()) => {
+                                            control_stream
+                                                .write_response(
+                                                    format!("200 Symbolic link created: {} -> {}\r\n", link_name, target)
+                                                        .as_bytes(),
+                                                    "FTP response",
+                                                )
+                                                .await;
+                                        }
+                                        Err(e) => {
+                                            control_stream
+                                                .write_response(
+                                                    format!("550 Failed to create symlink: {}\r\n", e)
+                                                        .as_bytes(),
+                                                    "FTP response",
+                                                )
+                                                .await;
+                                        }
+                                    }
+                                }
+                            } else {
+                                control_stream
+                                    .write_response(
+                                        b"501 SITE SYMLINK requires target and link_name\r\n",
+                                        "FTP response",
+                                    )
+                                    .await;
+                            }
+                        } else {
+                            control_stream
+                                .write_response(
+                                    b"501 SITE SYMLINK requires parameters\r\n",
                                     "FTP response",
                                 )
                                 .await;

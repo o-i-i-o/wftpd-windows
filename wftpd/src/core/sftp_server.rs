@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
+use chrono::{DateTime, Utc};
 
 use crate::core::config::{Config, get_program_data_path};
 use crate::core::path_utils::{
@@ -39,6 +40,7 @@ pub struct SftpServer {
     quota_manager: Arc<QuotaManager>,
     running: Arc<Mutex<bool>>,
     shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
+    last_key_rotation: Arc<TokioMutex<Option<DateTime<Utc>>>>,
 }
 
 impl SftpServer {
@@ -51,11 +53,12 @@ impl SftpServer {
             quota_manager: Arc::new(quota_manager),
             running: Arc::new(Mutex::new(false)),
             shutdown_tx: Arc::new(TokioMutex::new(None)),
+            last_key_rotation: Arc::new(TokioMutex::new(None)),
         }
     }
 
     pub async fn start(&self) -> Result<()> {
-        let (bind_ip, sftp_port, host_key_path, warnings) = {
+        let (bind_ip, sftp_port, host_key_path, warnings, key_rotation_days) = {
             let cfg = self.config.lock();
             let warnings = cfg.validate_paths();
             (
@@ -63,6 +66,7 @@ impl SftpServer {
                 cfg.sftp.port,
                 cfg.sftp.host_key_path.clone(),
                 warnings,
+                cfg.sftp.host_key_rotation_days,
             )
         };
 
@@ -74,6 +78,11 @@ impl SftpServer {
         }
 
         tracing::info!("SFTP server starting on {}:{}", bind_ip, sftp_port);
+
+        // 检查是否需要轮换密钥
+        if key_rotation_days > 0 {
+            self.check_and_rotate_key(&host_key_path, key_rotation_days).await?;
+        }
 
         let host_key = Self::load_or_generate_host_key(&host_key_path).await?;
 
@@ -108,11 +117,29 @@ impl SftpServer {
         let config_clone = Arc::clone(&self.config);
         let quota_manager_clone = Arc::clone(&self.quota_manager);
 
-        let bind_addr = format!("{}:{}", bind_ip, sftp_port);
+        // IPv6 双栈支持
+        let bind_addr = if bind_ip == "0.0.0.0" || bind_ip == "::" {
+            format!("[::]:{}", sftp_port)
+        } else {
+            format!("{}:{}", bind_ip, sftp_port)
+        };
 
         let listener = {
             use socket2::{Domain, Protocol, SockAddr, Socket, Type};
-            let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
+            // 根据地址类型选择 IPv4 或 IPv6
+            let domain = if bind_addr.starts_with("[") {
+                Domain::IPV6
+            } else {
+                Domain::IPV4
+            };
+            
+            let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
+            
+            // IPv6 双栈支持
+            if domain == Domain::IPV6 {
+                socket.set_only_v6(false)?;
+            }
+            
             socket.set_reuse_address(true)?;
             socket.set_nonblocking(true)?;
             let addr: std::net::SocketAddr = bind_addr
@@ -140,11 +167,11 @@ impl SftpServer {
                                 let quota_manager = Arc::clone(&quota_manager_clone);
                                 let client_ip = peer_addr.ip().to_string();
 
-                                // 检查 IP 黑白名单和连接数限制
+                                // 原子化检查 + 注册连接（与 FTP 服务器一致）
                                 let config_for_check = Arc::clone(&config_clone);
                                 let ip_allowed = {
                                     let cfg = config_for_check.lock();
-                                    cfg.is_ip_allowed(&client_ip) && cfg.check_connection_limits(&client_ip)
+                                    cfg.try_register_connection(&client_ip)
                                 };
 
                                 if !ip_allowed {
@@ -153,12 +180,6 @@ impl SftpServer {
                                         client_ip
                                     );
                                     continue;
-                                }
-
-                                // 注册连接
-                                {
-                                    let cfg = config_for_check.lock();
-                                    cfg.register_connection(&client_ip);
                                 }
 
                                 tracing::info!(
@@ -224,6 +245,96 @@ impl SftpServer {
 
     pub fn is_running(&self) -> bool {
         *self.running.lock()
+    }
+
+    /// 检查并轮换主机密钥
+    async fn check_and_rotate_key(&self, key_path: &str, rotation_days: u32) -> Result<()> {
+        let path = PathBuf::from(key_path);
+        
+        // 检查密钥文件是否存在
+        if !path.exists() {
+            tracing::info!("SFTP 主机密钥不存在，将生成新密钥：{}", path.display());
+            return Ok(());
+        }
+
+        // 检查上次轮换时间
+        let last_rotation = *self.last_key_rotation.lock().await;
+        let now = Utc::now();
+        
+        let should_rotate = match last_rotation {
+            Some(last_time) => {
+                let age = now.signed_duration_since(last_time);
+                age.num_days() >= rotation_days as i64
+            }
+            None => {
+                // 如果没有记录，检查文件修改时间
+                if let Ok(metadata) = tokio::fs::metadata(&path).await {
+                    if let Ok(modified) = metadata.modified() {
+                        let file_age = now.signed_duration_since(DateTime::<Utc>::from(modified));
+                        file_age.num_days() >= rotation_days as i64
+                    } else {
+                        true
+                    }
+                } else {
+                    true
+                }
+            }
+        };
+
+        if should_rotate {
+            tracing::info!(
+                "SFTP 主机密钥已达到轮换期限 ({} 天)，正在生成新密钥...",
+                rotation_days
+            );
+            
+            // 备份旧密钥
+            let backup_path = format!("{}.backup.{}", key_path, now.format("%Y%m%d_%H%M%S"));
+            if let Err(e) = tokio::fs::copy(&path, &backup_path).await {
+                tracing::warn!("备份旧密钥失败：{}", e);
+            } else {
+                tracing::info!("已备份旧密钥到：{}", backup_path);
+            }
+
+            // 生成新密钥
+            self.generate_new_host_key(&path).await?;
+            
+            // 更新最后轮换时间
+            *self.last_key_rotation.lock().await = Some(now);
+            
+            tracing::info!("SFTP 主机密钥轮换完成");
+        } else {
+            let age = last_rotation
+                .map(|t| now.signed_duration_since(t).num_days())
+                .unwrap_or(0);
+            tracing::debug!(
+                "SFTP 主机密钥无需轮换，当前年龄：{} 天，轮换周期：{} 天",
+                age,
+                rotation_days
+            );
+        }
+
+        Ok(())
+    }
+
+    /// 生成新的主机密钥
+    async fn generate_new_host_key(&self, path: &Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        let mut rng = OsRng;
+        let key = PrivateKey::random(&mut rng, keys::Algorithm::Ed25519)?;
+        let openssh = key.to_openssh(keys::ssh_key::LineEnding::default())?;
+        tokio::fs::write(path, openssh.to_string()).await?;
+        tracing::info!("已生成新的 SFTP 主机私钥：{}", path.display());
+
+        let pub_path = path.with_extension("pub");
+        let public_key = key.public_key();
+        let pub_openssh = public_key.to_openssh()?;
+        tokio::fs::write(&pub_path, pub_openssh.to_string()).await?;
+        tracing::info!("已生成新的 SFTP 主机公钥：{}", pub_path.display());
+
+        Ok(())
     }
 
     async fn load_or_generate_host_key(path: &str) -> Result<PrivateKey> {
@@ -750,7 +861,7 @@ impl SftpState {
             let users = self.user_manager.lock();
             if let Some(user) = users.get_user(username) {
                 self.cached_permissions = Some(user.permissions);
-                // 设置缓存有效期（5 秒）
+                // 设置缓存有效期（2 秒）
                 self.cache_expiry =
                     Some(std::time::Instant::now() + std::time::Duration::from_secs(2));
                 // 预计算常用权限检查结果
@@ -1488,9 +1599,13 @@ impl SftpState {
 
         match tokio::fs::metadata(&full_path).await {
             Ok(metadata) => {
+                let is_dir = metadata.is_dir();
+                // 使用增强属性构建，包含创建时间等扩展信息
+                let attrs = self.build_attrs_extended(&metadata, is_dir);
+                
                 let mut payload = vec![105];
                 payload.extend_from_slice(&id.to_be_bytes());
-                payload.extend_from_slice(&self.build_attrs(metadata.is_dir(), metadata.len()));
+                payload.extend_from_slice(&attrs);
                 Ok(self.build_packet(&payload))
             }
             Err(_) => Ok(self.build_status_packet(id, 2, "No such file", "")),
@@ -1780,9 +1895,20 @@ impl SftpState {
         let id = self.parse_u32(data, 1);
         let path = self.parse_string(data, 5)?;
 
+        // 增强的 SSH_FXP_REALPATH 处理逻辑：
+        // 1. 支持空路径（返回当前目录）
+        // 2. 支持相对路径和绝对路径
+        // 3. 自动规范化符号链接
+        // 4. 确保路径在主目录内（chroot 安全）
+        
         let full_path = if path.is_empty() || path == "." {
+            // 空路径或当前目录，返回 CWD
             Ok(PathBuf::from(&self.cwd))
+        } else if path == ".." {
+            // 父目录，使用路径解析逻辑
+            self.resolve_path("..")
         } else {
+            // 普通路径解析
             self.resolve_path(&path)
         };
 
@@ -1794,12 +1920,30 @@ impl SftpState {
             }
         };
 
+        // 规范化和解析符号链接
         let resolved = if full_path.exists() {
-            full_path.canonicalize().unwrap_or(full_path)
+            // 路径存在，尝试 canonicalize
+            match full_path.canonicalize() {
+                Ok(canon) => {
+                    // 验证 canonicalize 后的路径是否仍在主目录内
+                    if !path_starts_with_ignore_case(&canon, &self.home_dir) {
+                        tracing::warn!(
+                            "REALPATH security: canonicalized path escapes home - input: {}, canonicalized: {}",
+                            path,
+                            canon.display()
+                        );
+                        return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
+                    }
+                    canon
+                }
+                Err(_) => full_path, // 失败则使用原路径
+            }
         } else {
+            // 路径不存在，构建规范路径但不验证存在性
             full_path
         };
 
+        // 转换为 FTP 风格路径
         let path_str = match to_ftp_path(&resolved, std::path::Path::new(&self.home_dir)) {
             Ok(p) => p,
             Err(e) => {
@@ -1808,15 +1952,32 @@ impl SftpState {
             }
         };
 
-        let mut payload = vec![104];
+        // 构建响应包
+        let mut payload = vec![104]; // SSH_FXP_NAME
         payload.extend_from_slice(&id.to_be_bytes());
-        payload.extend_from_slice(&1u32.to_be_bytes());
+        payload.extend_from_slice(&1u32.to_be_bytes()); // count = 1
+        
+        // 规范化路径
         payload.extend_from_slice(&(path_str.len() as u32).to_be_bytes());
         payload.extend_from_slice(path_str.as_bytes());
+        
+        // 长名称格式（类 Unix ls -l 输出）
         let longname = format!("drwxr-xr-x  1 user user  0 Jan 01 00:00 {}", path_str);
         payload.extend_from_slice(&(longname.len() as u32).to_be_bytes());
         payload.extend_from_slice(longname.as_bytes());
+        
+        // 属性（目录类型）
         payload.extend_from_slice(&self.build_attrs(true, 0));
+
+        tracing::debug!(
+            client_ip = %self.client_ip,
+            username = ?self.username.as_deref(),
+            action = "REALPATH",
+            protocol = "SFTP",
+            "Resolved '{}' -> '{}'",
+            path,
+            path_str
+        );
 
         Ok(self.build_packet(&payload))
     }
@@ -1939,6 +2100,88 @@ impl SftpState {
             .as_secs() as u32;
         attrs.extend_from_slice(&now.to_be_bytes());
         attrs.extend_from_slice(&now.to_be_bytes());
+        attrs
+    }
+
+    /// 增强的属性构建，支持创建时间等扩展属性
+    fn build_attrs_extended(&self, metadata: &std::fs::Metadata, is_dir: bool) -> Vec<u8> {
+        use std::os::windows::fs::MetadataExt;
+        
+        let mut attrs = Vec::new();
+        
+        // 基础属性标志
+        let mut flags: u32 = 0x00000001 // SSH_FILEXFER_ATTR_SIZE
+            | 0x00000002 // SSH_FILEXFER_ATTR_UIDGID
+            | 0x00000004 // SSH_FILEXFER_ATTR_PERMISSIONS
+            | 0x00000008; // SSH_FILEXFER_ATTR_ACMODTIME
+        
+        attrs.extend_from_slice(&flags.to_be_bytes());
+        
+        // 文件大小
+        attrs.extend_from_slice(&metadata.len().to_be_bytes());
+        
+        // UID/GID（Windows 上模拟）
+        let uid: u32 = 1000;
+        let gid: u32 = 1000;
+        attrs.extend_from_slice(&uid.to_be_bytes());
+        attrs.extend_from_slice(&gid.to_be_bytes());
+        
+        // 权限和文件类型
+        let permissions = if is_dir {
+            0o40755u32 // S_IFDIR | 0755
+        } else {
+            0o100644u32 // S_IFREG | 0644
+        };
+        attrs.extend_from_slice(&permissions.to_be_bytes());
+        
+        // 访问时间 (atime)
+        let atime = metadata
+            .accessed()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as u32)
+            .unwrap_or(0);
+        
+        // 修改时间 (mtime)
+        let mtime = metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as u32)
+            .unwrap_or(0);
+        
+        attrs.extend_from_slice(&atime.to_be_bytes());
+        attrs.extend_from_slice(&mtime.to_be_bytes());
+        
+        // 扩展属性：SSH_FILEXFER_ATTR_EXTENDED (0x80000000)
+        // 添加创建时间 (createtime@openssh.com)
+        #[cfg(windows)]
+        {
+            // Windows 支持创建时间
+            if let Some(ctime) = metadata
+                .creation_time()
+                .checked_sub(11644473600000) // Windows FILETIME 到 UNIX 时间戳的偏移 (ms)
+                .and_then(|secs_since_1601| (secs_since_1601 / 1000).checked_add(0))
+            {
+                // 添加扩展标志
+                flags |= 0x80000000;
+                
+                // 更新开头的 flags
+                attrs[0..4].copy_from_slice(&flags.to_be_bytes());
+                
+                // 扩展计数 = 1
+                attrs.extend_from_slice(&1u32.to_be_bytes());
+                
+                // 扩展名："createtime"
+                let ext_name = "createtime";
+                attrs.extend_from_slice(&(ext_name.len() as u32).to_be_bytes());
+                attrs.extend_from_slice(ext_name.as_bytes());
+                
+                // 扩展值：创建时间戳
+                attrs.extend_from_slice(&(ctime as u32).to_be_bytes());
+            }
+        }
+        
         attrs
     }
 
