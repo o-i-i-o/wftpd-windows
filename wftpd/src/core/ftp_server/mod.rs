@@ -60,9 +60,6 @@ impl FtpServer {
         };
         let fail2ban_config = Arc::new(Mutex::new(fail2ban_config_inner));
         let fail2ban_manager = Arc::new(Fail2BanManager::new(fail2ban_config.clone()));
-        
-        // 启动后台清理任务
-        Arc::clone(&fail2ban_manager).start_cleanup_task();
 
         FtpServer {
             config,
@@ -149,6 +146,9 @@ impl FtpServer {
         let quota_manager = Arc::clone(&self.quota_manager);
         let fail2ban_manager = Arc::clone(&self.fail2ban_manager);
         let running_clone = Arc::clone(&self.running);
+
+        // 启动 Fail2Ban 后台清理任务
+        Arc::clone(&self.fail2ban_manager).start_cleanup_task();
 
         tracing::info!("FTP server started on {}", bind_addr);
 

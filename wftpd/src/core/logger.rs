@@ -489,6 +489,15 @@ impl TracingLogger {
                 metadata.target().starts_with("file_op")
             }));
 
+        let console_layer = tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr)
+            .with_ansi(true)
+            .with_target(true)
+            .with_timer(tracing_subscriber::fmt::time::ChronoLocal::rfc_3339())
+            .with_filter(filter::filter_fn(|metadata| {
+                !metadata.target().starts_with("file_op")
+            }));
+
         let subscriber = tracing_subscriber::registry()
             .with(tracing::level_filters::LevelFilter::from_level(
                 level_filter,
@@ -496,7 +505,8 @@ impl TracingLogger {
             .with(buffer_layer)
             .with(file_op_buffer_layer)
             .with(fmt_layer)
-            .with(file_op_fmt_layer);
+            .with(file_op_fmt_layer)
+            .with(console_layer);
 
         tracing::subscriber::set_global_default(subscriber)
             .map_err(|e| format!("设置 tracing 日志失败: {}", e))?;

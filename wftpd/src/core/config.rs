@@ -506,6 +506,10 @@ impl Config {
         get_program_data_path().join("users.json")
     }
 
+    pub fn get_default_log_dir() -> String {
+        get_program_data_path().join("logs").to_string_lossy().to_string()
+    }
+
     pub fn is_ip_allowed(&self, ip: &str) -> bool {
         if self
             .security

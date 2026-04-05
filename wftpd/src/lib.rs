@@ -27,16 +27,40 @@ impl AppState {
         let config_path = Config::get_config_path();
         let users_path = Config::get_users_path();
 
-        let config = Config::load(&config_path)?;
-        let user_manager = UserManager::load(&users_path)?;
-
-        let log_dir = config.logging.log_dir.clone();
-        let log_level = config.logging.log_level.clone();
-        let max_log_size = config.logging.max_log_size;
-        let max_log_files = config.logging.max_log_files;
-
-        let logger = TracingLogger::init(&log_dir, max_log_size, max_log_files, &log_level)
+        // 先初始化基本日志系统，确保配置加载失败时也能记录日志
+        let default_log_dir = Config::get_default_log_dir();
+        if let Err(e) = std::fs::create_dir_all(&default_log_dir) {
+            eprintln!("Warning: Failed to create log directory {}: {}", default_log_dir, e);
+        }
+        
+        // 使用默认配置初始化日志系统
+        let logger = TracingLogger::init(&default_log_dir, 10 * 1024 * 1024, 10, "info")
             .map_err(|e| anyhow::anyhow!("Failed to initialize logger: {}", e))?;
+
+        tracing::info!("Loading configuration from {}", config_path.display());
+
+        let config = match Config::load(&config_path) {
+            Ok(c) => {
+                tracing::info!("Configuration loaded successfully");
+                c
+            }
+            Err(e) => {
+                tracing::error!("Failed to load configuration: {}", e);
+                return Err(e);
+            }
+        };
+
+        tracing::info!("Loading users from {}", users_path.display());
+        let user_manager = match UserManager::load(&users_path) {
+            Ok(u) => {
+                tracing::info!("Users loaded successfully ({} users)", u.user_count());
+                u
+            }
+            Err(e) => {
+                tracing::error!("Failed to load users: {}", e);
+                return Err(e);
+            }
+        };
 
         Ok(AppState {
             config: Arc::new(Mutex::new(config)),

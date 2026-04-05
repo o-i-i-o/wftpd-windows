@@ -165,6 +165,8 @@ pub struct FtpConfig {
     pub hide_version_info: bool,
     #[serde(default)]
     pub ftps: FtpsConfig,
+    #[serde(default = "default_upnp_enabled")]
+    pub upnp_enabled: bool,
 }
 
 fn default_ftp_port() -> u16 {
@@ -228,6 +230,10 @@ fn default_masquerade_address() -> Option<String> {
     Some("".to_string())
 }
 
+fn default_upnp_enabled() -> bool {
+    false
+}
+
 /// SFTP 服务器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SftpConfig {
@@ -243,6 +249,8 @@ pub struct SftpConfig {
     pub log_level: String,
     #[serde(default = "default_max_sessions_per_user")]
     pub max_sessions_per_user: u32,
+    #[serde(default = "default_key_rotation_days")]
+    pub host_key_rotation_days: u32,
 }
 
 fn default_sftp_port() -> u16 {
@@ -251,6 +259,10 @@ fn default_sftp_port() -> u16 {
 
 fn default_max_sessions_per_user() -> u32 {
     5
+}
+
+fn default_key_rotation_days() -> u32 {
+    0
 }
 
 fn default_log_level() -> String {
@@ -272,6 +284,12 @@ pub struct SecurityConfig {
     pub max_connections_per_ip: usize,
     pub allowed_ips: Vec<String>,
     pub denied_ips: Vec<String>,
+    #[serde(default = "default_fail2ban_enabled")]
+    pub fail2ban_enabled: bool,
+    #[serde(default = "default_fail2ban_threshold")]
+    pub fail2ban_threshold: u32,
+    #[serde(default = "default_fail2ban_ban_time")]
+    pub fail2ban_ban_time: u64,
 }
 
 fn default_max_login_attempts() -> u32 {
@@ -288,6 +306,18 @@ fn default_max_connections() -> usize {
 
 fn default_max_connections_per_ip() -> usize {
     10
+}
+
+fn default_fail2ban_enabled() -> bool {
+    false
+}
+
+fn default_fail2ban_threshold() -> u32 {
+    5
+}
+
+fn default_fail2ban_ban_time() -> u64 {
+    3600
 }
 
 /// 日志配置
@@ -356,6 +386,7 @@ impl Default for Config {
                 connection_timeout: 300,
                 idle_timeout: 600,
                 hide_version_info: false,
+                upnp_enabled: false,
             },
             sftp: SftpConfig {
                 enabled: true,
@@ -366,6 +397,7 @@ impl Default for Config {
                 auth_timeout: 60,
                 log_level: "info".to_string(),
                 max_sessions_per_user: 5,
+                host_key_rotation_days: 0,
             },
             security: SecurityConfig {
                 allowed_ips: vec!["0.0.0.0/0".to_string()],
@@ -374,6 +406,9 @@ impl Default for Config {
                 ban_duration: 300,
                 max_connections: 100,
                 max_connections_per_ip: 10,
+                fail2ban_enabled: false,
+                fail2ban_threshold: 5,
+                fail2ban_ban_time: 3600,
             },
             logging: LoggingConfig {
                 log_dir,

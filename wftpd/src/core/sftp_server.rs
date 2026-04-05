@@ -13,6 +13,7 @@ use tokio::sync::Mutex as TokioMutex;
 use chrono::{DateTime, Utc};
 
 use crate::core::config::{Config, get_program_data_path};
+use crate::core::fail2ban::{Fail2BanManager, Fail2BanConfig};
 use crate::core::path_utils::{
     PathResolveError, path_starts_with_ignore_case, safe_resolve_path_with_cwd, to_ftp_path,
 };
@@ -38,6 +39,7 @@ pub struct SftpServer {
     config: Arc<Mutex<Config>>,
     user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
+    fail2ban_manager: Arc<Fail2BanManager>,
     running: Arc<Mutex<bool>>,
     shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     last_key_rotation: Arc<TokioMutex<Option<DateTime<Utc>>>>,
@@ -47,10 +49,24 @@ impl SftpServer {
     pub fn new(config: Arc<Mutex<Config>>, user_manager: Arc<Mutex<UserManager>>) -> Self {
         let quota_manager = QuotaManager::new(&get_program_data_path());
 
+        // 初始化 Fail2Ban 管理器
+        let fail2ban_config_inner = {
+            let cfg = config.lock();
+            Fail2BanConfig {
+                enabled: cfg.security.fail2ban_enabled,
+                threshold: cfg.security.fail2ban_threshold,
+                ban_time: cfg.security.fail2ban_ban_time,
+                find_time: 600, // 10 分钟检测窗口
+            }
+        };
+        let fail2ban_config = Arc::new(Mutex::new(fail2ban_config_inner));
+        let fail2ban_manager = Arc::new(Fail2BanManager::new(fail2ban_config));
+
         SftpServer {
             config,
             user_manager,
             quota_manager: Arc::new(quota_manager),
+            fail2ban_manager,
             running: Arc::new(Mutex::new(false)),
             shutdown_tx: Arc::new(TokioMutex::new(None)),
             last_key_rotation: Arc::new(TokioMutex::new(None)),
@@ -153,6 +169,11 @@ impl SftpServer {
 
         tracing::info!("SFTP server started on {}", bind_addr);
 
+        // 启动 Fail2Ban 后台清理任务
+        Arc::clone(&self.fail2ban_manager).start_cleanup_task();
+
+        let fail2ban_manager_clone = Arc::clone(&self.fail2ban_manager);
+
         tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -167,16 +188,30 @@ impl SftpServer {
                                 let quota_manager = Arc::clone(&quota_manager_clone);
                                 let client_ip = peer_addr.ip().to_string();
 
-                                // 原子化检查 + 注册连接（与 FTP 服务器一致）
-                                let config_for_check = Arc::clone(&config_clone);
+                                // 检查 IP 黑白名单
                                 let ip_allowed = {
-                                    let cfg = config_for_check.lock();
-                                    cfg.try_register_connection(&client_ip)
+                                    let cfg = config_clone.lock();
+                                    cfg.is_ip_allowed(&client_ip)
                                 };
 
                                 if !ip_allowed {
                                     tracing::warn!(
-                                        "SFTP connection rejected from {}: IP not allowed or connection limit exceeded",
+                                        "SFTP connection rejected from {}: IP not allowed by blacklist/whitelist",
+                                        client_ip
+                                    );
+                                    continue;
+                                }
+
+                                // 原子化检查 + 注册连接（与 FTP 服务器一致）
+                                let config_for_check = Arc::clone(&config_clone);
+                                let connection_allowed = {
+                                    let cfg = config_for_check.lock();
+                                    cfg.try_register_connection(&client_ip)
+                                };
+
+                                if !connection_allowed {
+                                    tracing::warn!(
+                                        "SFTP connection rejected from {}: connection limit exceeded",
                                         client_ip
                                     );
                                     continue;
@@ -190,10 +225,12 @@ impl SftpServer {
                                 );
 
                                 let client_ip_clone = client_ip.clone();
+                                let fail2ban_manager = Arc::clone(&fail2ban_manager_clone);
                                 tokio::spawn(async move {
                                     let handler = SftpHandler {
                                         user_manager,
                                         quota_manager,
+                                        fail2ban_manager,
                                         authenticated: false,
                                         username: None,
                                         home_dir: None,
@@ -373,6 +410,7 @@ impl SftpServer {
 struct SftpHandler {
     user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
+    fail2ban_manager: Arc<Fail2BanManager>,
     authenticated: bool,
     username: Option<String>,
     home_dir: Option<String>,
@@ -427,23 +465,29 @@ impl russh::server::Handler for SftpHandler {
         user: &str,
         password: &str,
     ) -> Result<server::Auth, Self::Error> {
-        let mut users = self.user_manager.lock();
+        let (auth_result, home_dir_opt) = {
+            let mut users = self.user_manager.lock();
 
-        if users.get_user(user).is_none() {
-            let _ = users.reload(&self.users_path);
-        }
+            if users.get_user(user).is_none() {
+                let _ = users.reload(&self.users_path);
+            }
 
-        match users.authenticate(user, password) {
+            let result = users.authenticate(user, password);
+            let home = users.get_user(user).map(|u| u.home_dir.clone());
+            (result, home)
+        };
+
+        match auth_result {
             Ok(true) => {
-                if let Some(u) = users.get_user(user) {
-                    match std::path::PathBuf::from(&u.home_dir).canonicalize() {
+                if let Some(home_dir) = home_dir_opt {
+                    match std::path::PathBuf::from(&home_dir).canonicalize() {
                         Ok(home_canon) => {
                             self.home_dir = Some(home_canon.to_string_lossy().to_string());
                         }
                         Err(e) => {
                             tracing::error!(
                                 "SFTP auth failed: cannot canonicalize home directory '{}' for user '{}': {}",
-                                u.home_dir,
+                                home_dir,
                                 user,
                                 e
                             );
@@ -451,7 +495,7 @@ impl russh::server::Handler for SftpHandler {
                                 client_ip = %self.client_ip,
                                 username = %user,
                                 action = "HOME_NOT_FOUND",
-                                "Home directory not found for user {}: {}", user, u.home_dir
+                                "Home directory not found for user {}: {}", user, home_dir
                             );
                             return Ok(server::Auth::Reject {
                                 proceed_with_methods: None,
@@ -464,6 +508,9 @@ impl russh::server::Handler for SftpHandler {
                 self.authenticated = true;
                 self.username = Some(user.to_string());
 
+                // 认证成功，重置 Fail2Ban 计数
+                self.fail2ban_manager.reset_failures(&self.client_ip).await;
+
                 tracing::info!(
                     client_ip = %self.client_ip,
                     username = %user,
@@ -475,6 +522,9 @@ impl russh::server::Handler for SftpHandler {
                 Ok(server::Auth::Accept)
             }
             Ok(false) => {
+                // 记录失败尝试到 Fail2Ban
+                self.fail2ban_manager.add_failure(&self.client_ip).await;
+                
                 tracing::warn!(
                     client_ip = %self.client_ip,
                     username = %user,
@@ -488,6 +538,9 @@ impl russh::server::Handler for SftpHandler {
                 })
             }
             Err(e) => {
+                // 记录失败尝试到 Fail2Ban
+                self.fail2ban_manager.add_failure(&self.client_ip).await;
+                
                 tracing::error!(
                     client_ip = %self.client_ip,
                     username = %user,
@@ -525,6 +578,9 @@ impl russh::server::Handler for SftpHandler {
         };
 
         if !enabled {
+            // 用户不存在或禁用，记录到 Fail2Ban
+            self.fail2ban_manager.add_failure(&self.client_ip).await;
+            
             tracing::warn!(
                 client_ip = %self.client_ip,
                 username = %user,
@@ -570,6 +626,9 @@ impl russh::server::Handler for SftpHandler {
             self.authenticated = true;
             self.username = Some(user.to_string());
 
+            // 认证成功，重置 Fail2Ban 计数
+            self.fail2ban_manager.reset_failures(&self.client_ip).await;
+
             tracing::info!(
                 client_ip = %self.client_ip,
                 username = %user,
@@ -579,6 +638,9 @@ impl russh::server::Handler for SftpHandler {
 
             return Ok(server::Auth::Accept);
         }
+
+        // 公钥认证失败，记录到 Fail2Ban
+        self.fail2ban_manager.add_failure(&self.client_ip).await;
 
         tracing::warn!(
             client_ip = %self.client_ip,
