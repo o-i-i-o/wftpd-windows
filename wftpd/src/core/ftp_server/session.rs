@@ -1,5 +1,6 @@
 use anyhow::Result;
 use parking_lot::Mutex;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -24,7 +25,6 @@ const MAX_COMMAND_LENGTH: usize = 8192;
 
 /// 判断是否为域名（简单的启发式判断）
 fn is_domain_name(s: &str) -> bool {
-    // 如果包含字母且不是纯 IP 地址格式，则认为是域名
     s.chars().any(|c| c.is_ascii_alphabetic()) && !s.chars().all(|c| c.is_ascii_digit() || c == '.')
 }
 
@@ -34,6 +34,97 @@ async fn resolve_domain_to_ip(domain: &str) -> Option<String> {
     match lookup_host((domain, 21)).await {
         Ok(mut addrs) => addrs.next().map(|addr| addr.ip().to_string()),
         Err(_) => None,
+    }
+}
+
+/// 获取本机的主要 IP 地址（非回环地址）
+/// 优先返回与客户端在同一网段的 IP，否则返回第一个非回环 IP
+fn get_local_ip_for_client(client_ip: &str) -> String {
+    let client_ip_addr: IpAddr = client_ip.parse().unwrap_or(IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+    
+    // 如果客户端是本地回环地址，直接返回 127.0.0.1
+    if client_ip_addr.is_loopback() {
+        return "127.0.0.1".to_string();
+    }
+    
+    // 方法1：尝试连接到一个外部地址来获取本机 IP
+    // 这不会真正发送数据，只是获取路由后的本地地址
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        // 尝试连接到客户端 IP 所在网段的地址
+        let target = &format!("{}:80", client_ip);
+        
+        if socket.connect(target).is_ok() {
+            if let Ok(local_addr) = socket.local_addr() {
+                let local_ip = local_addr.ip();
+                if !local_ip.is_unspecified() && !local_ip.is_loopback() {
+                    // 确保返回 IPv4 格式
+                    if let IpAddr::V4(ipv4) = local_ip {
+                        return ipv4.to_string();
+                    }
+                }
+            }
+        }
+    }
+    
+    // 方法2：遍历网络接口获取非回环 IP
+    // 使用 pnet 库或手动解析
+    // 这里使用一个简化的方法：尝试连接多个常见网关
+    let test_targets = ["8.8.8.8:80", "1.1.1.1:80", "192.168.1.1:80", "10.0.0.1:80"];
+    
+    for target in test_targets {
+        if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+            if socket.connect(target).is_ok() {
+                if let Ok(local_addr) = socket.local_addr() {
+                    let local_ip = local_addr.ip();
+                    if !local_ip.is_unspecified() && !local_ip.is_loopback() {
+                        // 确保返回 IPv4 格式
+                        if let IpAddr::V4(ipv4) = local_ip {
+                            // 检查是否与客户端在同一网段
+                            if is_same_subnet(&client_ip_addr, &local_ip) {
+                                return ipv4.to_string();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 方法3：最后尝试获取任意非回环 IPv4 IP
+    for target in test_targets {
+        if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+            if socket.connect(target).is_ok() {
+                if let Ok(local_addr) = socket.local_addr() {
+                    let local_ip = local_addr.ip();
+                    if !local_ip.is_unspecified() && !local_ip.is_loopback() {
+                        // 确保返回 IPv4 格式
+                        if let IpAddr::V4(ipv4) = local_ip {
+                            return ipv4.to_string();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 如果所有方法都失败，返回回环地址
+    "127.0.0.1".to_string()
+}
+
+/// 判断两个 IP 是否在同一网段（简化版本，仅检查 IPv4 的前 3 个字节）
+fn is_same_subnet(ip1: &IpAddr, ip2: &IpAddr) -> bool {
+    match (ip1, ip2) {
+        (IpAddr::V4(a), IpAddr::V4(b)) => {
+            let a_bytes = a.octets();
+            let b_bytes = b.octets();
+            a_bytes[0] == b_bytes[0] && a_bytes[1] == b_bytes[1] && a_bytes[2] == b_bytes[2]
+        }
+        (IpAddr::V6(a), IpAddr::V6(b)) => {
+            let a_bytes = a.octets();
+            let b_bytes = b.octets();
+            a_bytes[..8] == b_bytes[..8]
+        }
+        _ => false,
     }
 }
 
@@ -281,9 +372,20 @@ pub async fn handle_session(
     fail2ban_manager: Arc<Fail2BanManager>,
     client_ip: String,
 ) -> Result<()> {
-    // 获取客户端连接的服务器本地 IP 地址（用于 NAT 场景）
     let local_addr = socket.local_addr()?;
-    let server_local_ip = local_addr.ip().to_string();
+    let server_local_ip = {
+        let local_ip = local_addr.ip();
+        if local_ip.is_unspecified() {
+            get_local_ip_for_client(&client_ip)
+        } else {
+            local_ip.to_string()
+        }
+    };
+    
+    tracing::debug!(
+        "FTP session: client_ip={}, server_local_ip={}, socket_local_addr={}",
+        client_ip, server_local_ip, local_addr
+    );
     
     let session_config = {
         let cfg = config.lock();
@@ -414,9 +516,20 @@ pub async fn handle_session_tls(
     fail2ban_manager: Arc<Fail2BanManager>,
     client_ip: String,
 ) -> Result<()> {
-    // 获取客户端连接的服务器本地 IP 地址（用于 NAT 场景）
     let local_addr = socket.get_ref().0.local_addr()?;
-    let server_local_ip = local_addr.ip().to_string();
+    let server_local_ip = {
+        let local_ip = local_addr.ip();
+        if local_ip.is_unspecified() {
+            get_local_ip_for_client(&client_ip)
+        } else {
+            local_ip.to_string()
+        }
+    };
+    
+    tracing::debug!(
+        "FTP TLS session: client_ip={}, server_local_ip={}, socket_local_addr={}",
+        client_ip, server_local_ip, local_addr
+    );
     
     let session_config = {
         let cfg = config.lock();

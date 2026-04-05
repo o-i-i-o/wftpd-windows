@@ -1,0 +1,14 @@
+{
+    "ftp_server": "127.0.0.1",
+    "ftp_port": 21,
+    "sftp_server": "127.0.0.1",
+    "sftp_port": 2222,
+    "username": "123",
+    "password": "123123",
+    "test_data_dir": "./testdata",
+    "log_file": "./test_result.log",
+    "use_tls": false,
+    "implicit_ftps": false,
+    "timeout_seconds": 10,
+    "max_concurrent": 3
+}
