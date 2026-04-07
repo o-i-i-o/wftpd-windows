@@ -433,6 +433,28 @@ impl Default for Config {
 }
 
 impl Config {
+    /// 规范化绑定 IP 地址
+    /// - 如果输入的是纯 IPv6 地址（不含 []），自动添加 []
+    /// - 如果已经是 [::] 或其他格式，保持不变
+    /// - IPv4 地址保持不变
+    fn normalize_bind_ip(ip: &str) -> String {
+        let trimmed = ip.trim();
+
+        // 如果已经包含 []，直接返回
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            return trimmed.to_string();
+        }
+
+        // 检查是否是 IPv6 地址（包含多个 :）
+        if trimmed.contains(':') && trimmed.matches(':').count() > 1 {
+            // 这是 IPv6 地址，添加 []
+            format!("[{}]", trimmed)
+        } else {
+            // IPv4 或特殊地址，保持不变
+            trimmed.to_string()
+        }
+    }
+
     pub fn load(path: &Path) -> Result<Self> {
         if !path.exists() {
             let config = Self::default();
@@ -444,7 +466,11 @@ impl Config {
 
         let content = fs::read_to_string(path).context("Failed to read config file")?;
 
-        let config: Config = toml::from_str(&content).context("Failed to parse config file")?;
+        let mut config: Config = toml::from_str(&content).context("Failed to parse config file")?;
+
+        // 规范化绑定 IP 地址（自动为 IPv6 添加 []）
+        config.ftp.bind_ip = Self::normalize_bind_ip(&config.ftp.bind_ip);
+        config.sftp.bind_ip = Self::normalize_bind_ip(&config.sftp.bind_ip);
 
         Ok(config)
     }
@@ -639,6 +665,69 @@ impl Config {
             global_count,
             ip_count
         );
+    }
+
+    /// 验证配置的有效性
+    pub fn validate(&self) -> Result<(), String> {
+        // 验证 FTP 端口
+        if self.ftp.enabled && self.ftp.port == 0 {
+            return Err("FTP port cannot be 0".to_string());
+        }
+
+        // 验证 SFTP 端口
+        if self.sftp.enabled && self.sftp.port == 0 {
+            return Err("SFTP port cannot be 0".to_string());
+        }
+
+        // 验证被动模式端口范围
+        if self.ftp.passive_ports.0 > self.ftp.passive_ports.1 {
+            return Err(format!(
+                "Invalid passive port range: {} > {}",
+                self.ftp.passive_ports.0, self.ftp.passive_ports.1
+            ));
+        }
+
+        // 验证连接限制
+        if self.security.max_connections == 0 {
+            return Err("max_connections must be greater than 0".to_string());
+        }
+
+        if self.security.max_connections_per_ip == 0 {
+            return Err("max_connections_per_ip must be greater than 0".to_string());
+        }
+
+        // 验证 Fail2Ban 配置
+        if self.security.fail2ban_enabled && self.security.fail2ban_threshold == 0 {
+            return Err("fail2ban_threshold must be greater than 0 when enabled".to_string());
+        }
+
+        if self.security.fail2ban_enabled && self.security.fail2ban_ban_time == 0 {
+            return Err("fail2ban_ban_time must be greater than 0 when enabled".to_string());
+        }
+
+        // 验证日志配置
+        if self.logging.max_log_size < 1024 * 1024 {
+            return Err("max_log_size must be at least 1MB".to_string());
+        }
+
+        if self.logging.max_log_files == 0 {
+            return Err("max_log_files must be greater than 0".to_string());
+        }
+
+        // 验证 IP/CIDR 格式
+        for cidr in &self.security.allowed_ips {
+            if !cidr.is_empty() && ip_matches_cidr("127.0.0.1", cidr).is_err() {
+                return Err(format!("Invalid allowed IP/CIDR format: {}", cidr));
+            }
+        }
+
+        for cidr in &self.security.denied_ips {
+            if !cidr.is_empty() && ip_matches_cidr("127.0.0.1", cidr).is_err() {
+                return Err(format!("Invalid denied IP/CIDR format: {}", cidr));
+            }
+        }
+
+        Ok(())
     }
 }
 

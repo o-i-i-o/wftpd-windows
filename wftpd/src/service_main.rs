@@ -171,17 +171,72 @@ fn run_main_loop_with_shutdown(
 }
 
 fn main() {
+    // 设置全局 panic 钩子，捕获未处理的 panic 并记录到日志
+    std::panic::set_hook(Box::new(|panic_info| {
+        let location = if let Some(location) = panic_info.location() {
+            format!(
+                "{}:{}:{}",
+                location.file(),
+                location.line(),
+                location.column()
+            )
+        } else {
+            "unknown location".to_string()
+        };
+
+        let message = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Unknown panic".to_string()
+        };
+
+        // 尝试写入日志文件
+        if let Ok(log_dir) = std::env::var("WFTPD_LOG_DIR") {
+            let log_file = std::path::Path::new(&log_dir).join("panic.log");
+            let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
+            let panic_msg = format!(
+                "\n=== PANIC at {} ===\nLocation: {}\nMessage: {}\nBacktrace:\n{:?}\n",
+                timestamp,
+                location,
+                message,
+                std::backtrace::Backtrace::force_capture()
+            );
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_file)
+            {
+                use std::io::Write;
+                let _ = file.write_all(panic_msg.as_bytes());
+            }
+        }
+
+        // 也输出到 stderr
+        eprintln!("\n=== FATAL ERROR ===");
+        eprintln!("Panic occurred at: {}", location);
+        eprintln!("Message: {}", message);
+        eprintln!("Please check the log files for details.");
+        eprintln!("==================\n");
+    }));
+
+    tracing::info!("WFTPD process starting...");
+
     // 直接启动服务（不支持命令行安装/卸载）
     if let Err(_e) = service_dispatcher::start(SERVICE_NAME, ffi_service_main) {
+        tracing::info!("Service dispatcher failed, running as console application");
         run_console_application();
     }
 }
 
 fn run_console_application() {
+    tracing::info!("Entering console application mode...");
     let state = match create_app_state() {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Failed to initialize: {e}");
+            tracing::error!("Application initialization failed: {}", e);
             std::process::exit(1);
         }
     };
@@ -191,6 +246,7 @@ fn run_console_application() {
         env!("CARGO_PKG_VERSION")
     );
 
+    tracing::info!("Creating IPC server...");
     let ipc_server = match create_ipc_server() {
         Ok(s) => s,
         Err(e) => {
@@ -199,7 +255,16 @@ fn run_console_application() {
         }
     };
 
-    setup_signal_handler(&state);
+    tracing::info!("Setting up signal handler...");
+    match setup_signal_handler(&state) {
+        Ok(()) => tracing::info!("Signal handler installed successfully"),
+        Err(e) => {
+            tracing::error!("Failed to set up signal handler: {}", e);
+            // 不退出，继续运行，只是没有信号处理
+        }
+    }
+
+    tracing::info!("Starting enabled services...");
     start_enabled_services(&state);
 
     tracing::info!("Ready to accept connections on named pipe: {PIPE_NAME}");
@@ -215,7 +280,7 @@ fn create_ipc_server() -> anyhow::Result<IpcServer> {
     IpcServer::new()
 }
 
-fn setup_signal_handler(state: &Arc<AppState>) {
+fn setup_signal_handler(state: &Arc<AppState>) -> anyhow::Result<()> {
     let state_clone = Arc::clone(state);
     ctrlc::set_handler(move || {
         tracing::info!("Shutting down gracefully...");
@@ -238,16 +303,28 @@ fn setup_signal_handler(state: &Arc<AppState>) {
         tracing::warn!("Graceful shutdown timeout reached, forcing exit");
         std::process::exit(0);
     })
-    .expect("Error setting Ctrl-C handler");
+    .map_err(|e| anyhow::anyhow!("Failed to set Ctrl-C handler: {}", e))?;
+
+    Ok(())
 }
 
 fn start_enabled_services(state: &Arc<AppState>) {
+    tracing::info!("Checking enabled services...");
     let (ftp_enabled, sftp_enabled) = get_enabled_services(state);
 
-    if (ftp_enabled || sftp_enabled)
-        && let Err(e) = state.start_all()
-    {
-        tracing::error!("Failed to start services: {e}");
+    if ftp_enabled || sftp_enabled {
+        tracing::info!(
+            "Starting enabled services: FTP={}, SFTP={}",
+            ftp_enabled,
+            sftp_enabled
+        );
+        if let Err(e) = state.start_all() {
+            tracing::error!("Failed to start services: {e}");
+        } else {
+            tracing::info!("Services started successfully");
+        }
+    } else {
+        tracing::info!("No services are enabled in configuration");
     }
 }
 

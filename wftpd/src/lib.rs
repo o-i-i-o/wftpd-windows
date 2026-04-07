@@ -27,6 +27,10 @@ impl AppState {
         let config_path = Config::get_config_path();
         let users_path = Config::get_users_path();
 
+        tracing::info!("=== WFTPD Starting ===");
+        tracing::info!("Config path: {}", config_path.display());
+        tracing::info!("Users path: {}", users_path.display());
+
         // 先初始化基本日志系统，确保配置加载失败时也能记录日志
         let default_log_dir = Config::get_default_log_dir();
         if let Err(e) = std::fs::create_dir_all(&default_log_dir) {
@@ -34,22 +38,51 @@ impl AppState {
                 "Warning: Failed to create log directory {}: {}",
                 default_log_dir, e
             );
+            tracing::warn!("Failed to create default log directory: {}", e);
         }
 
         // 使用默认配置初始化日志系统（稍后会用配置文件中的设置重新初始化）
-        let _logger = TracingLogger::init(&default_log_dir, 10 * 1024 * 1024, 10, "info")
-            .map_err(|e| anyhow::anyhow!("Failed to initialize logger: {}", e))?;
+        match TracingLogger::init(&default_log_dir, 10 * 1024 * 1024, 10, "info") {
+            Ok(logger) => logger,
+            Err(e) => {
+                eprintln!("CRITICAL: Failed to initialize logger: {}", e);
+                return Err(anyhow::anyhow!("Failed to initialize logger: {}", e));
+            }
+        };
 
         tracing::info!("Loading configuration from {}", config_path.display());
 
         let config = match Config::load(&config_path) {
             Ok(c) => {
                 tracing::info!("Configuration loaded successfully");
+
+                // 验证配置
+                if let Err(e) = c.validate() {
+                    tracing::error!("Configuration validation failed: {}", e);
+                    return Err(anyhow::anyhow!(
+                        "Config validation error: {}. Please fix the configuration file.",
+                        e
+                    ));
+                }
+
+                tracing::debug!(
+                    "Config details: FTP={}, SFTP={}",
+                    c.ftp.enabled,
+                    c.sftp.enabled
+                );
                 c
             }
             Err(e) => {
                 tracing::error!("Failed to load configuration: {}", e);
-                return Err(e);
+                tracing::error!(
+                    "Please check the configuration file at: {}",
+                    config_path.display()
+                );
+                tracing::error!("You can restore from backup or regenerate the config file");
+                return Err(anyhow::anyhow!(
+                    "Configuration load failed: {}. Check logs for details.",
+                    e
+                ));
             }
         };
 
@@ -59,15 +92,22 @@ impl AppState {
         let max_log_size = config.logging.max_log_size;
         let max_log_files = config.logging.max_log_files;
 
+        tracing::info!("Reinitializing logger with config settings...");
         if let Err(e) = std::fs::create_dir_all(&log_dir) {
             eprintln!("Warning: Failed to create log directory {}: {}", log_dir, e);
+            tracing::warn!("Failed to create configured log directory: {}", e);
         }
 
-        let logger = TracingLogger::init(&log_dir, max_log_size, max_log_files, &log_level)
-            .map_err(|e| anyhow::anyhow!("Failed to reinitialize logger with config: {}", e))?;
+        match TracingLogger::init(&log_dir, max_log_size, max_log_files, &log_level) {
+            Ok(logger) => logger,
+            Err(e) => {
+                tracing::error!("Failed to reinitialize logger: {}", e);
+                return Err(anyhow::anyhow!("Logger reinitialization failed: {}", e));
+            }
+        };
 
         tracing::info!(
-            "Logger reinitialized with config: level={}, dir={}, max_size={}MB, max_files={}",
+            "Logger reinitialized: level={}, dir={}, max_size={}MB, max_files={}",
             log_level,
             log_dir,
             max_log_size / (1024 * 1024),
@@ -82,14 +122,20 @@ impl AppState {
             }
             Err(e) => {
                 tracing::error!("Failed to load users: {}", e);
-                return Err(e);
+                tracing::error!("Please check the users file at: {}", users_path.display());
+                return Err(anyhow::anyhow!(
+                    "Users load failed: {}. Check logs for details.",
+                    e
+                ));
             }
         };
 
+        tracing::info!("AppState initialized successfully");
         Ok(AppState {
             config: Arc::new(Mutex::new(config)),
             user_manager: Arc::new(Mutex::new(user_manager)),
-            logger,
+            logger: TracingLogger::init(&log_dir, max_log_size, max_log_files, &log_level)
+                .map_err(|e| anyhow::anyhow!("Final logger init failed: {}", e))?,
             server_manager: ServerManager::new(),
             config_path,
             users_path,

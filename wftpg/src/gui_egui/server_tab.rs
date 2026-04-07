@@ -564,6 +564,15 @@ impl ServerTab {
                 );
                 ui.add_space(styles::SPACING_SM);
 
+                // UPnP 自动端口映射
+                ui.horizontal(|ui| {
+                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                    ui.checkbox(&mut config.ftp.upnp_enabled, "启用 UPnP/IGD 自动端口映射")
+                        .on_hover_text("自动在路由器上配置端口转发，适用于家庭网络环境");
+                });
+
+                ui.add_space(styles::SPACING_SM);
+
                 let mut passive_ip = config.ftp.passive_ip_override.clone().unwrap_or_default();
                 styles::form_row(ui, "被动模式 IP", label_width, |ui| {
                     styles::input_frame().show(ui, |ui| {

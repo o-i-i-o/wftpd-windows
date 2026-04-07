@@ -160,15 +160,14 @@ impl SftpServer {
         let quota_manager_clone = Arc::clone(&self.quota_manager);
         let sftp_server_for_handler = self.clone();
 
-        let bind_addr = if bind_ip == "0.0.0.0" || bind_ip == "::" {
-            format!("[::]:{}", sftp_port)
-        } else {
-            format!("{}:{}", bind_ip, sftp_port)
-        };
+        // 根据配置的绑定地址确定监听方式
+        let bind_addr = format!("{}:{}", bind_ip, sftp_port);
 
         let listener = {
             use socket2::{Domain, Protocol, SockAddr, Socket, Type};
-            let domain = if bind_addr.starts_with("[") {
+            // 根据配置的地址类型选择 IPv4 或 IPv6
+            let domain = if bind_ip == "::" || (bind_ip.starts_with('[') && bind_ip.ends_with(']'))
+            {
                 Domain::IPV6
             } else {
                 Domain::IPV4
@@ -176,15 +175,16 @@ impl SftpServer {
 
             let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
 
+            // 仅在配置为 [::] 时启用 IPv6 双栈支持
             if domain == Domain::IPV6 {
-                socket.set_only_v6(false)?;
+                socket.set_only_v6(false)?; // 允许 IPv4 映射到 IPv6
             }
 
             socket.set_reuse_address(true)?;
             socket.set_nonblocking(true)?;
             let addr: std::net::SocketAddr = bind_addr
                 .parse()
-                .map_err(|e| anyhow::anyhow!("Invalid bind address: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Invalid bind address '{}': {}", bind_addr, e))?;
             socket.bind(&SockAddr::from(addr))?;
             socket.listen(128)?;
             tokio::net::TcpListener::from_std(socket.into())
