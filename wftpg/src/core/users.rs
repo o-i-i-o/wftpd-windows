@@ -12,7 +12,7 @@
 use anyhow::{Context, Result};
 use argon2::{
     Argon2,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -191,7 +191,13 @@ impl UserManager {
     ///
     /// 使用 Argon2 算法，自动生成随机盐值
     fn hash_password(password: &str) -> Result<String, UserError> {
-        let salt = SaltString::generate(&mut OsRng);
+        // 生成随机盐值
+        let mut salt_bytes = [0u8; 16];
+        getrandom::getrandom(&mut salt_bytes)
+            .map_err(|e| UserError::PasswordHashFailed(e.to_string()))?;
+        let salt = SaltString::encode_b64(&salt_bytes)
+            .map_err(|e| UserError::PasswordHashFailed(e.to_string()))?;
+
         let argon2 = Argon2::default();
         let hash = argon2
             .hash_password(password.as_bytes(), &salt)

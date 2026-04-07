@@ -20,6 +20,9 @@ pub struct ServerTab {
     config_load_error: Option<String>,
     save_receiver: Option<mpsc::Receiver<Result<String, String>>>,
     is_saving: bool,
+    // IP 映射表输入状态
+    new_internal_ip: String,
+    new_external_ip: String,
 }
 
 impl ServerTab {
@@ -31,6 +34,8 @@ impl ServerTab {
             config_load_error: None,
             save_receiver: None,
             is_saving: false,
+            new_internal_ip: String::new(),
+            new_external_ip: String::new(),
         }
     }
 
@@ -628,6 +633,251 @@ impl ServerTab {
                     ui.label(
                         RichText::new("用于 NAT 环境的公网地址或域名")
                             .size(styles::FONT_SIZE_SM)
+                            .color(styles::TEXT_MUTED_COLOR)
+                            .italics(),
+                    );
+                });
+
+                ui.add_space(styles::SPACING_SM);
+
+                // IP 地址映射表 (masquerade_map)
+                ui.label(
+                    RichText::new("IP 地址映射表")
+                        .size(styles::FONT_SIZE_MD)
+                        .color(styles::TEXT_SECONDARY_COLOR)
+                        .strong(),
+                );
+                ui.label(
+                    RichText::new("为不同的内部 IP 配置对应的外部 IP，适用于多网卡/多公网 IP 环境")
+                        .size(styles::FONT_SIZE_SM)
+                        .color(styles::TEXT_MUTED_COLOR)
+                        .italics(),
+                );
+                ui.add_space(styles::SPACING_XS);
+
+                // 显示当前映射列表
+                let mut map_entries: Vec<(String, String)> = config
+                    .ftp
+                    .masquerade_map
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                map_entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+                if !map_entries.is_empty() {
+                    egui::Frame::NONE
+                        .fill(styles::BG_SECONDARY)
+                        .inner_margin(egui::Margin::same(8))
+                        .corner_radius(egui::CornerRadius::same(6))
+                        .show(ui, |ui| {
+                            ui.vertical(|ui| {
+                                for (idx, (internal_ip, external_ip)) in
+                                    map_entries.iter().enumerate()
+                                {
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "{} → {}",
+                                                internal_ip, external_ip
+                                            ))
+                                            .size(styles::FONT_SIZE_SM)
+                                            .color(styles::TEXT_LABEL_COLOR),
+                                        );
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                if ui
+                                                    .button(
+                                                        RichText::new("✕")
+                                                            .size(styles::FONT_SIZE_SM)
+                                                            .color(styles::DANGER_COLOR),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    config.ftp.masquerade_map.remove(internal_ip);
+                                                }
+                                            },
+                                        );
+                                    });
+                                    if idx < map_entries.len() - 1 {
+                                        ui.separator();
+                                    }
+                                }
+                            });
+                        });
+                    ui.add_space(styles::SPACING_XS);
+                }
+
+                // 添加新映射的输入框
+                ui.horizontal(|ui| {
+                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                    ui.label(
+                        RichText::new("添加新映射:")
+                            .size(styles::FONT_SIZE_SM)
+                            .color(styles::TEXT_SECONDARY_COLOR),
+                    );
+                });
+
+                ui.horizontal(|ui| {
+                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
+
+                    // 内部 IP 输入
+                    let internal_ip_valid = self.new_internal_ip.trim().is_empty()
+                        || self
+                            .new_internal_ip
+                            .trim()
+                            .parse::<std::net::Ipv4Addr>()
+                            .is_ok()
+                        || self
+                            .new_internal_ip
+                            .trim()
+                            .parse::<std::net::Ipv6Addr>()
+                            .is_ok();
+
+                    let internal_ip_frame =
+                        if !self.new_internal_ip.trim().is_empty() && !internal_ip_valid {
+                            egui::Frame::new()
+                                .stroke(egui::Stroke::new(1.0, styles::DANGER_COLOR))
+                                .inner_margin(egui::Margin::same(0))
+                                .corner_radius(egui::CornerRadius::same(6))
+                        } else {
+                            styles::input_frame()
+                        };
+
+                    internal_ip_frame.show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.new_internal_ip)
+                                .desired_width(120.0)
+                                .hint_text("内部 IP")
+                                .font(egui::FontId::new(
+                                    styles::FONT_SIZE_SM,
+                                    egui::FontFamily::Monospace,
+                                )),
+                        );
+                    });
+
+                    ui.label(
+                        RichText::new("→")
+                            .size(styles::FONT_SIZE_MD)
+                            .color(styles::TEXT_MUTED_COLOR),
+                    );
+
+                    // 外部 IP 输入
+                    let external_ip_valid = self.new_external_ip.trim().is_empty()
+                        || self
+                            .new_external_ip
+                            .trim()
+                            .parse::<std::net::Ipv4Addr>()
+                            .is_ok()
+                        || self
+                            .new_external_ip
+                            .trim()
+                            .parse::<std::net::Ipv6Addr>()
+                            .is_ok();
+
+                    let external_ip_frame =
+                        if !self.new_external_ip.trim().is_empty() && !external_ip_valid {
+                            egui::Frame::new()
+                                .stroke(egui::Stroke::new(1.0, styles::DANGER_COLOR))
+                                .inner_margin(egui::Margin::same(0))
+                                .corner_radius(egui::CornerRadius::same(6))
+                        } else {
+                            styles::input_frame()
+                        };
+
+                    external_ip_frame.show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.new_external_ip)
+                                .desired_width(120.0)
+                                .hint_text("外部 IP")
+                                .font(egui::FontId::new(
+                                    styles::FONT_SIZE_SM,
+                                    egui::FontFamily::Monospace,
+                                )),
+                        );
+                    });
+
+                    // 添加按钮
+                    let can_add = !self.new_internal_ip.trim().is_empty()
+                        && !self.new_external_ip.trim().is_empty()
+                        && internal_ip_valid
+                        && external_ip_valid;
+
+                    let add_button = if can_add {
+                        egui::Button::new(
+                            RichText::new("➕ 添加")
+                                .size(styles::FONT_SIZE_SM)
+                                .color(egui::Color32::WHITE),
+                        )
+                        .fill(styles::PRIMARY_COLOR)
+                    } else {
+                        egui::Button::new(RichText::new("➕ 添加").size(styles::FONT_SIZE_SM))
+                            .fill(styles::BG_SECONDARY)
+                    };
+
+                    if ui.add(add_button).clicked() && can_add {
+                        config.ftp.masquerade_map.insert(
+                            self.new_internal_ip.trim().to_string(),
+                            self.new_external_ip.trim().to_string(),
+                        );
+                        // 清空输入框
+                        self.new_internal_ip.clear();
+                        self.new_external_ip.clear();
+                    }
+                });
+
+                // 显示验证错误提示
+                let internal_ip_valid = self.new_internal_ip.trim().is_empty()
+                    || self
+                        .new_internal_ip
+                        .trim()
+                        .parse::<std::net::Ipv4Addr>()
+                        .is_ok()
+                    || self
+                        .new_internal_ip
+                        .trim()
+                        .parse::<std::net::Ipv6Addr>()
+                        .is_ok();
+
+                let external_ip_valid = self.new_external_ip.trim().is_empty()
+                    || self
+                        .new_external_ip
+                        .trim()
+                        .parse::<std::net::Ipv4Addr>()
+                        .is_ok()
+                    || self
+                        .new_external_ip
+                        .trim()
+                        .parse::<std::net::Ipv6Addr>()
+                        .is_ok();
+
+                if !self.new_internal_ip.trim().is_empty() && !internal_ip_valid {
+                    ui.horizontal(|ui| {
+                        ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                        ui.label(
+                            RichText::new("⚠ 内部 IP 格式无效")
+                                .size(styles::FONT_SIZE_XS)
+                                .color(styles::DANGER_COLOR),
+                        );
+                    });
+                }
+
+                if !self.new_external_ip.trim().is_empty() && !external_ip_valid {
+                    ui.horizontal(|ui| {
+                        ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                        ui.label(
+                            RichText::new("⚠ 外部 IP 格式无效")
+                                .size(styles::FONT_SIZE_XS)
+                                .color(styles::DANGER_COLOR),
+                        );
+                    });
+                }
+
+                ui.horizontal(|ui| {
+                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                    ui.label(
+                        RichText::new("优先级：映射表 > 伪装地址 > 被动模式 IP > 绑定 IP")
+                            .size(styles::FONT_SIZE_XS)
                             .color(styles::TEXT_MUTED_COLOR)
                             .italics(),
                     );

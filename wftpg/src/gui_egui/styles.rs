@@ -137,7 +137,7 @@ pub fn input_frame() -> egui::Frame {
     egui::Frame::new()
         .fill(BG_CARD)
         .stroke(Stroke::new(1.0, BORDER_COLOR))
-        .inner_margin(egui::Margin::symmetric(12, 8))
+        .inner_margin(egui::Margin::same(0))
         .corner_radius(egui::CornerRadius::same(6))
 }
 

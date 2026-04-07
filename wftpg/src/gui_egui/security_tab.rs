@@ -145,6 +145,8 @@ pub struct SecurityTab {
     // IP 访问控制
     allowed_ips_text: String,
     denied_ips_text: String,
+    // 符号链接安全
+    allow_symlinks: bool,
     // 状态和错误
     status_message: Option<(String, bool)>,
     validation_errors: Vec<ValidationError>,
@@ -171,6 +173,8 @@ impl SecurityTab {
         // IP 访问控制
         let allowed_ips_text = cfg.security.allowed_ips.join("\n");
         let denied_ips_text = cfg.security.denied_ips.join("\n");
+        // 符号链接安全
+        let allow_symlinks = cfg.security.allow_symlinks;
         drop(cfg);
 
         let (tx, rx) = mpsc::channel();
@@ -184,6 +188,7 @@ impl SecurityTab {
             max_connections_per_ip_buf,
             allowed_ips_text,
             denied_ips_text,
+            allow_symlinks,
             status_message: None,
             validation_errors: Vec::new(),
             fail2ban_threshold_error: None,
@@ -292,6 +297,9 @@ impl SecurityTab {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
+
+        // 符号链接安全
+        cfg.security.allow_symlinks = self.allow_symlinks;
     }
 
     fn save_async(&mut self, ctx: &egui::Context) {
@@ -644,6 +652,48 @@ impl SecurityTab {
                         RichText::new(format!("⚠ {}", err))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::DANGER_COLOR),
+                    );
+                });
+            }
+
+            ui.add_space(styles::SPACING_MD);
+
+            // 符号链接安全配置
+            ui.label(
+                RichText::new("文件系统安全")
+                    .size(styles::FONT_SIZE_MD)
+                    .color(styles::TEXT_SECONDARY_COLOR)
+                    .strong(),
+            );
+            ui.label(
+                RichText::new("控制符号链接（symlink）的使用，影响安全性")
+                    .size(styles::FONT_SIZE_SM)
+                    .color(styles::TEXT_MUTED_COLOR),
+            );
+
+            ui.add_space(styles::SPACING_XS);
+
+            styles::form_row(ui, "允许符号链接", label_width, |ui| {
+                ui.checkbox(&mut self.allow_symlinks, "")
+                    .on_hover_text("启用后，FTP/SFTP 用户可以访问符号链接指向的目标\n禁用可提高安全性，防止路径逃逸攻击");
+            });
+
+            if !self.allow_symlinks {
+                ui.horizontal(|ui| {
+                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                    ui.label(
+                        RichText::new("✓ 已禁用符号链接，提高安全性")
+                            .size(styles::FONT_SIZE_SM)
+                            .color(styles::SUCCESS_COLOR),
+                    );
+                });
+            } else {
+                ui.horizontal(|ui| {
+                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                    ui.label(
+                        RichText::new("⚠ 启用符号链接可能存在安全风险")
+                            .size(styles::FONT_SIZE_SM)
+                            .color(styles::WARNING_COLOR),
                     );
                 });
             }

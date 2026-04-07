@@ -157,6 +157,8 @@ pub struct FtpConfig {
     pub passive_ip_override: Option<String>,
     #[serde(default = "default_masquerade_address")]
     pub masquerade_address: Option<String>,
+    #[serde(default = "default_masquerade_map")]
+    pub masquerade_map: HashMap<String, String>,
     #[serde(default = "default_connection_timeout")]
     pub connection_timeout: u64,
     #[serde(default = "default_idle_timeout")]
@@ -230,6 +232,10 @@ fn default_masquerade_address() -> Option<String> {
     Some("".to_string())
 }
 
+fn default_masquerade_map() -> HashMap<String, String> {
+    HashMap::new()
+}
+
 fn default_upnp_enabled() -> bool {
     false
 }
@@ -286,6 +292,9 @@ pub struct SecurityConfig {
     pub fail2ban_threshold: u32,
     #[serde(default = "default_fail2ban_ban_time")]
     pub fail2ban_ban_time: u64,
+    // 符号链接安全配置
+    #[serde(default = "default_allow_symlinks")]
+    pub allow_symlinks: bool,
 }
 
 fn default_fail2ban_ban_time() -> u64 {
@@ -306,6 +315,10 @@ fn default_fail2ban_enabled() -> bool {
 
 fn default_fail2ban_threshold() -> u32 {
     5
+}
+
+fn default_allow_symlinks() -> bool {
+    false // 默认禁用符号链接以提高安全性
 }
 
 /// 日志配置
@@ -371,6 +384,7 @@ impl Default for Config {
                 },
                 passive_ip_override: Some("".to_string()),
                 masquerade_address: Some("".to_string()),
+                masquerade_map: HashMap::new(),
                 connection_timeout: 300,
                 idle_timeout: 600,
                 hide_version_info: false,
@@ -395,6 +409,7 @@ impl Default for Config {
                 fail2ban_enabled: false,
                 fail2ban_threshold: 5,
                 fail2ban_ban_time: 3600,
+                allow_symlinks: false,
             },
             logging: LoggingConfig {
                 log_dir,

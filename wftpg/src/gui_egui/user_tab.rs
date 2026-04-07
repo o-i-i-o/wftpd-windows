@@ -23,7 +23,6 @@ pub struct UserTab {
     form_permissions: Permissions,
     form_error: Option<String>,
     status_message: Option<(String, bool)>,
-    show_permissions: bool,
 }
 
 impl Default for UserTab {
@@ -46,7 +45,6 @@ impl Default for UserTab {
             form_permissions: Permissions::full(),
             form_error: None,
             status_message: None,
-            show_permissions: false,
         }
     }
 }
@@ -77,7 +75,6 @@ impl UserTab {
         self.form_is_admin = false;
         self.form_permissions = Permissions::full();
         self.form_error = None;
-        self.show_permissions = false;
         self.modal = ModalMode::AddUser;
     }
 
@@ -89,7 +86,6 @@ impl UserTab {
         self.form_is_admin = user.is_admin;
         self.form_permissions = user.permissions;
         self.form_error = None;
-        self.show_permissions = false;
         self.modal = ModalMode::EditUser(user.username.clone());
     }
 
@@ -325,7 +321,7 @@ impl UserTab {
                                 ui.add_sized(
                                     [label_width, 24.0],
                                     egui::Label::new(
-                                        RichText::new("管理员:")
+                                        RichText::new("权限:")
                                             .size(styles::FONT_SIZE_MD)
                                             .color(styles::TEXT_SECONDARY_COLOR),
                                     ),
@@ -333,51 +329,20 @@ impl UserTab {
                                 ui.checkbox(&mut self.form_is_admin, "赋予管理员权限");
                             });
 
-                            ui.horizontal(|ui| {
-                                ui.add_sized(
-                                    [label_width, 24.0],
-                                    egui::Label::new(
-                                        RichText::new("权限:")
-                                            .size(styles::FONT_SIZE_MD)
-                                            .color(styles::TEXT_SECONDARY_COLOR),
-                                    ),
-                                );
-                                if ui
-                                    .button(if self.show_permissions {
-                                        "收起权限"
-                                    } else {
-                                        "高级权限"
-                                    })
-                                    .clicked()
-                                {
-                                    self.show_permissions = !self.show_permissions;
-                                }
+                            ui.add_space(styles::SPACING_XS);
+
+                            // 高级权限设置
+                            ui.horizontal_wrapped(|ui| {
+                                ui.checkbox(&mut self.form_permissions.can_read, "读取");
+                                ui.checkbox(&mut self.form_permissions.can_write, "写入");
+                                ui.checkbox(&mut self.form_permissions.can_delete, "删除");
+                                ui.checkbox(&mut self.form_permissions.can_list, "列表");
+                                ui.checkbox(&mut self.form_permissions.can_mkdir, "创建目录");
+                                ui.checkbox(&mut self.form_permissions.can_rmdir, "删除目录");
+                                ui.checkbox(&mut self.form_permissions.can_rename, "重命名");
+                                ui.checkbox(&mut self.form_permissions.can_append, "追加");
                             });
                         });
-
-                    if self.show_permissions {
-                        Frame::new()
-                            .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
-                            .inner_margin(egui::Margin {
-                                left: 12,
-                                right: 12,
-                                top: 8,
-                                bottom: 8,
-                            })
-                            .corner_radius(egui::CornerRadius::same(6))
-                            .show(ui, |ui| {
-                                ui.horizontal_wrapped(|ui| {
-                                    ui.checkbox(&mut self.form_permissions.can_read, "读取");
-                                    ui.checkbox(&mut self.form_permissions.can_write, "写入");
-                                    ui.checkbox(&mut self.form_permissions.can_delete, "删除");
-                                    ui.checkbox(&mut self.form_permissions.can_list, "列表");
-                                    ui.checkbox(&mut self.form_permissions.can_mkdir, "创建目录");
-                                    ui.checkbox(&mut self.form_permissions.can_rmdir, "删除目录");
-                                    ui.checkbox(&mut self.form_permissions.can_rename, "重命名");
-                                    ui.checkbox(&mut self.form_permissions.can_append, "追加");
-                                });
-                            });
-                    }
 
                     if let Some(ref err) = self.form_error {
                         ui.add_space(styles::SPACING_XS);
