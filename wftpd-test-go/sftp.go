@@ -70,8 +70,18 @@ type SftpConn struct {
 func (c *SftpConn) Close() error {
 	var errs []error
 	if c.Client != nil {
-		if err := c.Client.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("SFTP client close error: %w", err))
+		done := make(chan error, 1)
+		go func() {
+			done <- c.Client.Close()
+		}()
+		
+		select {
+		case err := <-done:
+			if err != nil {
+				errs = append(errs, fmt.Errorf("SFTP client close error: %w", err))
+			}
+		case <-time.After(5 * time.Second):
+			errs = append(errs, fmt.Errorf("SFTP client close timeout (5s), forcing close"))
 		}
 	}
 	if c.Conn != nil {
@@ -113,32 +123,6 @@ func sftpConnect() (*SftpConn, error) {
 	}
 
 	return &SftpConn{Client: client, Conn: conn}, nil
-}
-
-func sftpConnectWithTimeout(timeout time.Duration) (*SftpConn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	resultChan := make(chan *SftpConn, 1)
-	errChan := make(chan error, 1)
-
-	go func() {
-		conn, err := sftpConnect()
-		if err != nil {
-			errChan <- err
-			return
-		}
-		resultChan <- conn
-	}()
-
-	select {
-	case <-ctx.Done():
-		return nil, fmt.Errorf("连接超时")
-	case err := <-errChan:
-		return nil, err
-	case conn := <-resultChan:
-		return conn, nil
-	}
 }
 
 func testSftpBasicConnection() error {

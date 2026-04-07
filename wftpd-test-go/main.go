@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/md5"
 	"crypto/sha256"
 	"crypto/tls"
@@ -413,60 +414,58 @@ func testDirectoryOperations() error {
 	startTime := time.Now()
 	logger.Printf("  [目录] 测试目录操作...\n")
 	
-	conn, err := connectAndLogin()
+	fc, err := connectAndLogin()
 	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
-	
-	err = c.PrintfLine("PWD")
+	 return err
+    }
+    defer fc.Close()
+    
+    err = fc.PrintfLine("PWD")
 	if err != nil {
 		return fmt.Errorf("发送 PWD 命令失败: %w", err)
 	}
-	code, msg, err := c.ReadResponse(257)
+	code, msg, err := fc.ReadResponse(257)
 	if err != nil {
 		return fmt.Errorf("PWD 命令错误: %d %s", code, msg)
 	}
 	logger.Printf("  ✓ PWD: %s\n", strings.TrimSpace(msg))
 	
 	testDir := "test_go_dir"
-	err = c.PrintfLine("MKD %s", testDir)
+	err = fc.PrintfLine("MKD %s", testDir)
 	if err != nil {
 		return fmt.Errorf("发送 MKD 命令失败: %w", err)
 	}
-	code, msg, err = c.ReadResponse(257)
+	code, msg, err = fc.ReadResponse(257)
 	if err != nil {
 		return fmt.Errorf("MKD 命令错误: %d %s", code, msg)
 	}
 	logger.Printf("  ✓ MKD: %s\n", strings.TrimSpace(msg))
 	
-	err = c.PrintfLine("CWD %s", testDir)
+	err = fc.PrintfLine("CWD %s", testDir)
 	if err != nil {
 		return fmt.Errorf("发送 CWD 命令失败: %w", err)
 	}
-	code, msg, err = c.ReadResponse(250)
+	code, msg, err = fc.ReadResponse(250)
 	if err != nil {
 		return fmt.Errorf("CWD 命令错误: %d %s", code, msg)
 	}
 	logger.Printf("  ✓ CWD: %s\n", strings.TrimSpace(msg))
 	
-	err = c.PrintfLine("CDUP")
+	err = fc.PrintfLine("CDUP")
 	if err != nil {
 		return fmt.Errorf("发送 CDUP 命令失败: %w", err)
 	}
-	code, msg, err = c.ReadResponse(250)
+	code, msg, err = fc.ReadResponse(250)
 	if err != nil {
 		return fmt.Errorf("CDUP 命令错误: %d %s", code, msg)
 	}
 	logger.Printf("  ✓ CDUP: %s\n", strings.TrimSpace(msg))
 	
-	err = c.PrintfLine("RMD %s", testDir)
+	err = fc.PrintfLine("RMD %s", testDir)
 	if err != nil {
 		return fmt.Errorf("发送 RMD 命令失败: %w", err)
 	}
-	code, msg, err = c.ReadResponse(250)
+	code, msg, err = fc.ReadResponse(250)
 	if err != nil {
 		return fmt.Errorf("RMD 命令错误: %d %s", code, msg)
 	}
@@ -481,13 +480,11 @@ func testFileUpload(filename string) error {
 	srcPath := filepath.Join(config.TestDataDir, filename)
 	logger.Printf("  [上传] 上传文件 %s...\n", filename)
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	fileInfo, err := os.Stat(srcPath)
 	if err != nil {
@@ -509,8 +506,10 @@ func testFileUpload(filename string) error {
 	}
 	code, msg, err := c.ReadResponse(227)
 	if err != nil {
-		return fmt.Errorf("PASV 命令错误: %d %s", code, msg)
+		logger.Printf("  [DEBUG] PASV 响应: code=%d, msg=%s, err=%v\n", code, msg, err)
+		return fmt.Errorf("PASV 命令错误: %d %s (err: %v)", code, msg, err)
 	}
+	logger.Printf("  [DEBUG] PASV 成功: %d %s\n", code, msg)
 	
 	host, port, err := parsePasvResponse(msg)
 	if err != nil {
@@ -528,6 +527,17 @@ func testFileUpload(filename string) error {
 	if err != nil {
 		return fmt.Errorf("发送 STOR 命令失败: %w", err)
 	}
+	
+	code, msg, err := c.ReadResponse(150)
+	if err != nil {
+		if code == 0 {
+			code, msg, err = c.ReadResponse(125)
+		}
+		if err != nil {
+			return fmt.Errorf("STOR 准备响应错误: %d %s (err: %v)", code, msg, err)
+		}
+	}
+	logger.Printf("  [DEBUG] STOR 准备响应: %d %s\n", code, strings.TrimSpace(msg))
 	
 	file, err := os.Open(srcPath)
 	if err != nil {
@@ -563,13 +573,11 @@ func testFileDownload(filename string) error {
 	}
 	logger.Printf("  ✓ 原始文件 MD5: %s\n", originalMD5)
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	err = c.PrintfLine("TYPE I")
 	if err != nil {
@@ -605,6 +613,17 @@ func testFileDownload(filename string) error {
 	if err != nil {
 		return fmt.Errorf("发送 RETR 命令失败: %w", err)
 	}
+	
+	code, msg, err := c.ReadResponse(150)
+	if err != nil {
+		if code == 0 {
+			code, msg, err = c.ReadResponse(125)
+		}
+		if err != nil {
+			return fmt.Errorf("RETR 准备响应错误: %d %s (err: %v)", code, msg, err)
+		}
+	}
+	logger.Printf("  [DEBUG] RETR 准备响应: %d %s\n", code, strings.TrimSpace(msg))
 	
 	outFile, err := os.Create(dstPath)
 	if err != nil {
@@ -645,13 +664,11 @@ func testResumeTransfer() error {
 	startTime := time.Now()
 	logger.Printf("  [续传] 测试断点续传...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	err = c.PrintfLine("TYPE I")
 	if err != nil {
@@ -697,13 +714,11 @@ func testPassiveMode() error {
 	startTime := time.Now()
 	logger.Printf("  [模式] 测试被动模式...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	err = c.PrintfLine("EPSV")
 	if err != nil {
@@ -781,7 +796,31 @@ func testTLSConnection() error {
 	return nil
 }
 
-func connectAndLogin() (net.Conn, error) {
+type FtpConn struct {
+	*textproto.Conn
+	conn net.Conn
+}
+
+func (fc *FtpConn) Close() error {
+	if fc.conn != nil {
+		return fc.conn.Close()
+	}
+	return nil
+}
+
+func (fc *FtpConn) SendAbort() error {
+	_, err := fc.conn.Write([]byte{0xFF, 0xF4, 0xFF, 0xF2})
+	if err != nil {
+		return fmt.Errorf("发送 Telnet IP/Synch 信号失败: %w", err)
+	}
+	err = fc.PrintfLine("ABOR")
+	if err != nil {
+		return fmt.Errorf("发送 ABOR 命令失败: %w", err)
+	}
+	return nil
+}
+
+func connectAndLogin() (*FtpConn, error) {
 	timeout := time.Duration(config.TimeoutSeconds) * time.Second
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.FTPServer, config.FTPPort), timeout)
 	if err != nil {
@@ -818,7 +857,7 @@ func connectAndLogin() (net.Conn, error) {
 		return nil, fmt.Errorf("密码错误: %w", err)
 	}
 	
-	return conn, nil
+	return &FtpConn{Conn: c, conn: conn}, nil
 }
 
 func parsePasvResponse(msg string) (string, int, error) {
@@ -830,15 +869,40 @@ func parsePasvResponse(msg string) (string, int, error) {
 	
 	parts := strings.Split(msg[start+1:end], ",")
 	if len(parts) != 6 {
-		return "", 0, fmt.Errorf("PASV 响应参数数量错误")
+		return "", 0, fmt.Errorf("PASV 响应参数数量错误: 期望 6 个，实际 %d 个", len(parts))
 	}
 	
-	h1, _ := strconv.Atoi(parts[0])
-	h2, _ := strconv.Atoi(parts[1])
-	h3, _ := strconv.Atoi(parts[2])
-	h4, _ := strconv.Atoi(parts[3])
-	p1, _ := strconv.Atoi(parts[4])
-	p2, _ := strconv.Atoi(parts[5])
+	h1, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil {
+		return "", 0, fmt.Errorf("解析 PASV 响应失败: 无效的 IP 地址部分 h1: %s", parts[0])
+	}
+	h2, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return "", 0, fmt.Errorf("解析 PASV 响应失败: 无效的 IP 地址部分 h2: %s", parts[1])
+	}
+	h3, err := strconv.Atoi(strings.TrimSpace(parts[2]))
+	if err != nil {
+		return "", 0, fmt.Errorf("解析 PASV 响应失败: 无效的 IP 地址部分 h3: %s", parts[2])
+	}
+	h4, err := strconv.Atoi(strings.TrimSpace(parts[3]))
+	if err != nil {
+		return "", 0, fmt.Errorf("解析 PASV 响应失败: 无效的 IP 地址部分 h4: %s", parts[3])
+	}
+	p1, err := strconv.Atoi(strings.TrimSpace(parts[4]))
+	if err != nil {
+		return "", 0, fmt.Errorf("解析 PASV 响应失败: 无效的端口部分 p1: %s", parts[4])
+	}
+	p2, err := strconv.Atoi(strings.TrimSpace(parts[5]))
+	if err != nil {
+		return "", 0, fmt.Errorf("解析 PASV 响应失败: 无效的端口部分 p2: %s", parts[5])
+	}
+	
+	if h1 < 0 || h1 > 255 || h2 < 0 || h2 > 255 || h3 < 0 || h3 > 255 || h4 < 0 || h4 > 255 {
+		return "", 0, fmt.Errorf("解析 PASV 响应失败: IP 地址超出范围")
+	}
+	if p1 < 0 || p1 > 255 || p2 < 0 || p2 > 255 {
+		return "", 0, fmt.Errorf("解析 PASV 响应失败: 端口部分超出范围")
+	}
 	
 	host := fmt.Sprintf("%d.%d.%d.%d", h1, h2, h3, h4)
 	port := p1*256 + p2
@@ -850,13 +914,11 @@ func testFileList() error {
 	startTime := time.Now()
 	logger.Printf("  [列表] 测试文件列表...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	err = c.PrintfLine("PASV")
 	if err != nil {
@@ -958,13 +1020,11 @@ func testFileDelete() error {
 	startTime := time.Now()
 	logger.Printf("  [删除] 测试文件删除...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	testFilename := "delete_test.txt"
 	srcPath := filepath.Join(config.TestDataDir, "small.txt")
@@ -1004,6 +1064,16 @@ func testFileDelete() error {
 		return fmt.Errorf("发送 STOR 命令失败: %w", err)
 	}
 	
+	code, msg, err = c.ReadResponse(150)
+	if err != nil {
+		if code == 0 {
+			code, msg, err = c.ReadResponse(125)
+		}
+		if err != nil {
+			return fmt.Errorf("STOR 准备响应错误: %d %s (err: %v)", code, msg, err)
+		}
+	}
+	
 	file, err := os.Open(srcPath)
 	if err != nil {
 		return fmt.Errorf("打开文件失败: %w", err)
@@ -1041,23 +1111,21 @@ func testActiveMode() error {
 	startTime := time.Now()
 	logger.Printf("  [模式] 测试主动模式...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("创建监听器失败: %w", err)
 	}
-	defer listener.Close()
 	
 	addr := listener.Addr().(*net.TCPAddr)
 	ipParts := strings.Split(addr.IP.String(), ".")
 	if len(ipParts) != 4 {
+		listener.Close()
 		return fmt.Errorf("无效的 IP 地址格式")
 	}
 	
@@ -1071,43 +1139,51 @@ func testActiveMode() error {
 	portCmd := fmt.Sprintf("PORT %d,%d,%d,%d,%d,%d", h1, h2, h3, h4, p1, p2)
 	err = c.PrintfLine(portCmd)
 	if err != nil {
+		listener.Close()
 		return fmt.Errorf("发送 PORT 命令失败: %w", err)
 	}
 	
 	code, msg, err := c.ReadResponse(200)
 	if err != nil {
+		listener.Close()
 		return fmt.Errorf("PORT 命令错误: %d %s", code, msg)
 	}
 	
 	logger.Printf("  ✓ PORT 命令成功: %s\n", strings.TrimSpace(msg))
 	
-	acceptChan := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	
+	type acceptResult struct {
+		conn net.Conn
+		err  error
+	}
+	acceptChan := make(chan acceptResult, 1)
+	
 	go func() {
-		time.AfterFunc(5*time.Second, func() {
-			listener.Close()
-		})
 		conn, err := listener.Accept()
-		if err != nil {
-			acceptChan <- err
-			return
-		}
-		conn.Close()
-		acceptChan <- nil
+		acceptChan <- acceptResult{conn: conn, err: err}
 	}()
 	
 	err = c.PrintfLine("LIST")
 	if err != nil {
+		listener.Close()
 		return fmt.Errorf("发送 LIST 命令失败: %w", err)
 	}
 	
 	select {
-	case err := <-acceptChan:
-		if err != nil {
-			return fmt.Errorf("接受数据连接失败: %w", err)
+	case <-ctx.Done():
+		listener.Close()
+		return fmt.Errorf("等待数据连接超时")
+	case result := <-acceptChan:
+		listener.Close()
+		if result.err != nil {
+			return fmt.Errorf("接受数据连接失败: %w", result.err)
+		}
+		if result.conn != nil {
+			result.conn.Close()
 		}
 		logger.Printf("  ✓ 主动模式数据连接建立成功\n")
-	case <-time.After(10 * time.Second):
-		return fmt.Errorf("等待数据连接超时")
 	}
 	
 	_, _, err = c.ReadResponse(226)
@@ -1172,13 +1248,11 @@ func testFeatAndSyst() error {
 	startTime := time.Now()
 	logger.Printf("  [功能] 测试 FEAT/SYST 命令...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	err = c.PrintfLine("SYST")
 	if err != nil {
@@ -1209,13 +1283,11 @@ func testFtpRename() error {
 	startTime := time.Now()
 	logger.Printf("  [重命名] 测试 RNFR/RNTO 重命名...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	testFilename := "rename_ftp_test.txt"
 	srcPath := filepath.Join(config.TestDataDir, "small.txt")
@@ -1253,6 +1325,16 @@ func testFtpRename() error {
 	err = c.PrintfLine("STOR %s", testFilename)
 	if err != nil {
 		return fmt.Errorf("发送 STOR 命令失败: %w", err)
+	}
+	
+	code, msg, err = c.ReadResponse(150)
+	if err != nil {
+		if code == 0 {
+			code, msg, err = c.ReadResponse(125)
+		}
+		if err != nil {
+			return fmt.Errorf("STOR 准备响应错误: %d %s (err: %v)", code, msg, err)
+		}
 	}
 	
 	file, err := os.Open(srcPath)
@@ -1332,7 +1414,9 @@ func testFtpRename() error {
 		fileList.WriteString(line)
 	}
 	dataConn.Close()
-	_, _, _ = c.ReadResponse(226)
+	if _, _, err := c.ReadResponse(226); err != nil {
+		logger.Printf("  ⚠ NLST 传输确认响应异常: %v\n", err)
+	}
 	
 	if !strings.Contains(fileList.String(), newFilename) {
 		return fmt.Errorf("重命名验证失败: 未找到文件 %s", newFilename)
@@ -1357,13 +1441,11 @@ func testMdtmAndMlst() error {
 	startTime := time.Now()
 	logger.Printf("  [时间/列表] 测试 MDTM/MLST 命令...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	err = c.PrintfLine("MDTM small.txt")
 	if err != nil {
@@ -1443,13 +1525,11 @@ func testUtf8Filename() error {
 	startTime := time.Now()
 	logger.Printf("  [UTF-8] 测试 UTF-8 文件名支持...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	err = c.PrintfLine("OPTS UTF8 ON")
 	if err != nil {
@@ -1470,7 +1550,9 @@ func testUtf8Filename() error {
 	if err != nil {
 		return fmt.Errorf("发送 TYPE 命令失败: %w", err)
 	}
-	_, _, _ = c.ReadResponse(200)
+	if _, _, err := c.ReadResponse(200); err != nil {
+		return fmt.Errorf("TYPE 命令错误: %w", err)
+	}
 	
 	err = c.PrintfLine("PASV")
 	if err != nil {
@@ -1496,6 +1578,16 @@ func testUtf8Filename() error {
 	err = c.PrintfLine("STOR %s", utf8Filename)
 	if err != nil {
 		return fmt.Errorf("发送 STOR 命令失败: %w", err)
+	}
+	
+	code, msg, err = c.ReadResponse(150)
+	if err != nil {
+		if code == 0 {
+			code, msg, err = c.ReadResponse(125)
+		}
+		if err != nil {
+			return fmt.Errorf("STOR 准备响应错误: %d %s (err: %v)", code, msg, err)
+		}
 	}
 	
 	file, err := os.Open(srcPath)
@@ -1554,7 +1646,9 @@ func testUtf8Filename() error {
 		fileList.WriteString(line)
 	}
 	dataConn.Close()
-	_, _, _ = c.ReadResponse(226)
+	if _, _, err := c.ReadResponse(226); err != nil {
+		logger.Printf("  ⚠ NLST 传输确认响应异常: %v\n", err)
+	}
 	
 	logger.Printf("  ✓ UTF-8 文件名测试完成\n")
 	
@@ -1562,7 +1656,9 @@ func testUtf8Filename() error {
 	if err != nil {
 		return fmt.Errorf("发送 DELE 命令失败: %w", err)
 	}
-	_, _, _ = c.ReadResponse(250)
+	if _, _, err := c.ReadResponse(250); err != nil {
+		logger.Printf("  ⚠ 删除 UTF-8 文件失败: %v\n", err)
+	}
 	
 	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
 	return nil
@@ -1604,13 +1700,11 @@ func testConcurrentTransfer() error {
 }
 
 func concurrentUpload(id int) error {
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return fmt.Errorf("连接失败: %w", err)
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	filename := fmt.Sprintf("concurrent_test_%d.txt", id)
 	srcPath := filepath.Join(config.TestDataDir, "small.txt")
@@ -1648,6 +1742,16 @@ func concurrentUpload(id int) error {
 	err = c.PrintfLine("STOR %s", filename)
 	if err != nil {
 		return err
+	}
+	
+	code, msg, err = c.ReadResponse(150)
+	if err != nil {
+		if code == 0 {
+			code, msg, err = c.ReadResponse(125)
+		}
+		if err != nil {
+			return fmt.Errorf("STOR 准备响应错误: %d %s", code, msg)
+		}
 	}
 	
 	file, err := os.Open(srcPath)
@@ -1737,55 +1841,68 @@ func testPerformanceBenchmark() error {
 		}
 		
 		uploadStart := time.Now()
-		conn, err := connectAndLogin()
+		c, err := connectAndLogin()
 		if err != nil {
 			return err
 		}
-		
-		c := textproto.NewConn(conn)
 		
 		err = c.PrintfLine("TYPE I")
 		if err != nil {
-			conn.Close()
+			c.Close()
 			return err
 		}
-		_, _, _ = c.ReadResponse(200)
+		if _, _, err := c.ReadResponse(200); err != nil {
+			c.Close()
+			return fmt.Errorf("TYPE 命令错误: %w", err)
+		}
 		
 		err = c.PrintfLine("PASV")
 		if err != nil {
-			conn.Close()
+			c.Close()
 			return err
 		}
 		code, msg, err := c.ReadResponse(227)
 		if err != nil {
-			conn.Close()
+			c.Close()
 			return fmt.Errorf("PASV 错误: %d %s", code, msg)
 		}
 		
 		host, port, err := parsePasvResponse(msg)
 		if err != nil {
-			conn.Close()
+			c.Close()
 			return err
 		}
 		
 		timeout := time.Duration(config.TimeoutSeconds) * time.Second
 		dataConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), timeout)
 		if err != nil {
-			conn.Close()
+			c.Close()
 			return err
 		}
 		
 		err = c.PrintfLine("STOR perf_test_%s", tf.name)
 		if err != nil {
 			dataConn.Close()
-			conn.Close()
+			c.Close()
 			return err
+		}
+		
+		code, msg, err = c.ReadResponse(150)
+		if err != nil {
+			if code == 0 {
+				code, msg, err = c.ReadResponse(125)
+			}
+			if err != nil {
+				dataConn.Close()
+				c.Close()
+				return fmt.Errorf("STOR 准备响应错误: %d %s", code, msg)
+			}
 		}
 		
 		file, err := os.Open(testPath)
 		if err != nil {
 			dataConn.Close()
-			conn.Close()
+			c.Close()
 			return err
 		}
 		
@@ -1794,12 +1911,14 @@ func testPerformanceBenchmark() error {
 		dataConn.Close()
 		
 		if err != nil {
-			conn.Close()
+			c.Close()
 			return err
 		}
 		
-		_, _, _ = c.ReadResponse(226)
-		conn.Close()
+		if _, _, err := c.ReadResponse(226); err != nil {
+			logger.Printf("  ⚠ 传输确认响应异常: %v\n", err)
+		}
+		c.Close()
 		
 		uploadDuration := time.Since(uploadStart)
 		throughput := float64(bytesSent) / uploadDuration.Seconds() / 1024 / 1024
@@ -1809,12 +1928,11 @@ func testPerformanceBenchmark() error {
 			throughput,
 			float64(uploadDuration.Microseconds())/1000.0)
 		
-		conn2, _ := connectAndLogin()
-		if conn2 != nil {
-			c2 := textproto.NewConn(conn2)
+		c2, _ := connectAndLogin()
+		if c2 != nil {
 			c2.PrintfLine("DELE perf_test_%s", tf.name)
 			c2.ReadResponse(250)
-			conn2.Close()
+			c2.Close()
 		}
 	}
 	
@@ -1826,13 +1944,11 @@ func testAbortTransfer() error {
 	startTime := time.Now()
 	logger.Printf("  [ABOR] 测试中止传输...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	srcPath := filepath.Join(config.TestDataDir, "medium.bin")
 	if _, err := os.Stat(srcPath); os.IsNotExist(err) {
@@ -1844,7 +1960,9 @@ func testAbortTransfer() error {
 	if err != nil {
 		return err
 	}
-	_, _, _ = c.ReadResponse(200)
+	if _, _, err := c.ReadResponse(200); err != nil {
+		return fmt.Errorf("TYPE 命令错误: %w", err)
+	}
 	
 	err = c.PrintfLine("PASV")
 	if err != nil {
@@ -1882,9 +2000,9 @@ func testAbortTransfer() error {
 	file.Read(buf)
 	dataConn.Write(buf)
 	
-	err = c.PrintfLine("ABOR")
+	err = c.SendAbort()
 	if err != nil {
-		return err
+		logger.Printf("  ⚠ 发送 ABOR 失败: %v\n", err)
 	}
 	
 	code, msg, err = c.ReadResponse(225)
@@ -1910,36 +2028,24 @@ func testQuitGracefully() error {
 	startTime := time.Now()
 	logger.Printf("  [QUIT] 测试优雅退出...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
 	
-	c := textproto.NewConn(conn)
-	
 	err = c.PrintfLine("QUIT")
 	if err != nil {
-		conn.Close()
+		c.Close()
 		return fmt.Errorf("发送 QUIT 命令失败: %w", err)
 	}
 	
 	code, msg, err := c.ReadResponse(221)
 	if err != nil {
-		conn.Close()
+		c.Close()
 		return fmt.Errorf("QUIT 响应错误: %w", err)
 	}
 	
 	logger.Printf("  ✓ QUIT: %d %s\n", code, strings.TrimSpace(msg))
-	
-	time.Sleep(100 * time.Millisecond)
-	buf := make([]byte, 1)
-	conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-	_, err = conn.Read(buf)
-	if err == nil {
-		logger.Printf("  ⚠ 连接未正确关闭\n")
-	} else {
-		logger.Printf("  ✓ 连接已正确关闭\n")
-	}
 	
 	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
 	return nil
@@ -1949,13 +2055,11 @@ func testAsciiMode() error {
 	startTime := time.Now()
 	logger.Printf("  [ASCII] 测试 ASCII 传输模式...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	err = c.PrintfLine("TYPE A")
 	if err != nil {
@@ -1998,6 +2102,16 @@ func testAsciiMode() error {
 		return err
 	}
 	
+	code, msg, err = c.ReadResponse(150)
+	if err != nil {
+		if code == 0 {
+			code, msg, err = c.ReadResponse(125)
+		}
+		if err != nil {
+			return fmt.Errorf("STOR 准备响应错误: %d %s (err: %v)", code, msg, err)
+		}
+	}
+	
 	file, err := os.Open(asciiPath)
 	if err != nil {
 		return err
@@ -2029,13 +2143,11 @@ func testLongConnectionKeepalive() error {
 	startTime := time.Now()
 	logger.Printf("  [保活] 测试长时间连接保活...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	keepaliveDuration := 5 * time.Second
 	interval := 1 * time.Second
@@ -2075,13 +2187,11 @@ func testStatAndHelp() error {
 	startTime := time.Now()
 	logger.Printf("  [状态] 测试 STAT/HELP 命令...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	err = c.PrintfLine("STAT")
 	if err != nil {
@@ -2132,13 +2242,11 @@ func testAppendFile() error {
 	startTime := time.Now()
 	logger.Printf("  [APPE] 测试文件追加模式...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	appeFile := "appe_test.txt"
 	testPath := filepath.Join(config.TestDataDir, appeFile)
@@ -2150,7 +2258,9 @@ func testAppendFile() error {
 	if err != nil {
 		return err
 	}
-	_, _, _ = c.ReadResponse(200)
+	if _, _, err := c.ReadResponse(200); err != nil {
+		return fmt.Errorf("TYPE 命令错误: %w", err)
+	}
 	
 	err = c.PrintfLine("PASV")
 	if err != nil {
@@ -2178,6 +2288,17 @@ func testAppendFile() error {
 		return err
 	}
 	
+	code, msg, err = c.ReadResponse(150)
+	if err != nil {
+		if code == 0 {
+			code, msg, err = c.ReadResponse(125)
+		}
+		if err != nil {
+			dataConn.Close()
+			return fmt.Errorf("STOR 准备响应错误: %d %s", code, msg)
+		}
+	}
+	
 	file, err := os.Open(testPath)
 	if err != nil {
 		dataConn.Close()
@@ -2188,7 +2309,9 @@ func testAppendFile() error {
 	file.Close()
 	dataConn.Close()
 	
-	_, _, _ = c.ReadResponse(226)
+	if _, _, err := c.ReadResponse(226); err != nil {
+		logger.Printf("  ⚠ STOR 传输确认响应异常: %v\n", err)
+	}
 	logger.Printf("  ✓ 初始上传完成\n")
 	
 	appendContent := "Appended content.\n"
@@ -2217,6 +2340,17 @@ func testAppendFile() error {
 	if err != nil {
 		dataConn.Close()
 		return err
+	}
+	
+	code, msg, err = c.ReadResponse(150)
+	if err != nil {
+		if code == 0 {
+			code, msg, err = c.ReadResponse(125)
+		}
+		if err != nil {
+			dataConn.Close()
+			return fmt.Errorf("APPE 准备响应错误: %d %s", code, msg)
+		}
 	}
 	
 	file, err = os.Open(testPath)
@@ -2248,13 +2382,11 @@ func testModeAndStru() error {
 	startTime := time.Now()
 	logger.Printf("  [MODE] 测试 MODE/STRU 命令...\n")
 	
-	conn, err := connectAndLogin()
+	c, err := connectAndLogin()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	
-	c := textproto.NewConn(conn)
+	defer c.Close()
 	
 	err = c.PrintfLine("MODE S")
 	if err != nil {

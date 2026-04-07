@@ -1,14 +1,15 @@
 use anyhow::Result;
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::time::Instant;
 use tokio::net::TcpListener;
 
-/// 被动模式监听器默认超时时间（秒）
-const PASSIVE_LISTENER_TIMEOUT_SECS: u64 = 300; // 5 分钟
+const PASSIVE_LISTENER_TIMEOUT_SECS: u64 = 300;
 
 pub struct PassiveListenerInfo {
     pub listener: TcpListener,
     pub created_at: Instant,
+    pub client_ip: String,
 }
 
 pub struct PassiveManager {
@@ -22,7 +23,6 @@ impl PassiveManager {
         }
     }
 
-    /// 清理超时的被动监听端口（应在会话循环中定期调用）
     pub fn cleanup_expired(&mut self) {
         let now = Instant::now();
         let expired: Vec<u16> = self
@@ -50,13 +50,20 @@ impl PassiveManager {
         port_min: u16,
         port_max: u16,
         bind_ip: &str,
+        client_ip: &str,
     ) -> Result<u16> {
+        let actual_bind_ip = if bind_ip == "0.0.0.0" || bind_ip == "::" {
+            "0.0.0.0"
+        } else {
+            bind_ip
+        };
+
         for port in port_min..=port_max {
             if self.listeners.contains_key(&port) {
                 continue;
             }
 
-            let addr = format!("{}:{}", bind_ip, port);
+            let addr = format!("{}:{}", actual_bind_ip, port);
             match TcpListener::bind(&addr).await {
                 Ok(listener) => {
                     self.listeners.insert(
@@ -64,11 +71,19 @@ impl PassiveManager {
                         PassiveListenerInfo {
                             listener,
                             created_at: Instant::now(),
+                            client_ip: client_ip.to_string(),
                         },
+                    );
+                    tracing::debug!(
+                        "Passive listener bound to {} on port {} for client {}",
+                        actual_bind_ip,
+                        port,
+                        client_ip
                     );
                     return Ok(port);
                 }
-                Err(_) => {
+                Err(e) => {
+                    tracing::debug!("Failed to bind passive port {}: {}", port, e);
                     continue;
                 }
             }
@@ -81,8 +96,53 @@ impl PassiveManager {
         )
     }
 
-    pub fn get_listener(&mut self, port: u16) -> Option<TcpListener> {
-        self.listeners.remove(&port).map(|info| info.listener)
+    pub async fn accept_with_validation(&mut self, port: u16) -> Result<tokio::net::TcpStream> {
+        let info = self.listeners.get_mut(&port).ok_or_else(|| {
+            anyhow::anyhow!("No listener found for port {}", port)
+        })?;
+
+        let expected_client_ip = info.client_ip.clone();
+        
+        loop {
+            let (stream, peer_addr) = info.listener.accept().await?;
+            let peer_ip = peer_addr.ip();
+
+            if Self::ip_matches_client(&peer_ip, &expected_client_ip) {
+                tracing::debug!(
+                    "Passive connection accepted from {} (expected: {})",
+                    peer_ip,
+                    expected_client_ip
+                );
+                return Ok(stream);
+            }
+
+            tracing::warn!(
+                "Passive connection rejected from {} - expected client IP {}",
+                peer_ip,
+                expected_client_ip
+            );
+        }
+    }
+
+    fn ip_matches_client(peer_ip: &IpAddr, expected: &str) -> bool {
+        if let Ok(expected_ip) = expected.parse::<IpAddr>() {
+            if peer_ip == &expected_ip {
+                return true;
+            }
+            if let (IpAddr::V4(peer_v4), IpAddr::V6(expected_v6)) = (peer_ip, expected_ip)
+                && let Some(mapped) = expected_v6.to_ipv4_mapped()
+                && peer_v4 == &mapped
+            {
+                return true;
+            }
+            if let (IpAddr::V6(peer_v6), IpAddr::V4(expected_v4)) = (peer_ip, expected_ip)
+                && let Some(mapped) = peer_v6.to_ipv4_mapped()
+                && mapped == expected_v4
+            {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn remove_listener(&mut self, port: u16) -> bool {

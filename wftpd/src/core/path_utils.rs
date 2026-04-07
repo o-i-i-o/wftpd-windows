@@ -265,7 +265,7 @@ fn build_safe_path(
             Component::ParentDir => {
                 if safe_path == *home_canon {
                     tracing::warn!(
-                        "build_safe_path: Path escape via parent dir at root - input: {:?}, resolved: {:?}",
+                        "SECURITY: Path escape via parent dir at root - input: {:?}, resolved: {:?}",
                         input_desc,
                         resolved
                     );
@@ -274,7 +274,7 @@ fn build_safe_path(
 
                 if !safe_path.pop() {
                     tracing::warn!(
-                        "build_safe_path: Failed to pop path - input: {:?}, resolved: {:?}",
+                        "SECURITY: Failed to pop path - input: {:?}, resolved: {:?}",
                         input_desc,
                         resolved
                     );
@@ -283,7 +283,7 @@ fn build_safe_path(
 
                 if !path_starts_with_ignore_case(&safe_path, home_canon) {
                     tracing::warn!(
-                        "build_safe_path: Path escape after pop - input: {:?}, safe_path: {:?}, home: {:?}",
+                        "SECURITY: Path escape after pop - input: {:?}, safe_path: {:?}, home: {:?}",
                         input_desc,
                         safe_path,
                         home_canon
@@ -312,7 +312,7 @@ fn build_safe_path(
 
                 if relative_depth > MAX_PATH_DEPTH {
                     tracing::warn!(
-                        "build_safe_path: Path depth exceeded - depth: {}, max: {}, input: {:?}",
+                        "SECURITY: Path depth exceeded - depth: {}, max: {}, input: {:?}",
                         relative_depth,
                         MAX_PATH_DEPTH,
                         input_desc
@@ -325,7 +325,7 @@ fn build_safe_path(
 
     if !path_starts_with_ignore_case(&safe_path, home_canon) {
         tracing::warn!(
-            "build_safe_path: Final path outside home - safe_path: {:?}, home: {:?}, input: {:?}",
+            "SECURITY: Final path outside home - safe_path: {:?}, home: {:?}, input: {:?}",
             safe_path,
             home_canon,
             input_desc
@@ -346,7 +346,7 @@ fn canonicalize_and_validate(
         Ok(canon) => {
             if !path_starts_with_ignore_case(&canon, home_canon) {
                 tracing::warn!(
-                    "canonicalize_and_validate: Path escape detected - canonicalized: {:?}, home: {:?}, input: {:?}",
+                    "SECURITY: Path escape detected - canonicalized: {:?}, home: {:?}, input: {:?}",
                     canon,
                     home_canon,
                     input_desc
@@ -359,7 +359,7 @@ fn canonicalize_and_validate(
                 && metadata.file_type().is_symlink()
             {
                 tracing::warn!(
-                    "canonicalize_and_validate: Symlink not allowed - path: {:?}, input: {:?}",
+                    "SECURITY: Symlink not allowed - path: {:?}, input: {:?}",
                     path,
                     input_desc
                 );
@@ -384,6 +384,7 @@ pub fn safe_resolve_path(
     cwd: &str,
     home_dir: &str,
     path: &str,
+    allow_symlinks: bool,
 ) -> Result<PathBuf, PathResolveError> {
     let input_desc = format!("cwd={}, home={}, path={}", cwd, home_dir, path);
 
@@ -399,11 +400,11 @@ pub fn safe_resolve_path(
 
     let resolved = resolve_path_internal(cwd, &home_canon, path)?;
 
-    // 首先尝试验证路径，禁止符号链接
-    match canonicalize_and_validate(&resolved, &home_canon, &input_desc, false) {
+    // 根据配置决定是否允许符号链接
+    match canonicalize_and_validate(&resolved, &home_canon, &input_desc, allow_symlinks) {
         Ok(canon) => Ok(canon),
-        Err(PathResolveError::SymlinkNotAllowed) => {
-            // 路径包含符号链接，验证符号链接目标是否在主目录内
+        Err(PathResolveError::SymlinkNotAllowed) if allow_symlinks => {
+            // 允许符号链接时，验证符号链接目标是否在主目录内
             validate_symlink_chain(&resolved, &home_canon, &input_desc)
         }
         Err(PathResolveError::CanonicalizeFailed) => {
@@ -439,7 +440,7 @@ fn validate_parent_and_build_path(
     if paths_equal_ignore_case(parent, home_canon) {
         if !path_starts_with_ignore_case(path, home_canon) {
             tracing::warn!(
-                "validate_parent: Path outside home - path: {:?}, home: {:?}, input: {:?}",
+                "SECURITY: Path outside home - path: {:?}, home: {:?}, input: {:?}",
                 path,
                 home_canon,
                 input_desc
@@ -455,7 +456,7 @@ fn validate_parent_and_build_path(
             // 验证父目录是否在家目录下
             if !path_starts_with_ignore_case(&canon_parent, home_canon) {
                 tracing::warn!(
-                    "validate_parent: Parent directory outside home - parent: {:?}, home: {:?}, input: {:?}",
+                    "SECURITY: Parent directory outside home - parent: {:?}, home: {:?}, input: {:?}",
                     canon_parent,
                     home_canon,
                     input_desc
@@ -490,7 +491,7 @@ fn validate_parent_and_build_path(
             // 最终验证路径是否在家目录下
             if !path_starts_with_ignore_case(&final_path, home_canon) {
                 tracing::warn!(
-                    "validate_parent: Final path outside home - final: {:?}, home: {:?}, input: {:?}",
+                    "SECURITY: Final path outside home - final: {:?}, home: {:?}, input: {:?}",
                     final_path,
                     home_canon,
                     input_desc
@@ -567,8 +568,9 @@ pub fn safe_resolve_path_with_cwd(
     cwd: &str,
     home_dir: &str,
     path: &str,
+    allow_symlinks: bool,
 ) -> Result<PathBuf, PathResolveError> {
-    safe_resolve_path(cwd, home_dir, path)
+    safe_resolve_path(cwd, home_dir, path, allow_symlinks)
 }
 
 pub fn safe_resolve_path_no_symlink(

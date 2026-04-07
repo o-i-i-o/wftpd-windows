@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -49,23 +50,12 @@ impl ServerConfig {
         }
     }
 
-    pub fn increment_global(&self) -> usize {
-        self.global_connection_count.fetch_add(1, Ordering::SeqCst)
-    }
-
     pub fn decrement_global(&self) {
         self.global_connection_count.fetch_sub(1, Ordering::SeqCst);
     }
 
     pub fn get_global_count(&self) -> usize {
         self.global_connection_count.load(Ordering::SeqCst)
-    }
-
-    pub fn increment_ip(&self, ip: &str) -> usize {
-        let mut map = self.connection_count_per_ip.lock();
-        let count = map.entry(ip.to_string()).or_insert(0);
-        *count += 1;
-        *count
     }
 
     pub fn decrement_ip(&self, ip: &str) {
@@ -85,13 +75,11 @@ impl ServerConfig {
         *map.get(ip).unwrap_or(&0)
     }
 
-    /// 获取所有 IP 的连接计数快照
     pub fn get_all_ip_counts(&self) -> std::collections::HashMap<String, usize> {
         let map = self.connection_count_per_ip.lock();
         map.clone()
     }
 
-    /// 从快照恢复连接计数（用于 Config::clone 保留状态）
     pub fn restore_counts(
         &self,
         global_count: usize,
@@ -106,6 +94,48 @@ impl ServerConfig {
                 map.insert(ip.clone(), *count);
             }
         }
+    }
+
+    pub fn try_register(&self, client_ip: &str, max_global: usize, max_per_ip: usize) -> bool {
+        let mut map = self.connection_count_per_ip.lock();
+        
+        let global_count = self.global_connection_count.load(Ordering::SeqCst);
+        if global_count >= max_global {
+            return false;
+        }
+
+        let ip_count = *map.get(client_ip).unwrap_or(&0);
+        if ip_count >= max_per_ip {
+            return false;
+        }
+
+        self.global_connection_count.fetch_add(1, Ordering::SeqCst);
+        *map.entry(client_ip.to_string()).or_insert(0) += 1;
+        true
+    }
+
+    pub fn unregister(&self, client_ip: &str) {
+        let global = self.global_connection_count.fetch_sub(1, Ordering::SeqCst);
+        if global == 0 {
+            self.global_connection_count.fetch_add(1, Ordering::SeqCst);
+        }
+        
+        let mut map = self.connection_count_per_ip.lock();
+        if let Some(count) = map.get_mut(client_ip) {
+            if *count > 0 {
+                *count -= 1;
+            }
+            if *count == 0 {
+                map.remove(client_ip);
+            }
+        }
+    }
+
+    pub fn get_counts(&self, client_ip: &str) -> (usize, usize) {
+        let map = self.connection_count_per_ip.lock();
+        let global = self.global_connection_count.load(Ordering::SeqCst);
+        let per_ip = *map.get(client_ip).unwrap_or(&0);
+        (global, per_ip)
     }
 }
 
@@ -139,6 +169,8 @@ pub struct FtpConfig {
     pub passive_ip_override: Option<String>,
     #[serde(default = "default_masquerade_address")]
     pub masquerade_address: Option<String>,
+    #[serde(default = "default_masquerade_map")]
+    pub masquerade_map: HashMap<String, String>,
     #[serde(default = "default_connection_timeout")]
     pub connection_timeout: u64,
     #[serde(default = "default_idle_timeout")]
@@ -211,6 +243,10 @@ fn default_masquerade_address() -> Option<String> {
     Some("".to_string())
 }
 
+fn default_masquerade_map() -> HashMap<String, String> {
+    HashMap::new()
+}
+
 fn default_upnp_enabled() -> bool {
     false  // 默认禁用，需要时手动启用
 }
@@ -268,6 +304,13 @@ pub struct SecurityConfig {
     pub fail2ban_threshold: u32,
     #[serde(default = "default_fail2ban_ban_time")]
     pub fail2ban_ban_time: u64,
+    // 符号链接安全配置
+    #[serde(default = "default_allow_symlinks")]
+    pub allow_symlinks: bool,
+}
+
+fn default_allow_symlinks() -> bool {
+    false  // 默认禁用符号链接以提高安全性
 }
 
 fn default_fail2ban_enabled() -> bool {
@@ -360,6 +403,7 @@ impl Default for Config {
                 },
                 passive_ip_override: Some("".to_string()),
                 masquerade_address: Some("".to_string()),
+                masquerade_map: HashMap::new(),
                 connection_timeout: 300,
                 idle_timeout: 600,
                 hide_version_info: false,
@@ -386,6 +430,7 @@ impl Default for Config {
                 fail2ban_enabled: false,
                 fail2ban_threshold: 5,
                 fail2ban_ban_time: 3600,
+                allow_symlinks: false,
             },
             logging: LoggingConfig {
                 log_dir,
@@ -531,8 +576,7 @@ impl Config {
     }
 
     pub fn check_connection_limits(&self, client_ip: &str) -> bool {
-        let global_count = self.server.get_global_count();
-        let ip_count = self.server.get_ip_count(client_ip);
+        let (global_count, ip_count) = self.server.get_counts(client_ip);
 
         if global_count >= self.security.max_connections {
             tracing::warn!(
@@ -556,56 +600,51 @@ impl Config {
         true
     }
 
-    pub fn register_connection(&self, client_ip: &str) {
-        self.server.increment_global();
-        self.server.increment_ip(client_ip);
-        tracing::debug!(
-            "Connection registered: {} (global: {}, per-IP: {})",
-            client_ip,
-            self.server.get_global_count(),
-            self.server.get_ip_count(client_ip)
-        );
-    }
-
-    /// 原子化操作：同时检查连接限制并注册连接（避免 TOCTOU 竞态）
-    /// 返回 true 表示注册成功，false 表示超过限制
     pub fn try_register_connection(&self, client_ip: &str) -> bool {
-        let global_count = self.server.get_global_count();
-        let ip_count = self.server.get_ip_count(client_ip);
+        let success = self.server.try_register(
+            client_ip,
+            self.security.max_connections,
+            self.security.max_connections_per_ip,
+        );
 
-        if global_count >= self.security.max_connections {
-            tracing::warn!(
-                "Connection limit reached: {} global connections (max: {}) - rejected {}",
-                global_count,
-                self.security.max_connections,
-                client_ip
-            );
-            return false;
-        }
-
-        if ip_count >= self.security.max_connections_per_ip {
-            tracing::warn!(
-                "Per-IP connection limit reached for {}: {} connections (max: {}) - rejected",
+        if !success {
+            let (global_count, ip_count) = self.server.get_counts(client_ip);
+            if global_count >= self.security.max_connections {
+                tracing::warn!(
+                    "Connection limit reached: {} global connections (max: {}) - rejected {}",
+                    global_count,
+                    self.security.max_connections,
+                    client_ip
+                );
+            } else {
+                tracing::warn!(
+                    "Per-IP connection limit reached for {}: {} connections (max: {}) - rejected",
+                    client_ip,
+                    ip_count,
+                    self.security.max_connections_per_ip
+                );
+            }
+        } else {
+            let (global_count, ip_count) = self.server.get_counts(client_ip);
+            tracing::debug!(
+                "Connection registered: {} (global: {}, per-IP: {})",
                 client_ip,
-                ip_count,
-                self.security.max_connections_per_ip
+                global_count,
+                ip_count
             );
-            return false;
         }
 
-        // 检查通过，执行注册
-        self.register_connection(client_ip);
-        true
+        success
     }
 
     pub fn unregister_connection(&self, client_ip: &str) {
-        self.server.decrement_global();
-        self.server.decrement_ip(client_ip);
+        self.server.unregister(client_ip);
+        let (global_count, ip_count) = self.server.get_counts(client_ip);
         tracing::debug!(
             "Connection unregistered: {} (global: {}, per-IP: {})",
             client_ip,
-            self.server.get_global_count(),
-            self.server.get_ip_count(client_ip)
+            global_count,
+            ip_count
         );
     }
 }

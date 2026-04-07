@@ -138,7 +138,9 @@ impl UpnpManager {
         }
 
         for &(external_port, internal_addr) in mappings {
-            let _ = self.add_port_mapping(internal_addr, 3600, &format!("port-{}", external_port)).await;
+            if let Err(e) = self.add_port_mapping(internal_addr, 3600, &format!("port-{}", external_port)).await {
+                warn!("UPnP 端口映射续期失败 (端口 {}): {}", external_port, e);
+            }
         }
         Ok(())
     }

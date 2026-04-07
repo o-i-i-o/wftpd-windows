@@ -1,0 +1,164 @@
+========================================
+WFTPD FTP/SFTP 测试套件
+========================================
+
+FTP 服务器: 127.0.0.1:21
+SFTP 服务器: 127.0.0.1:2222
+用户名: 123
+测试数据目录: ./testdata
+日志文件: ./test_result.log
+
+[准备] 生成测试文件...
+  ✓ 创建小文件: testdata\small.txt (1KB)
+  ✓ 创建中文件: testdata\medium.bin (1MB)
+  ✓ 创建大文件: testdata\large.bin (10MB)
+
+========================================
+FTP 测试模块
+========================================
+
+  [连接] 正在连接到 127.0.0.1:21...
+  ✓ 连接成功，响应: 220 Welcome to WFTPG FTP Server
+  [耗时] 10.04 ms
+
+  [认证] 正在认证用户 123...
+  ✓ USER 响应: 331 User name okay, need password
+  ✓ PASS 响应: 230 User logged in
+  [耗时] 31.25 ms
+
+  [目录] 测试目录操作...
+  ✓ PWD: "/"
+  ✓ MKD: "/test_go_dir" created
+  ✓ CWD: Directory successfully changed
+  ✓ CDUP: Directory changed
+  ✓ RMD: Directory removed
+  [耗时] 36.97 ms
+
+  [上传] 上传文件 small.txt...
+  [DEBUG] PASV 响应: code=0, msg=, err=read tcp 127.0.0.1:35111->127.0.0.1:21: wsarecv: An existing connection was forcibly closed by the remote host.
+  ✗ 失败: PASV 命令错误: 0  (err: read tcp 127.0.0.1:35111->127.0.0.1:21: wsarecv: An existing connection was forcibly closed by the remote host.)
+
+  [下载] 下载文件 small.txt...
+  ✓ 原始文件 MD5: d47b127bc2de2d687ddc82dac354c415
+  ✗ 失败: PASV 命令错误: 0 
+
+  [列表] 测试文件列表...
+  ✗ 失败: PASV 命令错误: 0 
+
+  [删除] 测试文件删除...
+  ✗ 失败: PASV 命令错误: 0 
+
+  [续传] 测试断点续传...
+  ✗ 失败: SIZE 命令错误: 450 File unavailable: file not found
+
+  [模式] 测试被动模式...
+  ✓ EPSV: Entering Extended Passive Mode (|||50000|)
+  [耗时] 41.05 ms
+
+  [模式] 测试主动模式...
+  ✓ PORT 命令成功: PORT command successful
+  ✓ 主动模式数据连接建立成功
+  ⚠ 控制连接响应: 150 Here comes the directory listing
+  [耗时] 37.44 ms
+
+  [功能] 测试 FEAT/SYST 命令...
+  ✓ SYST: UNIX Type: L8
+  ✓ FEAT 响应:
+Features:
+ SIZE
+ MDTM
+ REST STREAM
+ PASV
+ EPSV
+ EPRT
+ PORT
+ MLST
+ MLSD
+ MODE S
+ STRU F
+ UTF8
+ TVFS
+ AUTH TLS
+ PBSZ
+ PROT
+ CCC
+ MIC
+ CONF
+ ENC
+ SITE SYMLINK
+ SITE WHO
+End
+  [耗时] 47.21 ms
+
+  [重命名] 测试 RNFR/RNTO 重命名...
+  ✗ 失败: PASV 命令错误: 0 
+
+  [时间/列表] 测试 MDTM/MLST 命令...
+  ⚠ MDTM 不支持或文件不存在: 450 File unavailable: file not found
+  ⚠ MLST 不支持或文件不存在: 550 Failed to resolve path
+  ✗ 失败: PASV 命令错误: 0 
+
+  [UTF-8] 测试 UTF-8 文件名支持...
+  ✓ UTF-8 已启用: OPTS UTF8 command successful - UTF8 encoding on
+  ✗ 失败: PASV 命令错误: 0 
+
+  [并发] 测试并发传输...
+  ✗ 并发传输 1 失败: PASV 错误: 0 
+  ✗ 并发传输 2 失败: PASV 错误: 0 
+  ✗ 并发传输 3 失败: PASV 错误: 0 
+  ✗ 失败: 并发传输测试部分失败: 0 成功，3 失败
+
+  [性能] 测试传输性能...
+  ✗ 失败: PASV 错误: 0 
+
+  [ABOR] 测试中止传输...
+  ✗ 失败: PASV 错误: 0 
+
+  [QUIT] 测试优雅退出...
+  ✓ QUIT: 221 Goodbye
+  [耗时] 37.32 ms
+
+  [ASCII] 测试 ASCII 传输模式...
+  ✓ TYPE A: Type set to A (ASCII Non-print)
+  ✗ 失败: PASV 错误: 0 
+
+  [保活] 测试长时间连接保活...
+  ✓ 保持连接 5s...
+    [1s] NOOP #1: OK
+    [2s] NOOP #2: OK
+    [3s] NOOP #3: OK
+    [4s] NOOP #4: OK
+  ✓ 保活测试完成，发送 4 次 NOOP
+  [耗时] 5033.43 ms
+
+  [状态] 测试 STAT/HELP 命令...
+  ✓ STAT (211): 224 字节
+  ✓ HELP: 567 字节
+  ⚠ SITE HELP 不支持: 214 The following SITE commands are recognized:
+CHMOD IDLE HELP WHO WHOIS SYMLINK
+End
+  [耗时] 50.05 ms
+
+  [APPE] 测试文件追加模式...
+  ✗ 失败: PASV 错误: 0 
+
+  [MODE] 测试 MODE/STRU 命令...
+  ✓ MODE S: Mode set to Stream
+  ✓ MODE B: Mode set to Block
+  ✓ STRU F: Structure set to File
+  ✓ STRU R: Structure set to Record
+  [耗时] 31.61 ms
+
+
+========================================
+SFTP 测试模块
+========================================
+
+  [连接] 正在连接到 SFTP 服务器 127.0.0.1:2222...
+  [DEBUG] 正在建立 SSH 连接到 127.0.0.1:2222...
+  [DEBUG] SSH 连接成功
+  [DEBUG] 正在创建 SFTP 客户端...
+  [DEBUG] SFTP 客户端创建成功
+  ✓ 连接成功，工作目录: /
+  [耗时] 1065.10 ms
+  [DEBUG] 正在关闭 SFTP 客户端...

@@ -1,6 +1,14 @@
 mod commands;
 mod passive;
-mod session;
+pub mod session;
+pub mod session_auth;
+pub mod session_cmds;
+pub mod session_dirs;
+pub mod session_ip;
+pub mod session_main;
+pub mod session_site;
+pub mod session_state;
+pub mod session_xfer;
 mod tls;
 mod transfer;
 
@@ -198,13 +206,48 @@ impl FtpServer {
                                 let client_ip = peer_addr.ip().to_string();
                                 let config_arc = Arc::clone(&config);
 
-                                // 原子化检查+注册连接
-                                let ip_allowed = {
+                                // 优化的并发控制：在单个锁保护下完成所有检查
+                                let checks_result = {
                                     let cfg = config_arc.lock();
-                                    cfg.try_register_connection(&client_ip)
+                                    let ip_allowed = cfg.is_ip_allowed(&client_ip);
+                                    let connection_allowed = if ip_allowed {
+                                        cfg.try_register_connection(&client_ip)
+                                    } else {
+                                        false
+                                    };
+                                    (ip_allowed, connection_allowed)
                                 };
 
+                                let (ip_allowed, connection_allowed) = checks_result;
+
+                                // 检查 IP 是否被封禁 (Fail2Ban) - 独立检查，不使用锁
+                                if fail2ban_manager.is_banned(&client_ip).await {
+                                    tracing::warn!(
+                                        "Connection rejected from {}: IP is banned by Fail2Ban",
+                                        client_ip
+                                    );
+                                    use tokio::io::AsyncWriteExt;
+                                    let mut socket = socket;
+                                    let _ = socket.write_all(
+                                        b"421 Your IP has been banned - connection refused\r\n"
+                                    ).await;
+                                    continue;
+                                }
+
                                 if !ip_allowed {
+                                    tracing::warn!(
+                                        "Connection rejected from {}: IP not allowed by blacklist/whitelist",
+                                        client_ip
+                                    );
+                                    use tokio::io::AsyncWriteExt;
+                                    let mut socket = socket;
+                                    let _ = socket.write_all(
+                                        b"530 Connection denied by IP filter\r\n"
+                                    ).await;
+                                    continue;
+                                }
+
+                                if !connection_allowed {
                                     tracing::warn!(
                                         "Connection rejected from {}: connection limit exceeded",
                                         client_ip

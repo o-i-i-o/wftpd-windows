@@ -208,10 +208,10 @@ mod tests {
         record_auth_success();
         assert_eq!(AUTH_SUCCESS_TOTAL.get(), before + 1.0);
         
-        // 测试错误指标
-        let before = ERRORS_TOTAL.with_label_values(&["test", "FTP"]).get();
+        // 测试错误指标（ERRORS_TOTAL 不带标签）
+        let before = ERRORS_TOTAL.get();
         record_error("test", "FTP");
-        assert_eq!(ERRORS_TOTAL.with_label_values(&["test", "FTP"]).get(), before + 1.0);
+        assert_eq!(ERRORS_TOTAL.get(), before + 1.0);
     }
 
     #[test]

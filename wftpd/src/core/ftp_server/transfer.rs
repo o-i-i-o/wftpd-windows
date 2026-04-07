@@ -35,27 +35,12 @@ pub async fn get_data_connection(
     );
 
     if passive_mode {
-        let listener = passive_manager.get_listener(port);
-
-        if let Some(listener) = listener {
-            tracing::debug!("Attempting to accept passive connection on port {}", port);
-            match tokio::time::timeout(Duration::from_secs(30), listener.accept()).await {
-                Ok(Ok((stream, addr))) => {
-                    tracing::debug!("Passive connection accepted from {}", addr);
-                    Ok(stream)
-                }
-                Ok(Err(e)) => {
-                    tracing::error!("Failed to accept passive connection: {}", e);
-                    anyhow::bail!("Failed to accept passive connection: {}", e);
-                }
-                Err(_) => {
-                    tracing::error!("Passive connection timeout on port {}", port);
-                    anyhow::bail!("Passive connection timeout");
-                }
+        match passive_manager.accept_with_validation(port).await {
+            Ok(stream) => Ok(stream),
+            Err(e) => {
+                tracing::error!("Failed to accept validated passive connection: {}", e);
+                anyhow::bail!("Failed to accept passive connection: {}", e);
             }
-        } else {
-            tracing::error!("No passive listener found for port {}", port);
-            anyhow::bail!("No passive listener");
         }
     } else if let Some(addr) = data_addr {
         tracing::debug!("Active mode: connecting to {}", addr);
