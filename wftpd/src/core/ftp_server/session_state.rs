@@ -228,6 +228,8 @@ pub struct SessionConfig {
     pub ip_allowed: bool,
     pub tls_config: TlsConfig,
     pub require_ssl: bool,
+    pub connection_timeout: u64,
+    pub idle_timeout: u64,
 }
 
 impl SessionConfig {
@@ -248,6 +250,8 @@ impl SessionConfig {
             ip_allowed: config.is_ip_allowed(client_ip),
             tls_config,
             require_ssl: config.ftp.ftps.enabled && config.ftp.ftps.require_ssl,
+            connection_timeout: config.ftp.connection_timeout,
+            idle_timeout: config.ftp.idle_timeout,
         }
     }
 }

@@ -135,16 +135,21 @@ enum SaveResult {
 
 pub struct SecurityTab {
     config_manager: ConfigManager,
-    max_login_attempts_buf: String,
-    ban_duration_buf: String,
+    // Fail2Ban 配置
+    fail2ban_enabled: bool,
+    fail2ban_threshold_buf: String,
+    fail2ban_ban_time_buf: String,
+    // 连接限制
     max_connections_buf: String,
     max_connections_per_ip_buf: String,
+    // IP 访问控制
     allowed_ips_text: String,
     denied_ips_text: String,
+    // 状态和错误
     status_message: Option<(String, bool)>,
     validation_errors: Vec<ValidationError>,
-    max_login_attempts_error: Option<String>,
-    ban_duration_error: Option<String>,
+    fail2ban_threshold_error: Option<String>,
+    fail2ban_ban_time_error: Option<String>,
     max_connections_error: Option<String>,
     max_connections_per_ip_error: Option<String>,
     save_sender: Option<mpsc::Sender<SaveResult>>,
@@ -156,10 +161,14 @@ pub struct SecurityTab {
 impl SecurityTab {
     pub fn new(config_manager: ConfigManager) -> Self {
         let cfg = config_manager.read();
-        let max_login_attempts_buf = cfg.security.max_login_attempts.to_string();
-        let ban_duration_buf = cfg.security.ban_duration.to_string();
+        // Fail2Ban 配置
+        let fail2ban_enabled = cfg.security.fail2ban_enabled;
+        let fail2ban_threshold_buf = cfg.security.fail2ban_threshold.to_string();
+        let fail2ban_ban_time_buf = cfg.security.fail2ban_ban_time.to_string();
+        // 连接限制
         let max_connections_buf = cfg.security.max_connections.to_string();
         let max_connections_per_ip_buf = cfg.security.max_connections_per_ip.to_string();
+        // IP 访问控制
         let allowed_ips_text = cfg.security.allowed_ips.join("\n");
         let denied_ips_text = cfg.security.denied_ips.join("\n");
         drop(cfg);
@@ -168,16 +177,17 @@ impl SecurityTab {
 
         Self {
             config_manager,
-            max_login_attempts_buf,
-            ban_duration_buf,
+            fail2ban_enabled,
+            fail2ban_threshold_buf,
+            fail2ban_ban_time_buf,
             max_connections_buf,
             max_connections_per_ip_buf,
             allowed_ips_text,
             denied_ips_text,
             status_message: None,
             validation_errors: Vec::new(),
-            max_login_attempts_error: None,
-            ban_duration_error: None,
+            fail2ban_threshold_error: None,
+            fail2ban_ban_time_error: None,
             max_connections_error: None,
             max_connections_per_ip_error: None,
             save_sender: Some(tx),
@@ -189,28 +199,35 @@ impl SecurityTab {
 
     fn validate_all(&mut self) -> bool {
         self.validation_errors.clear();
-        self.max_login_attempts_error = None;
-        self.ban_duration_error = None;
+        self.fail2ban_threshold_error = None;
+        self.fail2ban_ban_time_error = None;
         self.max_connections_error = None;
         self.max_connections_per_ip_error = None;
 
         let mut valid = true;
 
-        if let Ok(v) = self.max_login_attempts_buf.parse::<u32>() {
+        // 验证 Fail2Ban 配置
+        if let Ok(v) = self.fail2ban_threshold_buf.parse::<u32>() {
             if v == 0 {
-                self.max_login_attempts_error = Some("最大登录失败次数必须大于 0".to_string());
+                self.fail2ban_threshold_error = Some("失败阈值必须大于 0".to_string());
                 valid = false;
             }
         } else {
-            self.max_login_attempts_error = Some("请输入有效的数字".to_string());
+            self.fail2ban_threshold_error = Some("请输入有效的数字".to_string());
             valid = false;
         }
 
-        if self.ban_duration_buf.parse::<u64>().is_err() {
-            self.ban_duration_error = Some("请输入有效的数字".to_string());
+        if let Ok(v) = self.fail2ban_ban_time_buf.parse::<u64>() {
+            if v == 0 {
+                self.fail2ban_ban_time_error = Some("封禁时间必须大于 0".to_string());
+                valid = false;
+            }
+        } else {
+            self.fail2ban_ban_time_error = Some("请输入有效的数字".to_string());
             valid = false;
         }
 
+        // 验证连接限制
         if let Ok(v) = self.max_connections_buf.parse::<usize>() {
             if v == 0 {
                 self.max_connections_error = Some("最大连接数必须大于 0".to_string());
@@ -231,6 +248,7 @@ impl SecurityTab {
             valid = false;
         }
 
+        // 验证 IP/CIDR
         let allowed_errors = validate_ip_cidr(&self.allowed_ips_text);
         let denied_errors = validate_ip_cidr(&self.denied_ips_text);
 
@@ -245,12 +263,15 @@ impl SecurityTab {
 
     fn apply_buffers_to_config(&mut self) {
         let mut cfg = self.config_manager.write();
-        if let Ok(v) = self.max_login_attempts_buf.parse::<u32>() {
-            cfg.security.max_login_attempts = v;
+        // Fail2Ban 配置
+        cfg.security.fail2ban_enabled = self.fail2ban_enabled;
+        if let Ok(v) = self.fail2ban_threshold_buf.parse::<u32>() {
+            cfg.security.fail2ban_threshold = v;
         }
-        if let Ok(v) = self.ban_duration_buf.parse::<u64>() {
-            cfg.security.ban_duration = v;
+        if let Ok(v) = self.fail2ban_ban_time_buf.parse::<u64>() {
+            cfg.security.fail2ban_ban_time = v;
         }
+        // 连接限制
         if let Ok(v) = self.max_connections_buf.parse::<usize>() {
             cfg.security.max_connections = v;
         }
@@ -258,6 +279,7 @@ impl SecurityTab {
             cfg.security.max_connections_per_ip = v;
         }
 
+        // IP 访问控制
         cfg.security.allowed_ips = self
             .allowed_ips_text
             .lines()
@@ -444,81 +466,115 @@ impl SecurityTab {
             let available_width = ui.available_width();
             let label_width = (available_width * 0.2).clamp(100.0, 160.0);
 
-            styles::form_row(ui, "最大登录失败次数", label_width, |ui| {
-                let response = styles::input_frame().show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.max_login_attempts_buf)
-                            .desired_width(100.0)
-                            .font(egui::FontId::new(
-                                styles::FONT_SIZE_MD,
-                                egui::FontFamily::Proportional,
-                            )),
-                    )
-                });
+            // Fail2Ban 配置 - 通用安全防护（适用于 FTP 和 SFTP）
+            ui.label(
+                RichText::new("Fail2Ban 防护")
+                    .size(styles::FONT_SIZE_MD)
+                    .color(styles::TEXT_SECONDARY_COLOR)
+                    .strong(),
+            );
+            ui.label(
+                RichText::new("自动封禁多次失败的 IP，保护 FTP 和 SFTP 服务")
+                    .size(styles::FONT_SIZE_SM)
+                    .color(styles::TEXT_MUTED_COLOR),
+            );
+            
+            ui.add_space(styles::SPACING_XS);
 
-                if response.response.lost_focus() {
-                    if let Ok(v) = self.max_login_attempts_buf.parse::<u32>() {
-                        if v == 0 {
-                            self.max_login_attempts_error = Some("必须大于 0".to_string());
-                        } else {
-                            self.max_login_attempts_error = None;
-                        }
-                    } else {
-                        self.max_login_attempts_error = Some("请输入有效数字".to_string());
-                    }
-                }
+            styles::form_row(ui, "启用 Fail2Ban", label_width, |ui| {
+                ui.checkbox(&mut self.fail2ban_enabled, "")
+                    .on_hover_text("启用后，多次认证失败的 IP 将被临时封禁");
             });
 
-            if let Some(err) = &self.max_login_attempts_error {
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(format!("⚠ {}", err))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::DANGER_COLOR),
-                    );
-                });
-            }
+            if self.fail2ban_enabled {
+                styles::form_row_with_suffix(
+                    ui,
+                    "失败阈值",
+                    label_width,
+                    |ui| {
+                        let response = styles::input_frame().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.fail2ban_threshold_buf)
+                                    .desired_width(100.0)
+                                    .font(egui::FontId::new(
+                                        styles::FONT_SIZE_MD,
+                                        egui::FontFamily::Proportional,
+                                    )),
+                            )
+                        });
 
-            styles::form_row_with_suffix(
-                ui,
-                "封禁时间",
-                label_width,
-                |ui| {
-                    let response = styles::input_frame().show(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.ban_duration_buf)
-                                .desired_width(100.0)
-                                .font(egui::FontId::new(
-                                    styles::FONT_SIZE_MD,
-                                    egui::FontFamily::Proportional,
-                                )),
-                        )
-                    });
-
-                    if response.response.lost_focus() {
-                        if self.ban_duration_buf.parse::<u64>().is_err() {
-                            self.ban_duration_error = Some("请输入有效数字".to_string());
-                        } else {
-                            self.ban_duration_error = None;
+                        if response.response.lost_focus() {
+                            if let Ok(v) = self.fail2ban_threshold_buf.parse::<u32>() {
+                                if v == 0 {
+                                    self.fail2ban_threshold_error = Some("必须大于 0".to_string());
+                                } else {
+                                    self.fail2ban_threshold_error = None;
+                                }
+                            } else {
+                                self.fail2ban_threshold_error = Some("请输入有效数字".to_string());
+                            }
                         }
-                    }
-                },
-                "秒",
-            );
+                    },
+                    "次",
+                );
 
-            if let Some(err) = &self.ban_duration_error {
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(format!("⚠ {}", err))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::DANGER_COLOR),
-                    );
-                });
+                if let Some(err) = &self.fail2ban_threshold_error {
+                    ui.horizontal(|ui| {
+                        ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                        ui.label(
+                            RichText::new(format!("⚠ {}", err))
+                                .size(styles::FONT_SIZE_SM)
+                                .color(styles::DANGER_COLOR),
+                        );
+                    });
+                }
+
+                styles::form_row_with_suffix(
+                    ui,
+                    "封禁时间",
+                    label_width,
+                    |ui| {
+                        let response = styles::input_frame().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.fail2ban_ban_time_buf)
+                                    .desired_width(100.0)
+                                    .font(egui::FontId::new(
+                                        styles::FONT_SIZE_MD,
+                                        egui::FontFamily::Proportional,
+                                    )),
+                            )
+                        });
+
+                        if response.response.lost_focus() {
+                            if let Ok(v) = self.fail2ban_ban_time_buf.parse::<u64>() {
+                                if v == 0 {
+                                    self.fail2ban_ban_time_error = Some("必须大于 0".to_string());
+                                } else {
+                                    self.fail2ban_ban_time_error = None;
+                                }
+                            } else {
+                                self.fail2ban_ban_time_error = Some("请输入有效数字".to_string());
+                            }
+                        }
+                    },
+                    "秒",
+                );
+
+                if let Some(err) = &self.fail2ban_ban_time_error {
+                    ui.horizontal(|ui| {
+                        ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                        ui.label(
+                            RichText::new(format!("⚠ {}", err))
+                                .size(styles::FONT_SIZE_SM)
+                                .color(styles::DANGER_COLOR),
+                        );
+                    });
+                }
+
+                ui.add_space(styles::SPACING_MD);
             }
 
-            ui.add_space(styles::SPACING_SM);
+            // 连接限制
 
             styles::form_row(ui, "最大连接数", label_width, |ui| {
                 let response = styles::input_frame().show(ui, |ui| {

@@ -12,8 +12,6 @@ use tokio::net::TcpListener;
 use super::upnp_manager::UpnpManager;
 use super::session_ip::{resolve_ip_for_pasv, find_masq_ip};
 
-const PASSIVE_LISTENER_TIMEOUT_SECS: u64 = 300;
-
 pub struct PassiveListenerInfo {
     pub listener: TcpListener,
     pub created_at: Instant,
@@ -33,6 +31,7 @@ pub struct PasvConfig {
     pub masquerade_address: Option<String>,
     pub passive_ip_override: Option<String>,
     pub masquerade_map: HashMap<String, String>,
+    pub listener_timeout_secs: u64,
 }
 
 impl PassiveManager {
@@ -43,13 +42,13 @@ impl PassiveManager {
         }
     }
 
-    pub fn cleanup_expired(&mut self) {
+    pub fn cleanup_expired(&mut self, timeout_secs: u64) {
         let now = Instant::now();
         let expired: Vec<u16> = self
             .listeners
             .iter()
             .filter(|(_, info)| {
-                now.duration_since(info.created_at).as_secs() > PASSIVE_LISTENER_TIMEOUT_SECS
+                now.duration_since(info.created_at).as_secs() > timeout_secs
             })
             .map(|(&port, _)| port)
             .collect();
@@ -59,7 +58,7 @@ impl PassiveManager {
                 tracing::debug!(
                     "Passive listener on port {} cleaned up (expired after {}s)",
                     port,
-                    PASSIVE_LISTENER_TIMEOUT_SECS
+                    timeout_secs
                 );
             }
         }

@@ -66,6 +66,8 @@ pub async fn handle_session(
         super::session_state::SessionConfig::from_config(&cfg, &client_ip)
     };
 
+    let passive_timeout = session_config.idle_timeout;
+
     if !session_config.ip_allowed {
         tracing::warn!("Connection rejected from {} by IP filter", client_ip);
         if let Err(e) = socket
@@ -114,7 +116,7 @@ pub async fn handle_session(
             }
         }
 
-        state.passive_manager.cleanup_expired();
+        state.passive_manager.cleanup_expired(passive_timeout);
 
         let timeout_result = tokio::time::timeout(
             std::time::Duration::from_secs(conn_timeout),

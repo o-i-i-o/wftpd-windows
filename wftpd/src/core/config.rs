@@ -292,10 +292,6 @@ fn default_log_level() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
-    #[serde(default = "default_max_login_attempts")]
-    pub max_login_attempts: u32,
-    #[serde(default = "default_ban_duration")]
-    pub ban_duration: u64,
     #[serde(default = "default_max_connections")]
     pub max_connections: usize,
     #[serde(default = "default_max_connections_per_ip")]
@@ -328,14 +324,6 @@ fn default_fail2ban_threshold() -> u32 {
 
 fn default_fail2ban_ban_time() -> u64 {
     3600  // 默认封禁 1 小时
-}
-
-fn default_max_login_attempts() -> u32 {
-    5
-}
-
-fn default_ban_duration() -> u64 {
-    300
 }
 
 fn default_max_connections() -> usize {
@@ -428,8 +416,6 @@ impl Default for Config {
             security: SecurityConfig {
                 allowed_ips: vec!["0.0.0.0/0".to_string()],
                 denied_ips: vec![],
-                max_login_attempts: 5,
-                ban_duration: 300,
                 max_connections: 100,
                 max_connections_per_ip: 10,
                 fail2ban_enabled: false,

@@ -12,13 +12,14 @@ use tokio::sync::Mutex as TokioMutex;
 use crate::core::fail2ban::Fail2BanManager;
 use crate::core::config::get_program_data_path;
 use crate::core::quota::QuotaManager;
-use crate::core::sftp_server::{SftpState, MAX_BUFFER_SIZE};
+use crate::core::sftp_server::{SftpState, MAX_BUFFER_SIZE, SftpServer};
 use crate::core::users::UserManager;
 
 pub struct SftpHandler {
     pub user_manager: Arc<Mutex<UserManager>>,
     pub quota_manager: Arc<QuotaManager>,
     pub fail2ban_manager: Arc<Fail2BanManager>,
+    pub sftp_server: Option<Arc<SftpServer>>,
     pub authenticated: bool,
     pub username: Option<String>,
     pub home_dir: Option<String>,
@@ -26,6 +27,11 @@ pub struct SftpHandler {
     pub sftp_state: Option<Arc<TokioMutex<SftpState>>>,
     pub client_ip: String,
     pub users_path: std::path::PathBuf,
+    pub auth_attempts: u32,
+    pub max_auth_attempts: u32,
+    pub auth_start_time: Option<std::time::Instant>,
+    pub auth_timeout_secs: u64,
+    pub max_sessions_per_user: u32,
 }
 
 impl SftpHandler {
@@ -93,6 +99,41 @@ impl russh::server::Handler for SftpHandler {
         user: &str,
         password: &str,
     ) -> Result<server::Auth, Self::Error> {
+        // 检查认证超时
+        if let Some(start_time) = self.auth_start_time {
+            let elapsed = start_time.elapsed().as_secs();
+            if elapsed > self.auth_timeout_secs {
+                tracing::warn!(
+                    client_ip = %self.client_ip,
+                    username = %user,
+                    action = "AUTH_TIMEOUT",
+                    protocol = "SFTP",
+                    "Authentication timeout after {} seconds", elapsed
+                );
+                return Ok(server::Auth::Reject {
+                    proceed_with_methods: None,
+                    partial_success: false,
+                });
+            }
+        }
+
+        // 检查认证尝试次数
+        self.auth_attempts += 1;
+        if self.auth_attempts > self.max_auth_attempts {
+            tracing::warn!(
+                client_ip = %self.client_ip,
+                username = %user,
+                action = "AUTH_MAX_ATTEMPTS",
+                protocol = "SFTP",
+                "Maximum authentication attempts ({}) exceeded", self.max_auth_attempts
+            );
+            self.fail2ban_manager.add_failure(&self.client_ip).await;
+            return Ok(server::Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            });
+        }
+
         let (auth_result, home_dir_opt) = {
             let mut users = self.user_manager.lock();
 
@@ -107,6 +148,27 @@ impl russh::server::Handler for SftpHandler {
 
         match auth_result {
             Ok(true) => {
+                // 检查每用户会话数限制
+                let session_count = if let Some(ref server) = self.sftp_server {
+                    server.get_session_count(user)
+                } else {
+                    0
+                };
+
+                if session_count >= self.max_sessions_per_user {
+                    tracing::warn!(
+                        client_ip = %self.client_ip,
+                        username = %user,
+                        action = "SESSION_LIMIT",
+                        protocol = "SFTP",
+                        "User {} has reached maximum session limit ({})", user, self.max_sessions_per_user
+                    );
+                    return Ok(server::Auth::Reject {
+                        proceed_with_methods: None,
+                        partial_success: false,
+                    });
+                }
+
                 if let Some(home_dir) = home_dir_opt {
                     match std::path::PathBuf::from(&home_dir).canonicalize() {
                         Ok(home_canon) => {
@@ -135,6 +197,11 @@ impl russh::server::Handler for SftpHandler {
 
                 self.authenticated = true;
                 self.username = Some(user.to_string());
+
+                // 增加会话计数
+                if let Some(ref server) = self.sftp_server {
+                    server.increment_session(user);
+                }
 
                 self.fail2ban_manager.reset_failures(&self.client_ip).await;
 
@@ -186,6 +253,41 @@ impl russh::server::Handler for SftpHandler {
         user: &str,
         public_key: &PublicKey,
     ) -> Result<server::Auth, Self::Error> {
+        // 检查认证超时
+        if let Some(start_time) = self.auth_start_time {
+            let elapsed = start_time.elapsed().as_secs();
+            if elapsed > self.auth_timeout_secs {
+                tracing::warn!(
+                    client_ip = %self.client_ip,
+                    username = %user,
+                    action = "AUTH_TIMEOUT",
+                    protocol = "SFTP",
+                    "Authentication timeout after {} seconds", elapsed
+                );
+                return Ok(server::Auth::Reject {
+                    proceed_with_methods: None,
+                    partial_success: false,
+                });
+            }
+        }
+
+        // 检查认证尝试次数
+        self.auth_attempts += 1;
+        if self.auth_attempts > self.max_auth_attempts {
+            tracing::warn!(
+                client_ip = %self.client_ip,
+                username = %user,
+                action = "AUTH_MAX_ATTEMPTS",
+                protocol = "SFTP",
+                "Maximum authentication attempts ({}) exceeded", self.max_auth_attempts
+            );
+            self.fail2ban_manager.add_failure(&self.client_ip).await;
+            return Ok(server::Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            });
+        }
+
         let (enabled, user_pubkey_path, home_dir) = {
             let users = self.user_manager.lock();
             if let Some(u) = users.get_user(user) {
@@ -247,8 +349,34 @@ impl russh::server::Handler for SftpHandler {
                 }
             }
 
+            // 检查每用户会话数限制
+            let session_count = if let Some(ref server) = self.sftp_server {
+                server.get_session_count(user)
+            } else {
+                0
+            };
+
+            if session_count >= self.max_sessions_per_user {
+                tracing::warn!(
+                    client_ip = %self.client_ip,
+                    username = %user,
+                    action = "SESSION_LIMIT",
+                    protocol = "SFTP",
+                    "User {} has reached maximum session limit ({})", user, self.max_sessions_per_user
+                );
+                return Ok(server::Auth::Reject {
+                    proceed_with_methods: None,
+                    partial_success: false,
+                });
+            }
+
             self.authenticated = true;
             self.username = Some(user.to_string());
+
+            // 增加会话计数
+            if let Some(ref server) = self.sftp_server {
+                server.increment_session(user);
+            }
 
             self.fail2ban_manager.reset_failures(&self.client_ip).await;
 
@@ -437,5 +565,17 @@ impl russh::server::Handler for SftpHandler {
             state.cleanup();
         }
         Ok(())
+    }
+}
+
+impl Drop for SftpHandler {
+    fn drop(&mut self) {
+        // 连接断开时减少会话计数
+        if let (Some(username), Some(server)) = (&self.username, &self.sftp_server)
+            && self.authenticated
+        {
+            server.decrement_session(username);
+            tracing::debug!("User {} session ended", username);
+        }
     }
 }

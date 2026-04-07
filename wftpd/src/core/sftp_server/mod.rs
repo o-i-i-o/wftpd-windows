@@ -70,6 +70,8 @@ pub struct SftpServer {
     running: Arc<Mutex<bool>>,
     shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     last_key_rotation: Arc<TokioMutex<Option<DateTime<Utc>>>>,
+    // 跟踪每用户的活跃会话数
+    active_sessions: Arc<Mutex<HashMap<String, u32>>>,
 }
 
 impl SftpServer {
@@ -96,6 +98,7 @@ impl SftpServer {
             running: Arc::new(Mutex::new(false)),
             shutdown_tx: Arc::new(TokioMutex::new(None)),
             last_key_rotation: Arc::new(TokioMutex::new(None)),
+            active_sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -154,6 +157,7 @@ impl SftpServer {
         let running_clone = Arc::clone(&self.running);
         let config_clone = Arc::clone(&self.config);
         let quota_manager_clone = Arc::clone(&self.quota_manager);
+        let sftp_server_for_handler = self.clone();
 
         let bind_addr = if bind_ip == "0.0.0.0" || bind_ip == "::" {
             format!("[::]:{}", sftp_port)
@@ -242,11 +246,20 @@ impl SftpServer {
 
                                 let client_ip_clone = client_ip.clone();
                                 let fail2ban_manager = Arc::clone(&fail2ban_manager_clone);
+                                let config_for_handler = Arc::clone(&config_clone);
+                                let sftp_server_clone = sftp_server_for_handler.clone();
                                 tokio::spawn(async move {
+                                    // 从配置中读取认证限制
+                                    let (max_auth_attempts, auth_timeout, max_sessions) = {
+                                        let cfg = config_for_handler.lock();
+                                        (cfg.sftp.max_auth_attempts, cfg.sftp.auth_timeout, cfg.sftp.max_sessions_per_user)
+                                    };
+
                                     let handler = crate::core::sftp_server::handler::SftpHandler {
                                         user_manager,
                                         quota_manager,
                                         fail2ban_manager,
+                                        sftp_server: Some(Arc::new(sftp_server_clone)),
                                         authenticated: false,
                                         username: None,
                                         home_dir: None,
@@ -254,6 +267,11 @@ impl SftpServer {
                                         sftp_state: None,
                                         client_ip: client_ip.clone(),
                                         users_path: get_program_data_path().join("users.json"),
+                                        auth_attempts: 0,
+                                        max_auth_attempts,
+                                        auth_start_time: Some(std::time::Instant::now()),
+                                        auth_timeout_secs: auth_timeout,
+                                        max_sessions_per_user: max_sessions,
                                     };
 
                                     if let Err(e) = russh::server::run_stream(ssh_config, socket, handler).await {
@@ -297,6 +315,34 @@ impl SftpServer {
 
     pub fn is_running(&self) -> bool {
         *self.running.lock()
+    }
+
+    /// 增加用户活跃会话数
+    pub fn increment_session(&self, username: &str) {
+        let mut sessions = self.active_sessions.lock();
+        let count = sessions.entry(username.to_string()).or_insert(0);
+        *count += 1;
+        tracing::debug!("User {} session count: {}", username, *count);
+    }
+
+    /// 减少用户活跃会话数
+    pub fn decrement_session(&self, username: &str) {
+        let mut sessions = self.active_sessions.lock();
+        if let Some(count) = sessions.get_mut(username) {
+            if *count > 0 {
+                *count -= 1;
+            }
+            if *count == 0 {
+                sessions.remove(username);
+            }
+        }
+        tracing::debug!("User {} session decremented", username);
+    }
+
+    /// 获取用户活跃会话数
+    pub fn get_session_count(&self, username: &str) -> u32 {
+        let sessions = self.active_sessions.lock();
+        *sessions.get(username).unwrap_or(&0)
     }
 
     async fn check_and_rotate_key(&self, key_path: &str, rotation_days: u32) -> Result<()> {

@@ -271,13 +271,9 @@ fn default_log_level() -> String {
 
 /// 安全配置
 ///
-/// 包含登录限制、IP 白名单/黑名单、连接数限制等
+/// 包含 IP 白名单/黑名单、连接数限制、Fail2Ban 等
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
-    #[serde(default = "default_max_login_attempts")]
-    pub max_login_attempts: u32,
-    #[serde(default = "default_ban_duration")]
-    pub ban_duration: u64,
     #[serde(default = "default_max_connections")]
     pub max_connections: usize,
     #[serde(default = "default_max_connections_per_ip")]
@@ -292,12 +288,8 @@ pub struct SecurityConfig {
     pub fail2ban_ban_time: u64,
 }
 
-fn default_max_login_attempts() -> u32 {
-    5
-}
-
-fn default_ban_duration() -> u64 {
-    300
+fn default_fail2ban_ban_time() -> u64 {
+    3600
 }
 
 fn default_max_connections() -> usize {
@@ -314,10 +306,6 @@ fn default_fail2ban_enabled() -> bool {
 
 fn default_fail2ban_threshold() -> u32 {
     5
-}
-
-fn default_fail2ban_ban_time() -> u64 {
-    3600
 }
 
 /// 日志配置
@@ -402,8 +390,6 @@ impl Default for Config {
             security: SecurityConfig {
                 allowed_ips: vec!["0.0.0.0/0".to_string()],
                 denied_ips: vec![],
-                max_login_attempts: 5,
-                ban_duration: 300,
                 max_connections: 100,
                 max_connections_per_ip: 10,
                 fail2ban_enabled: false,

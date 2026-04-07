@@ -36,6 +36,7 @@ pub async fn handle_transfer_command(
                     masquerade_address: cfg.ftp.masquerade_address.clone(),
                     passive_ip_override: cfg.ftp.passive_ip_override.clone(),
                     masquerade_map: cfg.ftp.masquerade_map.clone(),
+                    listener_timeout_secs: cfg.ftp.idle_timeout,
                 }
             };
 
@@ -97,6 +98,7 @@ pub async fn handle_transfer_command(
                     masquerade_address: cfg.ftp.masquerade_address.clone(),
                     passive_ip_override: cfg.ftp.passive_ip_override.clone(),
                     masquerade_map: cfg.ftp.masquerade_map.clone(),
+                    listener_timeout_secs: cfg.ftp.idle_timeout,
                 }
             };
 

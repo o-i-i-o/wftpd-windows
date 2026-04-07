@@ -33,8 +33,8 @@ impl AppState {
             eprintln!("Warning: Failed to create log directory {}: {}", default_log_dir, e);
         }
         
-        // 使用默认配置初始化日志系统
-        let logger = TracingLogger::init(&default_log_dir, 10 * 1024 * 1024, 10, "info")
+        // 使用默认配置初始化日志系统（稍后会用配置文件中的设置重新初始化）
+        let _logger = TracingLogger::init(&default_log_dir, 10 * 1024 * 1024, 10, "info")
             .map_err(|e| anyhow::anyhow!("Failed to initialize logger: {}", e))?;
 
         tracing::info!("Loading configuration from {}", config_path.display());
@@ -49,6 +49,22 @@ impl AppState {
                 return Err(e);
             }
         };
+
+        // 使用配置文件中的日志设置重新初始化日志系统
+        let log_dir = config.logging.log_dir.clone();
+        let log_level = config.logging.log_level.clone();
+        let max_log_size = config.logging.max_log_size;
+        let max_log_files = config.logging.max_log_files;
+        
+        if let Err(e) = std::fs::create_dir_all(&log_dir) {
+            eprintln!("Warning: Failed to create log directory {}: {}", log_dir, e);
+        }
+        
+        let logger = TracingLogger::init(&log_dir, max_log_size, max_log_files, &log_level)
+            .map_err(|e| anyhow::anyhow!("Failed to reinitialize logger with config: {}", e))?;
+        
+        tracing::info!("Logger reinitialized with config: level={}, dir={}, max_size={}MB, max_files={}", 
+            log_level, log_dir, max_log_size / (1024 * 1024), max_log_files);
 
         tracing::info!("Loading users from {}", users_path.display());
         let user_manager = match UserManager::load(&users_path) {
