@@ -478,7 +478,7 @@ impl SecurityTab {
                     .size(styles::FONT_SIZE_SM)
                     .color(styles::TEXT_MUTED_COLOR),
             );
-            
+
             ui.add_space(styles::SPACING_XS);
 
             styles::form_row(ui, "启用 Fail2Ban", label_width, |ui| {

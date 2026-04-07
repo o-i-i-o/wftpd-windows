@@ -9,8 +9,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::net::TcpListener;
 
+use super::session_ip::{find_masq_ip, resolve_ip_for_pasv};
 use super::upnp_manager::UpnpManager;
-use super::session_ip::{resolve_ip_for_pasv, find_masq_ip};
 
 pub struct PassiveListenerInfo {
     pub listener: TcpListener,
@@ -47,9 +47,7 @@ impl PassiveManager {
         let expired: Vec<u16> = self
             .listeners
             .iter()
-            .filter(|(_, info)| {
-                now.duration_since(info.created_at).as_secs() > timeout_secs
-            })
+            .filter(|(_, info)| now.duration_since(info.created_at).as_secs() > timeout_secs)
             .map(|(&port, _)| port)
             .collect();
 
@@ -103,12 +101,16 @@ impl PassiveManager {
                     // 尝试添加 UPnP 端口映射
                     if let Some(upnp) = &self.upnp_manager {
                         let internal_addr = SocketAddrV4::new(
-                            actual_bind_ip.parse().unwrap_or(std::net::Ipv4Addr::UNSPECIFIED),
+                            actual_bind_ip
+                                .parse()
+                                .unwrap_or(std::net::Ipv4Addr::UNSPECIFIED),
                             port,
                         );
                         let upnp_clone = Arc::clone(upnp);
                         tokio::spawn(async move {
-                            let _ = upnp_clone.add_port_mapping(internal_addr, 3600, "ftp-passive").await;
+                            let _ = upnp_clone
+                                .add_port_mapping(internal_addr, 3600, "ftp-passive")
+                                .await;
                         });
                     }
 
@@ -129,12 +131,13 @@ impl PassiveManager {
     }
 
     pub async fn accept_with_validation(&mut self, port: u16) -> Result<tokio::net::TcpStream> {
-        let info = self.listeners.get_mut(&port).ok_or_else(|| {
-            anyhow::anyhow!("No listener found for port {}", port)
-        })?;
+        let info = self
+            .listeners
+            .get_mut(&port)
+            .ok_or_else(|| anyhow::anyhow!("No listener found for port {}", port))?;
 
         let expected_client_ip = info.client_ip.clone();
-        
+
         loop {
             let (stream, peer_addr) = info.listener.accept().await?;
             let peer_ip = peer_addr.ip();
@@ -180,12 +183,14 @@ impl PassiveManager {
     pub fn remove_listener(&mut self, port: u16) -> bool {
         if self.listeners.remove(&port).is_some() {
             tracing::debug!("Passive listener on port {} removed", port);
-            
+
             // 尝试移除 UPnP 端口映射
             if let Some(upnp) = &self.upnp_manager {
                 let upnp_clone = Arc::clone(upnp);
                 tokio::spawn(async move {
-                    let _ = upnp_clone.remove_port_mapping(port, igd_next::PortMappingProtocol::TCP).await;
+                    let _ = upnp_clone
+                        .remove_port_mapping(port, igd_next::PortMappingProtocol::TCP)
+                        .await;
                 });
             }
             true
@@ -200,28 +205,54 @@ impl PassiveManager {
 
     /// 处理 PASV 命令
     pub async fn handle_pasv(&mut self, config: &PasvConfig) -> Result<(u16, String)> {
-        let client_ip_addr: IpAddr = config.client_ip.parse().unwrap_or(IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+        let client_ip_addr: IpAddr = config
+            .client_ip
+            .parse()
+            .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
         if client_ip_addr.is_ipv6() {
             return Err(anyhow::anyhow!("Use EPSV for IPv6 connections"));
         }
 
-        let actual_bind_ip = if config.bind_ip == "::" { "0.0.0.0" } else { &config.bind_ip };
-        
-        let passive_port = self.try_bind_port(
-            config.port_range.0, 
-            config.port_range.1, 
-            actual_bind_ip, 
-            &config.client_ip
-        ).await?;
+        let actual_bind_ip = if config.bind_ip == "::" {
+            "0.0.0.0"
+        } else {
+            &config.bind_ip
+        };
+
+        let passive_port = self
+            .try_bind_port(
+                config.port_range.0,
+                config.port_range.1,
+                actual_bind_ip,
+                &config.client_ip,
+            )
+            .await?;
 
         let response_ip = if let Some(override_ip) = &config.passive_ip_override {
             if !override_ip.is_empty() {
-                resolve_ip_for_pasv(override_ip.clone(), &config.client_ip, &config.server_local_ip).await
+                resolve_ip_for_pasv(
+                    override_ip.clone(),
+                    &config.client_ip,
+                    &config.server_local_ip,
+                )
+                .await
             } else {
-                find_masq_ip(&config.masquerade_map, &config.masquerade_address, &config.server_local_ip, &config.client_ip).await
+                find_masq_ip(
+                    &config.masquerade_map,
+                    &config.masquerade_address,
+                    &config.server_local_ip,
+                    &config.client_ip,
+                )
+                .await
             }
         } else {
-            find_masq_ip(&config.masquerade_map, &config.masquerade_address, &config.server_local_ip, &config.client_ip).await
+            find_masq_ip(
+                &config.masquerade_map,
+                &config.masquerade_address,
+                &config.server_local_ip,
+                &config.client_ip,
+            )
+            .await
         };
 
         Ok((passive_port, response_ip))
@@ -229,22 +260,41 @@ impl PassiveManager {
 
     /// 处理 EPSV 命令
     pub async fn handle_epsv(&mut self, config: &PasvConfig) -> Result<u16> {
-        let passive_port = self.try_bind_port(
-            config.port_range.0, 
-            config.port_range.1, 
-            &config.bind_ip, 
-            &config.client_ip
-        ).await?;
-        
+        let passive_port = self
+            .try_bind_port(
+                config.port_range.0,
+                config.port_range.1,
+                &config.bind_ip,
+                &config.client_ip,
+            )
+            .await?;
+
         // EPSV 不需要返回 IP，但我们可以记录日志用于调试
         let _response_ip = if let Some(override_ip) = &config.passive_ip_override {
             if !override_ip.is_empty() {
-                resolve_ip_for_pasv(override_ip.clone(), &config.client_ip, &config.server_local_ip).await
+                resolve_ip_for_pasv(
+                    override_ip.clone(),
+                    &config.client_ip,
+                    &config.server_local_ip,
+                )
+                .await
             } else {
-                find_masq_ip(&config.masquerade_map, &config.masquerade_address, &config.server_local_ip, &config.client_ip).await
+                find_masq_ip(
+                    &config.masquerade_map,
+                    &config.masquerade_address,
+                    &config.server_local_ip,
+                    &config.client_ip,
+                )
+                .await
             }
         } else {
-            find_masq_ip(&config.masquerade_map, &config.masquerade_address, &config.server_local_ip, &config.client_ip).await
+            find_masq_ip(
+                &config.masquerade_map,
+                &config.masquerade_address,
+                &config.server_local_ip,
+                &config.client_ip,
+            )
+            .await
         };
 
         Ok(passive_port)

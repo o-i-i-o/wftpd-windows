@@ -2,12 +2,11 @@
 //!
 //! 处理 FTP SITE 命令，支持自定义站点操作
 
-use anyhow::Result;
 use crate::core::path_utils::path_starts_with_ignore_case;
+use anyhow::Result;
 
 use super::commands::FtpCommand;
 use super::session_state::{ControlStream, SessionState};
-
 
 pub async fn handle_site_command(
     control_stream: &mut ControlStream,
@@ -32,7 +31,10 @@ pub async fn handle_site_command(
                         )
                         .await;
                     control_stream
-                        .write_response(b"214-CHMOD IDLE HELP WHO WHOIS SYMLINK\r\n", "FTP response")
+                        .write_response(
+                            b"214-CHMOD IDLE HELP WHO WHOIS SYMLINK\r\n",
+                            "FTP response",
+                        )
                         .await;
                     control_stream
                         .write_response(b"214 End\r\n", "FTP response")
@@ -91,8 +93,11 @@ pub async fn handle_site_command(
                         if let Some(info) = user_info {
                             control_stream
                                 .write_response(
-                                    format!("200-User information for {}:\r\n200 {}\r\n", username, info)
-                                        .as_bytes(),
+                                    format!(
+                                        "200-User information for {}:\r\n200 {}\r\n",
+                                        username, info
+                                    )
+                                    .as_bytes(),
                                     "FTP response",
                                 )
                                 .await;
@@ -119,7 +124,9 @@ pub async fn handle_site_command(
                         false
                     } else {
                         let users = ctx.user_manager.lock();
-                        state.current_user.as_ref()
+                        state
+                            .current_user
+                            .as_ref()
                             .and_then(|u| users.get_user(u))
                             .is_some_and(|u| u.permissions.can_write)
                     };
@@ -152,10 +159,7 @@ pub async fn handle_site_command(
 
                             if !path_starts_with_ignore_case(&link_path, &state.home_dir) {
                                 control_stream
-                                    .write_response(
-                                        b"550 Permission denied\r\n",
-                                        "FTP response",
-                                    )
+                                    .write_response(b"550 Permission denied\r\n", "FTP response")
                                     .await;
                                 return Ok(true);
                             }
@@ -168,20 +172,23 @@ pub async fn handle_site_command(
                                     Ok(()) => {
                                         control_stream
                                             .write_response(
-                                                format!("200 Symbolic link created: {} -> {}\r\n", link_name, target)
-                                                    .as_bytes(),
+                                                format!(
+                                                    "200 Symbolic link created: {} -> {}\r\n",
+                                                    link_name, target
+                                                )
+                                                .as_bytes(),
                                                 "FTP response",
                                             )
                                             .await;
                                         tracing::info!(
-                                                client_ip = %ctx.client_ip,
-                                                username = ?state.current_user.as_deref(),
-                                                action = "SITE SYMLINK",
-                                                protocol = "FTP",
-                                                "Created symlink: {} -> {}",
-                                                link_path.display(),
-                                                target
-                                            );
+                                            client_ip = %ctx.client_ip,
+                                            username = ?state.current_user.as_deref(),
+                                            action = "SITE SYMLINK",
+                                            protocol = "FTP",
+                                            "Created symlink: {} -> {}",
+                                            link_path.display(),
+                                            target
+                                        );
                                     }
                                     Err(e) => {
                                         control_stream
@@ -192,11 +199,11 @@ pub async fn handle_site_command(
                                             )
                                             .await;
                                         tracing::warn!(
-                                                client_ip = %ctx.client_ip,
-                                                action = "SITE SYMLINK",
-                                                "Failed to create symlink: {}",
-                                                e
-                                            );
+                                            client_ip = %ctx.client_ip,
+                                            action = "SITE SYMLINK",
+                                            "Failed to create symlink: {}",
+                                            e
+                                        );
                                     }
                                 }
                             }
@@ -209,8 +216,11 @@ pub async fn handle_site_command(
                                     Ok(()) => {
                                         control_stream
                                             .write_response(
-                                                format!("200 Symbolic link created: {} -> {}\r\n", link_name, target)
-                                                    .as_bytes(),
+                                                format!(
+                                                    "200 Symbolic link created: {} -> {}\r\n",
+                                                    link_name, target
+                                                )
+                                                .as_bytes(),
                                                 "FTP response",
                                             )
                                             .await;
@@ -272,10 +282,7 @@ pub async fn handle_site_command(
 
                             if !path_starts_with_ignore_case(&target_path, &state.home_dir) {
                                 control_stream
-                                    .write_response(
-                                        b"550 Permission denied\r\n",
-                                        "FTP response",
-                                    )
+                                    .write_response(b"550 Permission denied\r\n", "FTP response")
                                     .await;
                                 return Ok(true);
                             }
@@ -295,11 +302,8 @@ pub async fn handle_site_command(
                                         Ok(()) => {
                                             control_stream
                                                 .write_response(
-                                                    format!(
-                                                        "200 CHMOD {} {}\r\n",
-                                                        mode, target
-                                                    )
-                                                    .as_bytes(),
+                                                    format!("200 CHMOD {} {}\r\n", mode, target)
+                                                        .as_bytes(),
                                                     "FTP response",
                                                 )
                                                 .await;
@@ -317,10 +321,7 @@ pub async fn handle_site_command(
                                 }
                             } else {
                                 control_stream
-                                    .write_response(
-                                        b"501 Invalid mode format\r\n",
-                                        "FTP response",
-                                    )
+                                    .write_response(b"501 Invalid mode format\r\n", "FTP response")
                                     .await;
                             }
                         } else {

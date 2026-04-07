@@ -2,8 +2,8 @@
 //!
 //! 处理 stat、lstat、fstat、setstat、fsetstat 等文件属性操作命令
 
-use std::path::PathBuf;
 use crate::core::sftp_server::{SftpFileHandle, SftpState};
+use std::path::PathBuf;
 
 impl SftpState {
     pub async fn handle_stat(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
@@ -98,12 +98,14 @@ impl SftpState {
             }
             Err(e) => {
                 tracing::warn!("SETSTAT failed for {:?}: {}", full_path, e);
-                Ok(self.build_status_packet(
-                    id,
-                    4,
-                    &format!("Failed to set attributes: {}", e),
-                    "",
-                ))
+                Ok(
+                    self.build_status_packet(
+                        id,
+                        4,
+                        &format!("Failed to set attributes: {}", e),
+                        "",
+                    ),
+                )
             }
         }
     }
@@ -137,17 +139,23 @@ impl SftpState {
             }
             Err(e) => {
                 tracing::warn!("FSETSTAT failed for {:?}: {}", path, e);
-                Ok(self.build_status_packet(
-                    id,
-                    4,
-                    &format!("Failed to set attributes: {}", e),
-                    "",
-                ))
+                Ok(
+                    self.build_status_packet(
+                        id,
+                        4,
+                        &format!("Failed to set attributes: {}", e),
+                        "",
+                    ),
+                )
             }
         }
     }
 
-    pub async fn apply_file_attributes(&self, path: &PathBuf, data: &[u8]) -> Result<(), anyhow::Error> {
+    pub async fn apply_file_attributes(
+        &self,
+        path: &PathBuf,
+        data: &[u8],
+    ) -> Result<(), anyhow::Error> {
         if data.len() < 4 {
             return Ok(());
         }

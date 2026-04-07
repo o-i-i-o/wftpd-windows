@@ -2,9 +2,9 @@
 //!
 //! 处理 opendir、readdir、mkdir、rmdir、realpath、rename、remove 等目录操作命令
 
-use std::path::PathBuf;
 use crate::core::path_utils::path_starts_with_ignore_case;
-use crate::core::sftp_server::{SftpFileHandle, SftpState, MAX_HANDLES};
+use crate::core::sftp_server::{MAX_HANDLES, SftpFileHandle, SftpState};
+use std::path::PathBuf;
 
 impl SftpState {
     pub async fn handle_opendir(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
@@ -293,7 +293,9 @@ impl SftpState {
                     let resolved_target = if link_target.is_absolute() {
                         link_target
                     } else {
-                        let parent = old_full.parent().unwrap_or(std::path::Path::new(&self.home_dir));
+                        let parent = old_full
+                            .parent()
+                            .unwrap_or(std::path::Path::new(&self.home_dir));
                         parent.join(&link_target)
                     };
 
@@ -334,7 +336,9 @@ impl SftpState {
                     let resolved_target = if link_target.is_absolute() {
                         link_target
                     } else {
-                        let parent = new_full.parent().unwrap_or(std::path::Path::new(&self.home_dir));
+                        let parent = new_full
+                            .parent()
+                            .unwrap_or(std::path::Path::new(&self.home_dir));
                         parent.join(&link_target)
                     };
 
@@ -452,7 +456,10 @@ impl SftpState {
             full_path
         };
 
-        let path_str = match crate::core::path_utils::to_ftp_path(&resolved, std::path::Path::new(&self.home_dir)) {
+        let path_str = match crate::core::path_utils::to_ftp_path(
+            &resolved,
+            std::path::Path::new(&self.home_dir),
+        ) {
             Ok(p) => p,
             Err(e) => {
                 tracing::error!("REALPATH failed: {}", e);

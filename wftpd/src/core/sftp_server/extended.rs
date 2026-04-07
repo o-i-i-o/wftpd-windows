@@ -260,7 +260,11 @@ impl SftpState {
         }
     }
 
-    pub async fn handle_copy_file(&mut self, id: u32, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+    pub async fn handle_copy_file(
+        &mut self,
+        id: u32,
+        data: &[u8],
+    ) -> Result<Vec<u8>, anyhow::Error> {
         let (_ext_name, ext_len) = self.parse_string_with_len(data, 5)?;
         let src_pos = 5 + 4 + ext_len;
         let (src_path, src_len) = self.parse_string_with_len(data, src_pos)?;
@@ -308,7 +312,11 @@ impl SftpState {
         }
     }
 
-    pub async fn handle_hardlink(&mut self, id: u32, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+    pub async fn handle_hardlink(
+        &mut self,
+        id: u32,
+        data: &[u8],
+    ) -> Result<Vec<u8>, anyhow::Error> {
         let (src_path, src_len) = self.parse_string_with_len(data, 5 + 4)?;
         let dst_pos = 5 + 4 + 4 + src_len;
         let dst_path = self.parse_string(data, dst_pos)?;

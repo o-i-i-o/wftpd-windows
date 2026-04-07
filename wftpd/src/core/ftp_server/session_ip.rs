@@ -30,23 +30,32 @@ pub async fn resolve_ip_for_pasv<S1: AsRef<str>, S2: AsRef<str>, S3: AsRef<str>>
         match resolve_domain_to_ip(ip_or_domain).await {
             Some(resolved) => {
                 if let Ok(ip) = IpAddr::from_str(&resolved) {
-                    let client_ip_addr: IpAddr = client_ip.parse().unwrap_or(IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+                    let client_ip_addr: IpAddr = client_ip
+                        .parse()
+                        .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
                     if ip.is_loopback() && !client_ip_addr.is_loopback() {
                         tracing::warn!(
                             "PASV: DNS resolved to loopback {} but client is from {}, using server_local_ip",
-                            resolved, client_ip
+                            resolved,
+                            client_ip
                         );
                         server_local_ip.to_string()
                     } else {
                         resolved
                     }
                 } else {
-                    tracing::warn!("PASV: invalid DNS resolution '{}', falling back to server_local_ip", resolved);
+                    tracing::warn!(
+                        "PASV: invalid DNS resolution '{}', falling back to server_local_ip",
+                        resolved
+                    );
                     server_local_ip.to_string()
                 }
             }
             None => {
-                tracing::warn!("PASV: DNS resolution failed for '{}', using server_local_ip", ip_or_domain);
+                tracing::warn!(
+                    "PASV: DNS resolution failed for '{}', using server_local_ip",
+                    ip_or_domain
+                );
                 server_local_ip.to_string()
             }
         }
@@ -68,7 +77,8 @@ pub async fn find_masq_ip<S1: AsRef<str>, S2: AsRef<str>>(
     {
         tracing::debug!(
             "PASV: found masq IP {} for server_local_ip {}",
-            masq_ip, server_local_ip
+            masq_ip,
+            server_local_ip
         );
         return resolve_ip_for_pasv(masq_ip, client_ip, server_local_ip).await;
     }
@@ -78,7 +88,8 @@ pub async fn find_masq_ip<S1: AsRef<str>, S2: AsRef<str>>(
     {
         tracing::debug!(
             "PASV: using masquerade_address {} (no mapping for server_local_ip {})",
-            masq_addr, server_local_ip
+            masq_addr,
+            server_local_ip
         );
         return resolve_ip_for_pasv(masq_addr, client_ip, server_local_ip).await;
     }
@@ -91,7 +102,9 @@ pub async fn find_masq_ip<S1: AsRef<str>, S2: AsRef<str>>(
 }
 
 pub fn get_local_ip_for_client(client_ip: &str) -> String {
-    let client_ip_addr: IpAddr = client_ip.parse().unwrap_or(IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+    let client_ip_addr: IpAddr = client_ip
+        .parse()
+        .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
 
     if client_ip_addr.is_loopback() {
         return "127.0.0.1".to_string();
@@ -101,13 +114,16 @@ pub fn get_local_ip_for_client(client_ip: &str) -> String {
         let target = &format!("{}:80", client_ip);
 
         if socket.connect(target).is_ok()
-            && let Ok(local_addr) = socket.local_addr() {
-                let local_ip = local_addr.ip();
-                if !local_ip.is_unspecified() && !local_ip.is_loopback()
-                    && let IpAddr::V4(ipv4) = local_ip {
-                        return ipv4.to_string();
-                    }
+            && let Ok(local_addr) = socket.local_addr()
+        {
+            let local_ip = local_addr.ip();
+            if !local_ip.is_unspecified()
+                && !local_ip.is_loopback()
+                && let IpAddr::V4(ipv4) = local_ip
+            {
+                return ipv4.to_string();
             }
+        }
     }
 
     let test_targets = ["8.8.8.8:80", "1.1.1.1:80", "192.168.1.1:80", "10.0.0.1:80"];
@@ -115,26 +131,32 @@ pub fn get_local_ip_for_client(client_ip: &str) -> String {
     for target in test_targets {
         if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0")
             && socket.connect(target).is_ok()
-            && let Ok(local_addr) = socket.local_addr() {
-                    let local_ip = local_addr.ip();
-                    if !local_ip.is_unspecified() && !local_ip.is_loopback()
-                        && let IpAddr::V4(ipv4) = local_ip
-                        && is_same_subnet(&client_ip_addr, &local_ip) {
-                            return ipv4.to_string();
-                        }
-                }
+            && let Ok(local_addr) = socket.local_addr()
+        {
+            let local_ip = local_addr.ip();
+            if !local_ip.is_unspecified()
+                && !local_ip.is_loopback()
+                && let IpAddr::V4(ipv4) = local_ip
+                && is_same_subnet(&client_ip_addr, &local_ip)
+            {
+                return ipv4.to_string();
+            }
+        }
     }
 
     for target in test_targets {
         if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0")
             && socket.connect(target).is_ok()
-            && let Ok(local_addr) = socket.local_addr() {
-                    let local_ip = local_addr.ip();
-                    if !local_ip.is_unspecified() && !local_ip.is_loopback()
-                        && let IpAddr::V4(ipv4) = local_ip {
-                            return ipv4.to_string();
-                        }
-                }
+            && let Ok(local_addr) = socket.local_addr()
+        {
+            let local_ip = local_addr.ip();
+            if !local_ip.is_unspecified()
+                && !local_ip.is_loopback()
+                && let IpAddr::V4(ipv4) = local_ip
+            {
+                return ipv4.to_string();
+            }
+        }
     }
 
     "127.0.0.1".to_string()

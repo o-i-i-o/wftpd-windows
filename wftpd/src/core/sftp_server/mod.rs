@@ -5,9 +5,9 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
+use russh::MethodKind;
 use russh::keys::ssh_key::rand_core::OsRng;
 use russh::keys::*;
-use russh::MethodKind;
 use russh::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
-use crate::core::config::{get_program_data_path, Config};
+use crate::core::config::{Config, get_program_data_path};
 use crate::core::fail2ban::{Fail2BanConfig, Fail2BanManager};
 use crate::core::path_utils::{PathResolveError, safe_resolve_path_with_cwd};
 use crate::core::quota::QuotaManager;
@@ -125,7 +125,8 @@ impl SftpServer {
         tracing::info!("SFTP server starting on {}:{}", bind_ip, sftp_port);
 
         if key_rotation_days > 0 {
-            self.check_and_rotate_key(&host_key_path, key_rotation_days).await?;
+            self.check_and_rotate_key(&host_key_path, key_rotation_days)
+                .await?;
         }
 
         let host_key = Self::load_or_generate_host_key(&host_key_path).await?;
@@ -479,7 +480,13 @@ pub struct SftpState {
 }
 
 impl SftpState {
-    pub fn new(home_dir: String, username: Option<String>, user_manager: Arc<Mutex<UserManager>>, quota_manager: Arc<QuotaManager>, client_ip: String) -> Self {
+    pub fn new(
+        home_dir: String,
+        username: Option<String>,
+        user_manager: Arc<Mutex<UserManager>>,
+        quota_manager: Arc<QuotaManager>,
+        client_ip: String,
+    ) -> Self {
         let mut state = SftpState {
             home_dir: home_dir.clone(),
             cwd: home_dir,
@@ -669,11 +676,7 @@ impl SftpState {
         let gid: u32 = 1000;
         attrs.extend_from_slice(&uid.to_be_bytes());
         attrs.extend_from_slice(&gid.to_be_bytes());
-        let permissions = if is_dir {
-            0o40755u32
-        } else {
-            0o100644u32
-        };
+        let permissions = if is_dir { 0o40755u32 } else { 0o100644u32 };
         attrs.extend_from_slice(&permissions.to_be_bytes());
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -689,10 +692,7 @@ impl SftpState {
 
         let mut attrs = Vec::new();
 
-        let mut flags: u32 = 0x00000001
-            | 0x00000002
-            | 0x00000004
-            | 0x00000008;
+        let mut flags: u32 = 0x00000001 | 0x00000002 | 0x00000004 | 0x00000008;
 
         attrs.extend_from_slice(&flags.to_be_bytes());
 
@@ -703,11 +703,7 @@ impl SftpState {
         attrs.extend_from_slice(&uid.to_be_bytes());
         attrs.extend_from_slice(&gid.to_be_bytes());
 
-        let permissions = if is_dir {
-            0o40755u32
-        } else {
-            0o100644u32
-        };
+        let permissions = if is_dir { 0o40755u32 } else { 0o100644u32 };
         attrs.extend_from_slice(&permissions.to_be_bytes());
 
         let atime = metadata

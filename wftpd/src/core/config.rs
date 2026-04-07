@@ -2,7 +2,6 @@
 //! IP 白名单/黑名单配置
 //! 负责加载、验证和管理服务器配置，支持热重载
 
-
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -103,7 +102,7 @@ impl ServerConfig {
 
     pub fn try_register(&self, client_ip: &str, max_global: usize, max_per_ip: usize) -> bool {
         let mut map = self.connection_count_per_ip.lock();
-        
+
         let global_count = self.global_connection_count.load(Ordering::SeqCst);
         if global_count >= max_global {
             return false;
@@ -124,7 +123,7 @@ impl ServerConfig {
         if global == 0 {
             self.global_connection_count.fetch_add(1, Ordering::SeqCst);
         }
-        
+
         let mut map = self.connection_count_per_ip.lock();
         if let Some(count) = map.get_mut(client_ip) {
             if *count > 0 {
@@ -253,7 +252,7 @@ fn default_masquerade_map() -> HashMap<String, String> {
 }
 
 fn default_upnp_enabled() -> bool {
-    false  // 默认禁用，需要时手动启用
+    false // 默认禁用，需要时手动启用
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -283,7 +282,7 @@ fn default_max_sessions_per_user() -> u32 {
 }
 
 fn default_key_rotation_days() -> u32 {
-    0  // 默认不自动轮换，设置为 0 表示禁用
+    0 // 默认不自动轮换，设置为 0 表示禁用
 }
 
 fn default_log_level() -> String {
@@ -311,19 +310,19 @@ pub struct SecurityConfig {
 }
 
 fn default_allow_symlinks() -> bool {
-    false  // 默认禁用符号链接以提高安全性
+    false // 默认禁用符号链接以提高安全性
 }
 
 fn default_fail2ban_enabled() -> bool {
-    false  // 默认禁用，需要时手动启用
+    false // 默认禁用，需要时手动启用
 }
 
 fn default_fail2ban_threshold() -> u32 {
-    5  // 5 次失败后封禁
+    5 // 5 次失败后封禁
 }
 
 fn default_fail2ban_ban_time() -> u64 {
-    3600  // 默认封禁 1 小时
+    3600 // 默认封禁 1 小时
 }
 
 fn default_max_connections() -> usize {
@@ -543,7 +542,10 @@ impl Config {
     }
 
     pub fn get_default_log_dir() -> String {
-        get_program_data_path().join("logs").to_string_lossy().to_string()
+        get_program_data_path()
+            .join("logs")
+            .to_string_lossy()
+            .to_string()
     }
 
     pub fn is_ip_allowed(&self, ip: &str) -> bool {

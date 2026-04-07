@@ -11,10 +11,8 @@ use crate::core::path_utils::{path_starts_with_ignore_case, to_ftp_path};
 use crate::core::rate_limiter::RateLimiter;
 
 use super::commands::FtpCommand;
-use super::transfer;
 use super::session_state::{ControlStream, SessionState};
-
-
+use super::transfer;
 
 pub async fn handle_transfer_command(
     control_stream: &mut ControlStream,
@@ -47,9 +45,15 @@ pub async fn handle_transfer_command(
 
                     let ip_parts: Vec<&str> = response_ip.split('.').collect();
                     if ip_parts.len() != 4 {
-                        tracing::warn!("PASV: Invalid IPv4 address format: {}, using 127.0.0.1", response_ip);
+                        tracing::warn!(
+                            "PASV: Invalid IPv4 address format: {}, using 127.0.0.1",
+                            response_ip
+                        );
                         control_stream
-                            .write_response(b"227 Entering Passive Mode (127,0,0,1,0,0).\r\n", "PASV response")
+                            .write_response(
+                                b"227 Entering Passive Mode (127,0,0,1,0,0).\r\n",
+                                "PASV response",
+                            )
                             .await;
                         return Ok(true);
                     }
@@ -109,7 +113,11 @@ pub async fn handle_transfer_command(
 
                     control_stream
                         .write_response(
-                            format!("229 Entering Extended Passive Mode (|||{}|)\r\n", passive_port).as_bytes(),
+                            format!(
+                                "229 Entering Extended Passive Mode (|||{}|)\r\n",
+                                passive_port
+                            )
+                            .as_bytes(),
                             "EPSV response",
                         )
                         .await;
@@ -125,7 +133,8 @@ pub async fn handle_transfer_command(
                 Err(e) => {
                     control_stream
                         .write_response(
-                            format!("425 Could not enter extended passive mode: {}\r\n", e).as_bytes(),
+                            format!("425 Could not enter extended passive mode: {}\r\n", e)
+                                .as_bytes(),
                             "FTP response",
                         )
                         .await;
@@ -1156,5 +1165,3 @@ pub async fn handle_fileinfo_command(
 
     Ok(true)
 }
-
-

@@ -26,11 +26,11 @@ use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::core::config::{Config, get_program_data_path};
-use crate::core::quota::QuotaManager;
-use crate::core::users::UserManager;
-use crate::core::fail2ban::{Fail2BanManager, Fail2BanConfig};
+use crate::core::fail2ban::{Fail2BanConfig, Fail2BanManager};
 use crate::core::ftp_server::tls::TlsConfig;
 use crate::core::ftp_server::upnp_manager::UpnpManager;
+use crate::core::quota::QuotaManager;
+use crate::core::users::UserManager;
 
 pub struct FtpServer {
     config: Arc<Mutex<Config>>,
@@ -117,21 +117,21 @@ impl FtpServer {
                 cfg.ftp.ftps.implicit_ssl_port,
             )
         };
-    
+
         if !warnings.is_empty() {
             for warning in &warnings {
                 tracing::error!("配置验证失败：{}", warning);
             }
             return Err(anyhow::anyhow!("配置路径验证失败：{}", warnings.join("; ")));
         }
-    
+
         // 支持 IPv4/IPv6 双栈
         let bind_addr = if bind_ip == "0.0.0.0" || bind_ip == "::" {
-            format!("[::]:{}", ftp_port)  // IPv6 any address
+            format!("[::]:{}", ftp_port) // IPv6 any address
         } else {
             format!("{}:{}", bind_ip, ftp_port)
         };
-            
+
         tracing::info!("FTP server starting on {}", bind_addr);
 
         let listener = {
@@ -142,14 +142,14 @@ impl FtpServer {
             } else {
                 Domain::IPV4
             };
-            
+
             let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
-            
+
             // IPv6 双栈支持
             if domain == Domain::IPV6 {
-                socket.set_only_v6(false)?;  // 允许 IPv4 映射
+                socket.set_only_v6(false)?; // 允许 IPv4 映射
             }
-            
+
             socket.set_reuse_address(true)?;
             socket.set_nonblocking(true)?;
             let addr: std::net::SocketAddr = bind_addr

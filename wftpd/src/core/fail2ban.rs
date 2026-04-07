@@ -2,8 +2,6 @@
 //!
 //! 根据失败尝试次数自动封禁 IP 地址，支持配置封禁时长和阈值
 
-
-
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -23,9 +21,9 @@ pub struct Fail2BanManager {
 #[derive(Debug, Clone)]
 pub struct Fail2BanConfig {
     pub enabled: bool,
-    pub threshold: u32,      // 失败次数阈值
-    pub ban_time: u64,       // 封禁时长（秒）
-    pub find_time: u64,      // 检测窗口（秒）
+    pub threshold: u32, // 失败次数阈值
+    pub ban_time: u64,  // 封禁时长（秒）
+    pub find_time: u64, // 检测窗口（秒）
 }
 
 impl Default for Fail2BanConfig {
@@ -55,7 +53,7 @@ impl Fail2BanManager {
             let cfg = self.config.lock();
             cfg.enabled
         };
-        
+
         if !enabled {
             return false;
         }
@@ -87,7 +85,7 @@ impl Fail2BanManager {
                 0
             }
         };
-        
+
         if entry_len >= threshold {
             tracing::warn!(
                 "Fail2Ban: IP {} reached threshold ({} failures), banning for {} seconds",
@@ -111,7 +109,7 @@ impl Fail2BanManager {
 
             return true;
         }
-        
+
         false
     }
 
@@ -161,7 +159,7 @@ impl Fail2BanManager {
     /// 清理过期的封禁和失败记录
     pub async fn cleanup(&self) {
         let now = Utc::now();
-        
+
         // 清理过期封禁
         {
             let mut banned = self.banned_ips.write().await;
@@ -174,7 +172,7 @@ impl Fail2BanManager {
                 let cfg = self.config.lock();
                 cfg.find_time as i64
             };
-            
+
             let mut attempts = self.failed_attempts.write().await;
             for (_, times) in attempts.iter_mut() {
                 times.retain(|&time| (now - time).num_seconds() < find_time_secs);

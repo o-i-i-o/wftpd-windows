@@ -2,9 +2,9 @@
 //!
 //! 处理 QUIT、NOOP、OPTS 等基础 FTP 命令
 
-use anyhow::Result;
 use super::commands::FtpCommand;
-use super::session_state::{ControlStream, SessionState, FileStructure, TransferModeType};
+use super::session_state::{ControlStream, FileStructure, SessionState, TransferModeType};
+use anyhow::Result;
 
 pub async fn handle_basic_command(
     control_stream: &mut ControlStream,
@@ -305,7 +305,9 @@ pub async fn handle_basic_command(
             state.data_addr = None;
             state.rest_offset = 0;
             state.rename_from = None;
-            state.abort_flag.store(false, std::sync::atomic::Ordering::Relaxed);
+            state
+                .abort_flag
+                .store(false, std::sync::atomic::Ordering::Relaxed);
 
             state.file_structure = FileStructure::File;
             state.transfer_mode_type = TransferModeType::Stream;
@@ -377,58 +379,128 @@ pub async fn handle_help_command(
     if let HELP(opt_cmd) = cmd {
         if let Some(cmd) = opt_cmd {
             let help_text = match cmd.to_uppercase().as_str() {
-                "USER" => "214 USER <username>: Specify user name for authentication. Use 'anonymous' or 'ftp' for anonymous access.\r\n",
-                "PASS" => "214 PASS <password>: Specify password for authentication. For anonymous access, use email as password.\r\n",
-                "ACCT" => "214 ACCT <account>: Send account information (not required by this server).\r\n",
-                "CWD" => "214 CWD <directory>: Change working directory to the specified path. Supports relative and absolute paths.\r\n",
+                "USER" => {
+                    "214 USER <username>: Specify user name for authentication. Use 'anonymous' or 'ftp' for anonymous access.\r\n"
+                }
+                "PASS" => {
+                    "214 PASS <password>: Specify password for authentication. For anonymous access, use email as password.\r\n"
+                }
+                "ACCT" => {
+                    "214 ACCT <account>: Send account information (not required by this server).\r\n"
+                }
+                "CWD" => {
+                    "214 CWD <directory>: Change working directory to the specified path. Supports relative and absolute paths.\r\n"
+                }
                 "CDUP" => "214 CDUP: Change to parent directory (same as CWD ..).\r\n",
                 "XCUP" => "214 XCUP: Change to parent directory (deprecated, use CDUP).\r\n",
                 "PWD" => "214 PWD: Print current working directory path.\r\n",
                 "XPWD" => "214 XPWD: Print current working directory (deprecated, use PWD).\r\n",
-                "LIST" => "214 LIST [<path>]: List directory contents in Unix format. If no path specified, lists current directory.\r\n",
-                "NLST" => "214 NLST [<path>]: List directory names only (no details). Useful for automated scripts.\r\n",
-                "MLSD" => "214 MLSD [<path>]: List directory contents with machine-readable facts (RFC 3659).\r\n",
-                "MLST" => "214 MLST [<path>]: Show facts for a single file/directory (RFC 3659).\r\n",
-                "RETR" => "214 RETR <filename>: Retrieve/download a file from the server. Supports REST for resume.\r\n",
-                "STOR" => "214 STOR <filename>: Store/upload a file to the server. Overwrites existing files.\r\n",
-                "STOU" => "214 STOU: Store file with unique name (server generates filename). Returns the generated name.\r\n",
-                "APPE" => "214 APPE <filename>: Append data to existing file, or create if not exists.\r\n",
+                "LIST" => {
+                    "214 LIST [<path>]: List directory contents in Unix format. If no path specified, lists current directory.\r\n"
+                }
+                "NLST" => {
+                    "214 NLST [<path>]: List directory names only (no details). Useful for automated scripts.\r\n"
+                }
+                "MLSD" => {
+                    "214 MLSD [<path>]: List directory contents with machine-readable facts (RFC 3659).\r\n"
+                }
+                "MLST" => {
+                    "214 MLST [<path>]: Show facts for a single file/directory (RFC 3659).\r\n"
+                }
+                "RETR" => {
+                    "214 RETR <filename>: Retrieve/download a file from the server. Supports REST for resume.\r\n"
+                }
+                "STOR" => {
+                    "214 STOR <filename>: Store/upload a file to the server. Overwrites existing files.\r\n"
+                }
+                "STOU" => {
+                    "214 STOU: Store file with unique name (server generates filename). Returns the generated name.\r\n"
+                }
+                "APPE" => {
+                    "214 APPE <filename>: Append data to existing file, or create if not exists.\r\n"
+                }
                 "DELE" => "214 DELE <filename>: Delete a file from the server.\r\n",
                 "MKD" => "214 MKD <directory>: Create a new directory.\r\n",
                 "XMKD" => "214 MKD <directory>: Create directory (deprecated, use MKD).\r\n",
                 "RMD" => "214 RMD <directory>: Remove an empty directory.\r\n",
                 "XRMD" => "214 XRMD: Remove directory (deprecated, use RMD).\r\n",
-                "RNFR" => "214 RNFR <filename>: Specify rename-from filename (first part of rename sequence).\r\n",
-                "RNTO" => "214 RNTO <filename>: Specify rename-to filename (second part of rename sequence).\r\n",
-                "PASV" => "214 PASV: Enter passive mode for data transfer. Server opens a port for client to connect.\r\n",
+                "RNFR" => {
+                    "214 RNFR <filename>: Specify rename-from filename (first part of rename sequence).\r\n"
+                }
+                "RNTO" => {
+                    "214 RNTO <filename>: Specify rename-to filename (second part of rename sequence).\r\n"
+                }
+                "PASV" => {
+                    "214 PASV: Enter passive mode for data transfer. Server opens a port for client to connect.\r\n"
+                }
                 "EPSV" => "214 EPSV: Enter extended passive mode (supports IPv6, RFC 2428).\r\n",
-                "PORT" => "214 PORT <h1,h2,h3,h4,p1,p2>: Enter active mode. Client IP must match control connection.\r\n",
-                "EPRT" => "214 EPRT |<netproto>|<netaddr>|<tcpport>|: Extended active mode (supports IPv6, RFC 2428).\r\n",
-                "TYPE" => "214 TYPE <type>: Set transfer type. A=ASCII, I=Binary(Image), L 8=Local byte size 8.\r\n",
-                "MODE" => "214 MODE <mode>: Set transfer mode. S=Stream, B=Block, C=Compressed.\r\n",
+                "PORT" => {
+                    "214 PORT <h1,h2,h3,h4,p1,p2>: Enter active mode. Client IP must match control connection.\r\n"
+                }
+                "EPRT" => {
+                    "214 EPRT |<netproto>|<netaddr>|<tcpport>|: Extended active mode (supports IPv6, RFC 2428).\r\n"
+                }
+                "TYPE" => {
+                    "214 TYPE <type>: Set transfer type. A=ASCII, I=Binary(Image), L 8=Local byte size 8.\r\n"
+                }
+                "MODE" => {
+                    "214 MODE <mode>: Set transfer mode. S=Stream, B=Block, C=Compressed.\r\n"
+                }
                 "STRU" => "214 STRU <structure>: Set file structure. F=File, R=Record, P=Page.\r\n",
-                "REST" => "214 REST <offset>: Set restart marker for resuming transfers. Use before RETR or STOR.\r\n",
+                "REST" => {
+                    "214 REST <offset>: Set restart marker for resuming transfers. Use before RETR or STOR.\r\n"
+                }
                 "SIZE" => "214 SIZE <filename>: Get file size in bytes (RFC 3659).\r\n",
-                "MDTM" => "214 MDTM <filename>: Get file modification time in YYYYMMDDHHMMSS format (RFC 3659).\r\n",
+                "MDTM" => {
+                    "214 MDTM <filename>: Get file modification time in YYYYMMDDHHMMSS format (RFC 3659).\r\n"
+                }
                 "ABOR" => "214 ABOR: Abort current data transfer and close data connection.\r\n",
                 "QUIT" => "214 QUIT: Disconnect from server and close control connection.\r\n",
-                "REIN" => "214 REIN: Reinitialize connection, reset all parameters (stay connected).\r\n",
+                "REIN" => {
+                    "214 REIN: Reinitialize connection, reset all parameters (stay connected).\r\n"
+                }
                 "SYST" => "214 SYST: Return system type (returns 'UNIX Type: L8').\r\n",
                 "FEAT" => "214 FEAT: List server-supported features and extensions.\r\n",
-                "STAT" => "214 STAT [<path>]: Without parameter: show server status. With parameter: show file/directory info.\r\n",
-                "HELP" => "214 HELP [<command>]: Show help information. Without parameter: list all commands.\r\n",
-                "NOOP" => "214 NOOP: No operation, returns 200 OK. Used to keep connection alive.\r\n",
-                "SITE" => "214 SITE <command>: Execute server-specific commands (CHMOD, IDLE, HELP, WHO, WHOIS, SYMLINK).\r\n",
-                "AUTH" => "214 AUTH <type>: Initiate TLS/SSL authentication. Type can be TLS, TLS-C, or SSL.\r\n",
-                "PBSZ" => "214 PBSZ <size>: Set protection buffer size (must be 0 for TLS). Use after AUTH.\r\n",
-                "PROT" => "214 PROT <level>: Set data channel protection level. C=Clear, P=Private(encrypted).\r\n",
-                "CCC" => "214 CCC: Clear command channel (revert to unencrypted control connection).\r\n",
-                "ADAT" => "214 ADAT <data>: Authentication/Security Data (RFC 2228). Used for Kerberos/GSSAPI.\r\n",
-                "MIC" => "214 MIC <data>: Integrity Protected Command (RFC 2228). Command with integrity protection.\r\n",
-                "CONF" => "214 CONF <data>: Confidentiality Protected Command (RFC 2228). Encrypted command.\r\n",
-                "ENC" => "214 ENC <data>: Privacy Protected Command (RFC 2228). Fully encrypted command.\r\n",
+                "STAT" => {
+                    "214 STAT [<path>]: Without parameter: show server status. With parameter: show file/directory info.\r\n"
+                }
+                "HELP" => {
+                    "214 HELP [<command>]: Show help information. Without parameter: list all commands.\r\n"
+                }
+                "NOOP" => {
+                    "214 NOOP: No operation, returns 200 OK. Used to keep connection alive.\r\n"
+                }
+                "SITE" => {
+                    "214 SITE <command>: Execute server-specific commands (CHMOD, IDLE, HELP, WHO, WHOIS, SYMLINK).\r\n"
+                }
+                "AUTH" => {
+                    "214 AUTH <type>: Initiate TLS/SSL authentication. Type can be TLS, TLS-C, or SSL.\r\n"
+                }
+                "PBSZ" => {
+                    "214 PBSZ <size>: Set protection buffer size (must be 0 for TLS). Use after AUTH.\r\n"
+                }
+                "PROT" => {
+                    "214 PROT <level>: Set data channel protection level. C=Clear, P=Private(encrypted).\r\n"
+                }
+                "CCC" => {
+                    "214 CCC: Clear command channel (revert to unencrypted control connection).\r\n"
+                }
+                "ADAT" => {
+                    "214 ADAT <data>: Authentication/Security Data (RFC 2228). Used for Kerberos/GSSAPI.\r\n"
+                }
+                "MIC" => {
+                    "214 MIC <data>: Integrity Protected Command (RFC 2228). Command with integrity protection.\r\n"
+                }
+                "CONF" => {
+                    "214 CONF <data>: Confidentiality Protected Command (RFC 2228). Encrypted command.\r\n"
+                }
+                "ENC" => {
+                    "214 ENC <data>: Privacy Protected Command (RFC 2228). Fully encrypted command.\r\n"
+                }
                 "OPTS" => "214 OPTS <option>: Set options (e.g., OPTS UTF8 ON).\r\n",
-                "ALLO" => "214 ALLO <size>: Allocate storage space (no-op on this server, returns success).\r\n",
+                "ALLO" => {
+                    "214 ALLO <size>: Allocate storage space (no-op on this server, returns success).\r\n"
+                }
                 _ => "214 Unknown command or no help available\r\n",
             };
             control_stream
@@ -501,7 +573,12 @@ pub async fn handle_help_command(
                     "FTP response",
                 )
                 .await;
-            control_stream.write_response(b"214-Use 'HELP <command>' for detailed information on a specific command.\r\n", "FTP response").await;
+            control_stream
+                .write_response(
+                    b"214-Use 'HELP <command>' for detailed information on a specific command.\r\n",
+                    "FTP response",
+                )
+                .await;
             control_stream
                 .write_response(b"214 Direct comments to admin\r\n", "FTP response")
                 .await;
@@ -546,7 +623,11 @@ pub async fn handle_stat_command(
                 .write_response(
                     format!(
                         "211-Transfer mode: {}\r\n",
-                        if state.passive_mode { "Passive" } else { "Active" }
+                        if state.passive_mode {
+                            "Passive"
+                        } else {
+                            "Active"
+                        }
                     )
                     .as_bytes(),
                     "FTP response",
@@ -579,7 +660,11 @@ pub async fn handle_stat_command(
                 .write_response(
                     format!(
                         "211-TLS: {}\r\n",
-                        if state.tls_enabled { "Enabled" } else { "Disabled" }
+                        if state.tls_enabled {
+                            "Enabled"
+                        } else {
+                            "Disabled"
+                        }
                     )
                     .as_bytes(),
                     "FTP response",
@@ -590,7 +675,11 @@ pub async fn handle_stat_command(
                     .write_response(
                         format!(
                             "211-Data protection: {}\r\n",
-                            if state.data_protection { "Private (encrypted)" } else { "Clear" }
+                            if state.data_protection {
+                                "Private (encrypted)"
+                            } else {
+                                "Clear"
+                            }
                         )
                         .as_bytes(),
                         "FTP response",

@@ -8,10 +8,10 @@ use std::sync::Arc;
 
 use crate::core::config::Config;
 use crate::core::fail2ban::Fail2BanManager;
-use crate::core::ftp_server::session::dispatch_command;
-use crate::core::ftp_server::session_state::{ControlStream, SessionState, SessionConfig};
-use crate::core::ftp_server::session_auth::CommandContext;
 use crate::core::ftp_server::commands::FtpCommand;
+use crate::core::ftp_server::session::dispatch_command;
+use crate::core::ftp_server::session_auth::CommandContext;
+use crate::core::ftp_server::session_state::{ControlStream, SessionConfig, SessionState};
 use crate::core::ftp_server::tls::TlsConfig;
 use crate::core::ftp_server::upnp_manager::UpnpManager;
 use crate::core::quota::QuotaManager;
@@ -35,13 +35,17 @@ pub async fn start_ftps_implicit_server(
 
     let listener = {
         use socket2::{Domain, Protocol, SockAddr, Socket, Type};
-        let domain = if bind_ip == "::" { Domain::IPV6 } else { Domain::IPV4 };
+        let domain = if bind_ip == "::" {
+            Domain::IPV6
+        } else {
+            Domain::IPV4
+        };
         let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
-        
+
         if domain == Domain::IPV6 {
             socket.set_only_v6(false)?;
         }
-        
+
         socket.set_reuse_address(true)?;
         socket.set_nonblocking(true)?;
         let addr: std::net::SocketAddr = bind_addr
@@ -175,8 +179,8 @@ pub async fn handle_session_tls(
     upnp_manager: Option<Arc<UpnpManager>>,
     client_ip: String,
 ) -> Result<()> {
-    use std::net::IpAddr;
     use crate::core::ftp_server::session_ip::get_local_ip_for_client;
+    use std::net::IpAddr;
 
     const MAX_COMMAND_LENGTH: usize = 8192;
 
@@ -202,7 +206,9 @@ pub async fn handle_session_tls(
 
     tracing::debug!(
         "FTP TLS session: client_ip={}, server_local_ip={}, socket_local_addr={}",
-        client_ip, server_local_ip, local_addr
+        client_ip,
+        server_local_ip,
+        local_addr
     );
 
     let session_config = {

@@ -2,12 +2,11 @@
 //!
 //! 处理 CWD、CDUP、PWD、MKD、RMD 等目录操作命令
 
-use std::path::PathBuf;
 use crate::core::path_utils::{path_starts_with_ignore_case, to_ftp_path};
+use std::path::PathBuf;
 
 use super::commands::FtpCommand;
 use super::session_state::{ControlStream, SessionState};
-
 
 pub async fn handle_directory_command(
     control_stream: &mut ControlStream,
@@ -243,7 +242,10 @@ pub async fn handle_directory_command(
                                 dir_path
                             );
                             control_stream
-                                .write_response(b"550 Junction points not allowed\r\n", "FTP response")
+                                .write_response(
+                                    b"550 Junction points not allowed\r\n",
+                                    "FTP response",
+                                )
                                 .await;
                             return Ok(true);
                         }
@@ -390,7 +392,10 @@ pub async fn handle_directory_command(
                             to_path.display()
                         );
                         control_stream
-                            .write_response(b"550 Destination file already exists\r\n", "FTP response")
+                            .write_response(
+                                b"550 Destination file already exists\r\n",
+                                "FTP response",
+                            )
                             .await;
                         state.rename_from = None;
                         return Ok(true);

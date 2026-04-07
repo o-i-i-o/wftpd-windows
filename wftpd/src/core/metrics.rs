@@ -3,7 +3,9 @@
 //! 提供 FTP/SFTP 服务器的连接数、传输速度等关键性能指标
 
 use lazy_static::lazy_static;
-use prometheus::{register_counter, register_gauge, register_histogram_vec, Counter, Gauge, HistogramVec};
+use prometheus::{
+    Counter, Gauge, HistogramVec, register_counter, register_gauge, register_histogram_vec,
+};
 use std::time::Instant;
 
 lazy_static! {
@@ -185,11 +187,11 @@ pub fn gather_metrics() -> String {
     let encoder = prometheus::TextEncoder::new();
     let metric_families = prometheus::gather();
     let mut buffer = Vec::new();
-    
+
     if let Err(e) = encoder.encode(&metric_families, &mut buffer) {
         return format!("Error encoding metrics: {}", e);
     }
-    
+
     String::from_utf8_lossy(&buffer).to_string()
 }
 
@@ -202,12 +204,12 @@ mod tests {
         // 测试连接指标
         CONNECTIONS_ACTIVE.set(5.0);
         assert_eq!(CONNECTIONS_ACTIVE.get(), 5.0);
-        
+
         // 测试认证指标
         let before = AUTH_SUCCESS_TOTAL.get();
         record_auth_success();
         assert_eq!(AUTH_SUCCESS_TOTAL.get(), before + 1.0);
-        
+
         // 测试错误指标（ERRORS_TOTAL 不带标签）
         let before = ERRORS_TOTAL.get();
         record_error("test", "FTP");

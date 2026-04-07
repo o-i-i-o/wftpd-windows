@@ -2,27 +2,30 @@
 //!
 //! 处理 FTP 控制连接和命令分发的核心逻辑
 
+use parking_lot::Mutex;
 use std::net::IpAddr;
 use std::sync::Arc;
-use parking_lot::Mutex;
 
 use anyhow::Result;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
 use crate::core::config::Config;
+use crate::core::fail2ban::Fail2BanManager;
 use crate::core::quota::QuotaManager;
 use crate::core::users::UserManager;
-use crate::core::fail2ban::Fail2BanManager;
 
 use super::commands::FtpCommand;
 
-use super::session_state::{ControlStream, SessionState};
 use super::session_auth::{CommandContext, handle_auth_command};
 use super::session_cmds::{handle_basic_command, handle_help_command, handle_stat_command};
 use super::session_dirs::handle_directory_command;
-use super::session_xfer::{handle_transfer_command, handle_list_command, handle_retrieve_command, handle_store_command, handle_fileinfo_command};
 use super::session_site::handle_site_command;
+use super::session_state::{ControlStream, SessionState};
+use super::session_xfer::{
+    handle_fileinfo_command, handle_list_command, handle_retrieve_command, handle_store_command,
+    handle_transfer_command,
+};
 use super::upnp_manager::UpnpManager;
 
 const MAX_COMMAND_LENGTH: usize = 8192;
@@ -58,7 +61,9 @@ pub async fn handle_session(
 
     tracing::debug!(
         "FTP session: client_ip={}, server_local_ip={}, socket_local_addr={}",
-        client_ip, server_local_ip, local_addr
+        client_ip,
+        server_local_ip,
+        local_addr
     );
 
     let session_config = {
@@ -185,8 +190,6 @@ pub async fn handle_session(
     Ok(())
 }
 
-
-
 pub async fn dispatch_command(
     control_stream: &mut ControlStream,
     cmd: &FtpCommand,
@@ -196,10 +199,23 @@ pub async fn dispatch_command(
     use super::commands::FtpCommand::*;
 
     match cmd {
-        AUTH(_) | PBSZ(_) | PROT(_) | CCC | ADAT(_) | MIC(_) | CONF(_) | ENC(_) | USER(_) | PASS(_) => {
+        AUTH(_) | PBSZ(_) | PROT(_) | CCC | ADAT(_) | MIC(_) | CONF(_) | ENC(_) | USER(_)
+        | PASS(_) => {
             return handle_auth_command(control_stream, cmd, state, ctx).await;
         }
-        QUIT | SYST | FEAT | NOOP | OPTS(_, _) | TYPE(_) | MODE(_) | STRU(_) | ALLO | REST(_) | ACCT | REIN | ABOR => {
+        QUIT
+        | SYST
+        | FEAT
+        | NOOP
+        | OPTS(_, _)
+        | TYPE(_)
+        | MODE(_)
+        | STRU(_)
+        | ALLO
+        | REST(_)
+        | ACCT
+        | REIN
+        | ABOR => {
             return handle_basic_command(control_stream, cmd, state, ctx).await;
         }
         HELP(_) => {

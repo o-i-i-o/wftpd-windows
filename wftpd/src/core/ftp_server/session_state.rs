@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use anyhow::Result as AnyhowResult;
 
-use crate::core::path_utils::{safe_resolve_path, PathResolveError};
+use crate::core::path_utils::{PathResolveError, safe_resolve_path};
 
 use super::passive::PassiveManager;
 use super::tls::{AsyncTlsTcpStream, TlsConfig};
@@ -61,7 +61,10 @@ impl ControlStream {
         }
     }
 
-    pub async fn upgrade_to_tls(&mut self, acceptor: &tokio_rustls::TlsAcceptor) -> AnyhowResult<()> {
+    pub async fn upgrade_to_tls(
+        &mut self,
+        acceptor: &tokio_rustls::TlsAcceptor,
+    ) -> AnyhowResult<()> {
         if let ControlStream::Plain(stream_opt) = self
             && let Some(stream) = stream_opt.take()
         {
@@ -99,7 +102,12 @@ pub struct SessionState {
 }
 
 impl SessionState {
-    pub fn new(client_ip: &str, server_local_ip: &str, allow_symlinks: bool, upnp_manager: Option<Arc<UpnpManager>>) -> Self {
+    pub fn new(
+        client_ip: &str,
+        server_local_ip: &str,
+        allow_symlinks: bool,
+        upnp_manager: Option<Arc<UpnpManager>>,
+    ) -> Self {
         SessionState {
             current_user: None,
             authenticated: false,

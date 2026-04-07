@@ -3,7 +3,7 @@
 //! 自动在 NAT 网关上注册端口映射，增强 FTP 被动模式的 NAT 穿透能力
 
 use anyhow::Result;
-use igd_next::{PortMappingProtocol, search_gateway, Gateway};
+use igd_next::{Gateway, PortMappingProtocol, search_gateway};
 use std::net::{SocketAddr, SocketAddrV4};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -74,9 +74,7 @@ impl UpnpManager {
                     }
                 }
             }
-            None => {
-                Ok(internal_addr.port())
-            }
+            None => Ok(internal_addr.port()),
         }
     }
 
@@ -130,7 +128,10 @@ impl UpnpManager {
         }
 
         for &(external_port, internal_addr) in mappings {
-            if let Err(e) = self.add_port_mapping(internal_addr, 3600, &format!("port-{}", external_port)).await {
+            if let Err(e) = self
+                .add_port_mapping(internal_addr, 3600, &format!("port-{}", external_port))
+                .await
+            {
                 warn!("UPnP 端口映射续期失败 (端口 {}): {}", external_port, e);
             }
         }

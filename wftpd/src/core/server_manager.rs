@@ -1,7 +1,7 @@
 //! 服务器管理器
 //!
 //! 管理 FTP 和 SFTP 服务器的生命周期，支持启动、停止和状态查询
- 
+
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
