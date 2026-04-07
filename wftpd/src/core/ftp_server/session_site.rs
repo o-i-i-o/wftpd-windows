@@ -1,5 +1,8 @@
-use anyhow::Result;
+//! SITE 命令处理
+//!
+//! 处理 FTP SITE 命令，支持自定义站点操作
 
+use anyhow::Result;
 use crate::core::path_utils::path_starts_with_ignore_case;
 
 use super::commands::FtpCommand;

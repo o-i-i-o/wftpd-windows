@@ -1,3 +1,7 @@
+//! FTP IP 和域名解析工具
+//!
+//! 提供 IP 地址解析、域名解析和 NAT 穿透支持
+
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;

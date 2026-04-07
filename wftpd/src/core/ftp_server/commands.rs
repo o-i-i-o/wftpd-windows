@@ -1,3 +1,7 @@
+//! FTP 命令定义
+//!
+//! 定义 FTP 协议的所有命令枚举类型
+
 #![allow(clippy::upper_case_acronyms)]
 
 #[derive(Debug, Clone)]

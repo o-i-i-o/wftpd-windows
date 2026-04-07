@@ -1,3 +1,7 @@
+//! FTPS 隐式 TLS 监听器
+//!
+//! 处理 FTPS (FTP over TLS) 隐式加密连接的监听器
+
 use anyhow::Result;
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -9,6 +13,7 @@ use crate::core::ftp_server::session_state::{ControlStream, SessionState, Sessio
 use crate::core::ftp_server::session_auth::CommandContext;
 use crate::core::ftp_server::commands::FtpCommand;
 use crate::core::ftp_server::tls::TlsConfig;
+use crate::core::ftp_server::upnp_manager::UpnpManager;
 use crate::core::quota::QuotaManager;
 use crate::core::users::UserManager;
 
@@ -17,6 +22,7 @@ pub async fn start_ftps_implicit_server(
     user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
     fail2ban_manager: Arc<Fail2BanManager>,
+    upnp_manager: Option<Arc<UpnpManager>>,
     tls_config: TlsConfig,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<()> {
@@ -125,6 +131,8 @@ pub async fn start_ftps_implicit_server(
                         let fail2ban_manager_clone = Arc::clone(&fail2ban_manager);
                         let client_ip_clone = client_ip.clone();
 
+                        let upnp_manager_clone = upnp_manager.clone();
+
                         tokio::spawn(async move {
                             if let Err(e) = handle_session_tls(
                                 tls_stream,
@@ -132,6 +140,7 @@ pub async fn start_ftps_implicit_server(
                                 user_manager_clone,
                                 quota_manager_clone,
                                 fail2ban_manager_clone,
+                                upnp_manager_clone,
                                 client_ip,
                             ).await {
                                 tracing::debug!("FTPS session error: {}", e);
@@ -163,6 +172,7 @@ pub async fn handle_session_tls(
     user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
     fail2ban_manager: Arc<Fail2BanManager>,
+    upnp_manager: Option<Arc<UpnpManager>>,
     client_ip: String,
 ) -> Result<()> {
     use std::net::IpAddr;
@@ -217,7 +227,7 @@ pub async fn handle_session_tls(
         let cfg = config.lock();
         cfg.security.allow_symlinks
     };
-    let mut state = SessionState::new(&client_ip, &server_local_ip, allow_symlinks);
+    let mut state = SessionState::new(&client_ip, &server_local_ip, allow_symlinks, upnp_manager);
     state.transfer_mode = session_config.default_transfer_mode;
     state.passive_mode = session_config.default_passive_mode;
     state.encoding = session_config.encoding;

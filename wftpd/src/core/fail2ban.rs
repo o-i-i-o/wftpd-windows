@@ -1,3 +1,9 @@
+//! Fail2Ban 风格的自动封禁管理器
+//!
+//! 根据失败尝试次数自动封禁 IP 地址，支持配置封禁时长和阈值
+
+
+
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use std::collections::HashMap;

@@ -1,3 +1,7 @@
+//! FTP 会话状态管理
+//!
+//! 定义和控制 FTP 会话的连接状态、传输模式和文件结构
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -7,6 +11,7 @@ use crate::core::path_utils::{safe_resolve_path, PathResolveError};
 
 use super::passive::PassiveManager;
 use super::tls::{AsyncTlsTcpStream, TlsConfig};
+use super::upnp_manager::UpnpManager;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FileStructure {
@@ -94,7 +99,7 @@ pub struct SessionState {
 }
 
 impl SessionState {
-    pub fn new(client_ip: &str, server_local_ip: &str, allow_symlinks: bool) -> Self {
+    pub fn new(client_ip: &str, server_local_ip: &str, allow_symlinks: bool, upnp_manager: Option<Arc<UpnpManager>>) -> Self {
         SessionState {
             current_user: None,
             authenticated: false,
@@ -106,7 +111,7 @@ impl SessionState {
             rest_offset: 0,
             rename_from: None,
             abort_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            passive_manager: PassiveManager::new(),
+            passive_manager: PassiveManager::new(upnp_manager),
             data_port: None,
             data_addr: None,
             client_ip: client_ip.to_string(),

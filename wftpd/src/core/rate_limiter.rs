@@ -1,3 +1,7 @@
+//! 传输速率限制器
+//!
+//! 使用令牌桶算法实现用户上传/下载速度限制
+
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 

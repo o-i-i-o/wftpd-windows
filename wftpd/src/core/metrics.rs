@@ -1,6 +1,6 @@
 //! Prometheus 监控指标导出
-//! 
-//! 提供 FTP/SFTP 服务器的关键性能指标监控
+//!
+//! 提供 FTP/SFTP 服务器的连接数、传输速度等关键性能指标
 
 use lazy_static::lazy_static;
 use prometheus::{register_counter, register_gauge, register_histogram_vec, Counter, Gauge, HistogramVec};

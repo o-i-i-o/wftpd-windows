@@ -1,6 +1,6 @@
-//! WFTPG - SFTP/FTP Server Library
+//! WFTPG - FTP/SFTP 服务器库
 //!
-//! This library provides the core functionality for the WFTPG SFTP/FTP server.
+//! 提供 FTP 和 SFTP 服务器的核心功能，包括配置管理、用户管理、服务器生命周期管理
 
 pub mod core;
 

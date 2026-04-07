@@ -1,3 +1,7 @@
+//! 用户配额管理器
+//!
+//! 跟踪用户上传和下载的字节数，支持基于文件大小的配额限制
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

@@ -1,3 +1,7 @@
+//! 路径工具函数
+//!
+//! 提供安全的路径解析、逻辑chroot 隔离和路径规范化功能
+
 use std::path::{Component, Path, PathBuf};
 
 const MAX_PATH_DEPTH: usize = 64;

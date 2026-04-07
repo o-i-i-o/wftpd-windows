@@ -1,3 +1,7 @@
+//! FTP 数据传输引擎
+//!
+//! 实现文件上传、下载和目录列表的底层数据传输
+
 use anyhow::Result;
 use std::net::ToSocketAddrs;
 use std::path::Path;

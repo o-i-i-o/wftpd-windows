@@ -1,3 +1,7 @@
+//! Windows IPC 服务器底层实现
+//!
+//! 基于 Windows Named Pipe 实现进程间通信
+
 use anyhow::Result;
 use std::io::{Read, Write};
 use std::os::windows::io::{AsRawHandle, RawHandle};

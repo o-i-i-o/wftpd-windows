@@ -1,3 +1,8 @@
+//! 用户管理器
+//!
+//! 管理用户账号、密码验证和权限配置，支持 Argon2 密码哈希
+
+
 use anyhow::{Context, Result};
 use argon2::{
     Argon2,

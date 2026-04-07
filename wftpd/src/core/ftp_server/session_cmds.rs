@@ -1,5 +1,8 @@
-use anyhow::Result;
+//! FTP 基础命令处理
+//!
+//! 处理 QUIT、NOOP、OPTS 等基础 FTP 命令
 
+use anyhow::Result;
 use super::commands::FtpCommand;
 use super::session_state::{ControlStream, SessionState, FileStructure, TransferModeType};
 

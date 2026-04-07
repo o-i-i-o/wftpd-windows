@@ -1,5 +1,8 @@
-use std::path::PathBuf;
+//! FTP 目录命令处理
+//!
+//! 处理 CWD、CDUP、PWD、MKD、RMD 等目录操作命令
 
+use std::path::PathBuf;
 use crate::core::path_utils::{path_starts_with_ignore_case, to_ftp_path};
 
 use super::commands::FtpCommand;

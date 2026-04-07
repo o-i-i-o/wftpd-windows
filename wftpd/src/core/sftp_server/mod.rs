@@ -1,0 +1,707 @@
+//! SFTP 服务器核心模块
+//!
+//! 提供 SFTP 服务器的主结构、状态管理和数据包构建工具
+
+use anyhow::Result;
+use chrono::{DateTime, Utc};
+use parking_lot::Mutex;
+use russh::keys::ssh_key::rand_core::OsRng;
+use russh::keys::*;
+use russh::MethodKind;
+use russh::*;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
+
+use crate::core::config::{get_program_data_path, Config};
+use crate::core::fail2ban::{Fail2BanConfig, Fail2BanManager};
+use crate::core::path_utils::{PathResolveError, safe_resolve_path_with_cwd};
+use crate::core::quota::QuotaManager;
+use crate::core::rate_limiter::RateLimiter;
+use crate::core::users::UserManager;
+
+mod attr_ops;
+mod cmd_dispatch;
+mod dir_ops;
+mod extended;
+mod file_ops;
+mod handler;
+mod link_ops;
+mod lock_ops;
+
+pub const SSH_FXF_READ: u32 = 0x00000001;
+pub const SSH_FXF_WRITE: u32 = 0x00000002;
+pub const SSH_FXF_APPEND: u32 = 0x00000004;
+pub const SSH_FXF_CREAT: u32 = 0x00000008;
+pub const SSH_FXF_TRUNC: u32 = 0x00000010;
+pub const SSH_FXF_EXCL: u32 = 0x00000020;
+
+pub const MAX_PACKET_SIZE: usize = 256 * 1024;
+pub const MAX_BUFFER_SIZE: usize = 10 * 1024 * 1024;
+pub const MAX_HANDLES: usize = 256;
+pub const SFTP_READ_BUFFER_SIZE: usize = 128 * 1024;
+pub const SFTP_WRITE_FLUSH_THRESHOLD: usize = 64 * 1024;
+
+pub enum SftpFileHandle {
+    File {
+        path: PathBuf,
+        file: tokio::fs::File,
+        locked: bool,
+        existed: bool,
+        written_bytes: u64,
+        read_bytes: u64,
+        pending_flush_bytes: u64,
+    },
+    Dir {
+        path: PathBuf,
+        entries: Vec<(String, bool, u64)>,
+        index: usize,
+    },
+}
+
+#[derive(Clone)]
+pub struct SftpServer {
+    config: Arc<Mutex<Config>>,
+    user_manager: Arc<Mutex<UserManager>>,
+    quota_manager: Arc<QuotaManager>,
+    fail2ban_manager: Arc<Fail2BanManager>,
+    running: Arc<Mutex<bool>>,
+    shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
+    last_key_rotation: Arc<TokioMutex<Option<DateTime<Utc>>>>,
+}
+
+impl SftpServer {
+    pub fn new(config: Arc<Mutex<Config>>, user_manager: Arc<Mutex<UserManager>>) -> Self {
+        let quota_manager = QuotaManager::new(&get_program_data_path());
+
+        let fail2ban_config_inner = {
+            let cfg = config.lock();
+            Fail2BanConfig {
+                enabled: cfg.security.fail2ban_enabled,
+                threshold: cfg.security.fail2ban_threshold,
+                ban_time: cfg.security.fail2ban_ban_time,
+                find_time: 600,
+            }
+        };
+        let fail2ban_config = Arc::new(Mutex::new(fail2ban_config_inner));
+        let fail2ban_manager = Arc::new(Fail2BanManager::new(fail2ban_config));
+
+        SftpServer {
+            config,
+            user_manager,
+            quota_manager: Arc::new(quota_manager),
+            fail2ban_manager,
+            running: Arc::new(Mutex::new(false)),
+            shutdown_tx: Arc::new(TokioMutex::new(None)),
+            last_key_rotation: Arc::new(TokioMutex::new(None)),
+        }
+    }
+
+    pub async fn start(&self) -> Result<()> {
+        let (bind_ip, sftp_port, host_key_path, warnings, key_rotation_days) = {
+            let cfg = self.config.lock();
+            let warnings = cfg.validate_paths();
+            (
+                cfg.sftp.bind_ip.clone(),
+                cfg.sftp.port,
+                cfg.sftp.host_key_path.clone(),
+                warnings,
+                cfg.sftp.host_key_rotation_days,
+            )
+        };
+
+        if !warnings.is_empty() {
+            for warning in &warnings {
+                tracing::error!("配置验证失败: {}", warning);
+            }
+            return Err(anyhow::anyhow!("配置路径验证失败：{}", warnings.join("; ")));
+        }
+
+        tracing::info!("SFTP server starting on {}:{}", bind_ip, sftp_port);
+
+        if key_rotation_days > 0 {
+            self.check_and_rotate_key(&host_key_path, key_rotation_days).await?;
+        }
+
+        let host_key = Self::load_or_generate_host_key(&host_key_path).await?;
+
+        let mut methods = MethodSet::empty();
+        methods.push(MethodKind::Password);
+        methods.push(MethodKind::PublicKey);
+
+        let ssh_config = russh::server::Config {
+            keys: vec![host_key],
+            methods,
+            ..Default::default()
+        };
+
+        let config = Arc::new(ssh_config);
+
+        let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
+        {
+            let mut tx = self.shutdown_tx.lock().await;
+            *tx = Some(shutdown_tx);
+        }
+
+        {
+            let mut running = self.running.lock();
+            *running = true;
+        }
+
+        let user_manager_clone = Arc::clone(&self.user_manager);
+        let running_clone = Arc::clone(&self.running);
+        let config_clone = Arc::clone(&self.config);
+        let quota_manager_clone = Arc::clone(&self.quota_manager);
+
+        let bind_addr = if bind_ip == "0.0.0.0" || bind_ip == "::" {
+            format!("[::]:{}", sftp_port)
+        } else {
+            format!("{}:{}", bind_ip, sftp_port)
+        };
+
+        let listener = {
+            use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+            let domain = if bind_addr.starts_with("[") {
+                Domain::IPV6
+            } else {
+                Domain::IPV4
+            };
+
+            let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
+
+            if domain == Domain::IPV6 {
+                socket.set_only_v6(false)?;
+            }
+
+            socket.set_reuse_address(true)?;
+            socket.set_nonblocking(true)?;
+            let addr: std::net::SocketAddr = bind_addr
+                .parse()
+                .map_err(|e| anyhow::anyhow!("Invalid bind address: {}", e))?;
+            socket.bind(&SockAddr::from(addr))?;
+            socket.listen(128)?;
+            tokio::net::TcpListener::from_std(socket.into())
+                .map_err(|e| anyhow::anyhow!("Failed to create tokio listener: {}", e))?
+        };
+
+        tracing::info!("SFTP server started on {}", bind_addr);
+
+        Arc::clone(&self.fail2ban_manager).start_cleanup_task();
+
+        let fail2ban_manager_clone = Arc::clone(&self.fail2ban_manager);
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = &mut shutdown_rx => {
+                        break;
+                    }
+                    accept_result = listener.accept() => {
+                        match accept_result {
+                            Ok((socket, peer_addr)) => {
+                                let ssh_config = Arc::clone(&config);
+                                let user_manager = Arc::clone(&user_manager_clone);
+                                let quota_manager = Arc::clone(&quota_manager_clone);
+                                let client_ip = peer_addr.ip().to_string();
+
+                                let ip_allowed = {
+                                    let cfg = config_clone.lock();
+                                    cfg.is_ip_allowed(&client_ip)
+                                };
+
+                                if !ip_allowed {
+                                    tracing::warn!(
+                                        "SFTP connection rejected from {}: IP not allowed by blacklist/whitelist",
+                                        client_ip
+                                    );
+                                    continue;
+                                }
+
+                                let config_for_check = Arc::clone(&config_clone);
+                                let connection_allowed = {
+                                    let cfg = config_for_check.lock();
+                                    cfg.try_register_connection(&client_ip)
+                                };
+
+                                if !connection_allowed {
+                                    tracing::warn!(
+                                        "SFTP connection rejected from {}: connection limit exceeded",
+                                        client_ip
+                                    );
+                                    continue;
+                                }
+
+                                tracing::info!(
+                                    client_ip = %client_ip,
+                                    action = "CONNECT",
+                                    protocol = "SFTP",
+                                    "Client connected from {}", client_ip
+                                );
+
+                                let client_ip_clone = client_ip.clone();
+                                let fail2ban_manager = Arc::clone(&fail2ban_manager_clone);
+                                tokio::spawn(async move {
+                                    let handler = crate::core::sftp_server::handler::SftpHandler {
+                                        user_manager,
+                                        quota_manager,
+                                        fail2ban_manager,
+                                        authenticated: false,
+                                        username: None,
+                                        home_dir: None,
+                                        sftp_channel: None,
+                                        sftp_state: None,
+                                        client_ip: client_ip.clone(),
+                                        users_path: get_program_data_path().join("users.json"),
+                                    };
+
+                                    if let Err(e) = russh::server::run_stream(ssh_config, socket, handler).await {
+                                        tracing::error!("SSH connection error from {}: {}", peer_addr, e);
+                                    }
+
+                                    {
+                                        let cfg = config_for_check.lock();
+                                        cfg.unregister_connection(&client_ip_clone);
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to accept connection: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+
+            let mut running = running_clone.lock();
+            *running = false;
+        });
+
+        Ok(())
+    }
+
+    pub async fn stop(&self) {
+        {
+            let mut tx = self.shutdown_tx.lock().await;
+            if let Some(sender) = tx.take() {
+                let _ = sender.send(());
+            }
+        }
+        {
+            let mut running = self.running.lock();
+            *running = false;
+        }
+        tracing::info!("SFTP server stopped");
+    }
+
+    pub fn is_running(&self) -> bool {
+        *self.running.lock()
+    }
+
+    async fn check_and_rotate_key(&self, key_path: &str, rotation_days: u32) -> Result<()> {
+        let path = PathBuf::from(key_path);
+
+        if !path.exists() {
+            tracing::info!("SFTP 主机密钥不存在，将生成新密钥：{}", path.display());
+            return Ok(());
+        }
+
+        let last_rotation = *self.last_key_rotation.lock().await;
+        let now = Utc::now();
+
+        let should_rotate = match last_rotation {
+            Some(last_time) => {
+                let age = now.signed_duration_since(last_time);
+                age.num_days() >= rotation_days as i64
+            }
+            None => {
+                if let Ok(metadata) = tokio::fs::metadata(&path).await {
+                    if let Ok(modified) = metadata.modified() {
+                        let file_age = now.signed_duration_since(DateTime::<Utc>::from(modified));
+                        file_age.num_days() >= rotation_days as i64
+                    } else {
+                        true
+                    }
+                } else {
+                    true
+                }
+            }
+        };
+
+        if should_rotate {
+            tracing::info!(
+                "SFTP 主机密钥已达到轮换期限 ({} 天)，正在生成新密钥...",
+                rotation_days
+            );
+
+            let backup_path = format!("{}.backup.{}", key_path, now.format("%Y%m%d_%H%M%S"));
+            if let Err(e) = tokio::fs::copy(&path, &backup_path).await {
+                tracing::warn!("备份旧密钥失败：{}", e);
+            } else {
+                tracing::info!("已备份旧密钥到：{}", backup_path);
+            }
+
+            self.generate_new_host_key(&path).await?;
+
+            *self.last_key_rotation.lock().await = Some(now);
+
+            tracing::info!("SFTP 主机密钥轮换完成");
+        } else {
+            let age = last_rotation
+                .map(|t| now.signed_duration_since(t).num_days())
+                .unwrap_or(0);
+            tracing::debug!(
+                "SFTP 主机密钥无需轮换，当前年龄：{} 天，轮换周期：{} 天",
+                age,
+                rotation_days
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn generate_new_host_key(&self, path: &Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        let mut rng = OsRng;
+        let key = PrivateKey::random(&mut rng, keys::Algorithm::Ed25519)?;
+        let openssh = key.to_openssh(keys::ssh_key::LineEnding::default())?;
+        tokio::fs::write(path, openssh.to_string()).await?;
+        tracing::info!("已生成新的 SFTP 主机私钥：{}", path.display());
+
+        let pub_path = path.with_extension("pub");
+        let public_key = key.public_key();
+        let pub_openssh = public_key.to_openssh()?;
+        tokio::fs::write(&pub_path, pub_openssh.to_string()).await?;
+        tracing::info!("已生成新的 SFTP 主机公钥：{}", pub_path.display());
+
+        Ok(())
+    }
+
+    async fn load_or_generate_host_key(path: &str) -> Result<PrivateKey> {
+        let path = PathBuf::from(path);
+
+        if path.exists() {
+            let key_data = tokio::fs::read_to_string(&path).await?;
+            let key = PrivateKey::from_openssh(&key_data)?;
+            tracing::info!("已加载现有 SFTP 主机密钥: {}", path.display());
+            return Ok(key);
+        }
+
+        tracing::info!("SFTP 主机密钥不存在，正在生成新密钥: {}", path.display());
+
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+            tracing::info!("已创建 SFTP 密钥目录: {}", parent.display());
+        }
+
+        let mut rng = OsRng;
+        let key = PrivateKey::random(&mut rng, keys::Algorithm::Ed25519)?;
+        let openssh = key.to_openssh(keys::ssh_key::LineEnding::default())?;
+        tokio::fs::write(&path, openssh.to_string()).await?;
+        tracing::info!("已生成 SFTP 主机私钥: {}", path.display());
+
+        let pub_path = path.with_extension("pub");
+        let public_key = key.public_key();
+        let pub_openssh = public_key.to_openssh()?;
+        tokio::fs::write(&pub_path, pub_openssh.to_string()).await?;
+        tracing::info!("已生成 SFTP 主机公钥: {}", pub_path.display());
+
+        Ok(key)
+    }
+}
+
+pub struct SftpState {
+    pub home_dir: String,
+    pub cwd: String,
+    pub username: Option<String>,
+    pub user_manager: Arc<Mutex<UserManager>>,
+    pub quota_manager: Arc<QuotaManager>,
+    pub handles: HashMap<String, SftpFileHandle>,
+    pub next_handle_id: u32,
+    pub sftp_version: u32,
+    pub buffer: Vec<u8>,
+    pub locked_files: HashSet<PathBuf>,
+    pub client_ip: String,
+    pub cached_permissions: Option<crate::core::users::Permissions>,
+    pub rate_limiter: Option<RateLimiter>,
+    pub permission_cache: std::collections::HashMap<String, bool>,
+    pub cache_expiry: Option<std::time::Instant>,
+}
+
+impl SftpState {
+    pub fn new(home_dir: String, username: Option<String>, user_manager: Arc<Mutex<UserManager>>, quota_manager: Arc<QuotaManager>, client_ip: String) -> Self {
+        let mut state = SftpState {
+            home_dir: home_dir.clone(),
+            cwd: home_dir,
+            username,
+            user_manager,
+            quota_manager,
+            handles: HashMap::new(),
+            next_handle_id: 0,
+            sftp_version: 3,
+            buffer: Vec::new(),
+            locked_files: HashSet::new(),
+            client_ip,
+            cached_permissions: None,
+            rate_limiter: None,
+            permission_cache: std::collections::HashMap::new(),
+            cache_expiry: None,
+        };
+        state.cache_permissions();
+        state.init_rate_limiter();
+        state
+    }
+
+    pub fn check_permission(
+        &self,
+        check_fn: impl Fn(&crate::core::users::Permissions) -> bool,
+    ) -> bool {
+        if let Some(expiry) = self.cache_expiry
+            && std::time::Instant::now() < expiry
+            && let Some(&result) = self.permission_cache.get("check")
+        {
+            return result;
+        }
+
+        if let Some(perms) = &self.cached_permissions {
+            check_fn(perms)
+        } else if let Some(username) = &self.username {
+            let users = self.user_manager.lock();
+            if let Some(user) = users.get_user(username) {
+                check_fn(&user.permissions)
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
+    pub fn cache_permissions(&mut self) {
+        if let Some(username) = &self.username {
+            let users = self.user_manager.lock();
+            if let Some(user) = users.get_user(username) {
+                self.cached_permissions = Some(user.permissions);
+                self.cache_expiry =
+                    Some(std::time::Instant::now() + std::time::Duration::from_secs(2));
+                self.permission_cache.insert("check".to_string(), true);
+            }
+        }
+    }
+
+    pub fn refresh_permissions(&mut self) {
+        self.cached_permissions = None;
+        self.cache_permissions();
+    }
+
+    pub fn init_rate_limiter(&mut self) {
+        if let Some(perms) = &self.cached_permissions
+            && let Some(speed_kbps) = perms.speed_limit_kbps
+        {
+            self.rate_limiter = Some(RateLimiter::new(speed_kbps));
+        }
+    }
+
+    pub fn cleanup(&mut self) {
+        for (_, handle) in self.handles.drain() {
+            if let SftpFileHandle::File { locked, path, .. } = handle
+                && locked
+            {
+                tracing::info!("Releasing lock on {:?} during cleanup", path);
+                self.locked_files.remove(&path);
+            }
+        }
+        self.locked_files.clear();
+        tracing::info!("SFTP session cleanup completed");
+    }
+
+    pub fn resolve_path(&self, path: &str) -> Result<PathBuf, PathResolveError> {
+        safe_resolve_path_with_cwd(&self.cwd, &self.home_dir, path, false)
+    }
+
+    pub fn generate_handle(&mut self) -> String {
+        let handle = format!("h{:08x}", self.next_handle_id);
+        self.next_handle_id = self.next_handle_id.wrapping_add(1);
+        handle
+    }
+
+    pub fn parse_u32(&self, data: &[u8], offset: usize) -> u32 {
+        if offset + 4 > data.len() {
+            return 0;
+        }
+        u32::from_be_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ])
+    }
+
+    pub fn parse_u64(&self, data: &[u8], offset: usize) -> u64 {
+        if offset + 8 > data.len() {
+            return 0;
+        }
+        u64::from_be_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+            data[offset + 4],
+            data[offset + 5],
+            data[offset + 6],
+            data[offset + 7],
+        ])
+    }
+
+    pub fn parse_string(&self, data: &[u8], offset: usize) -> Result<String> {
+        if offset + 4 > data.len() {
+            return Ok(String::new());
+        }
+        let len = self.parse_u32(data, offset) as usize;
+        if offset + 4 + len > data.len() {
+            return Ok(String::new());
+        }
+        Ok(String::from_utf8_lossy(&data[offset + 4..offset + 4 + len]).to_string())
+    }
+
+    pub fn parse_string_with_len(&self, data: &[u8], offset: usize) -> Result<(String, usize)> {
+        if offset + 4 > data.len() {
+            return Ok((String::new(), 0));
+        }
+        let len = self.parse_u32(data, offset) as usize;
+        if offset + 4 + len > data.len() {
+            return Ok((String::new(), 0));
+        }
+        let s = String::from_utf8_lossy(&data[offset + 4..offset + 4 + len]).to_string();
+        Ok((s, len))
+    }
+
+    pub fn build_packet(&self, payload: &[u8]) -> Vec<u8> {
+        let mut packet = Vec::new();
+        packet.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        packet.extend_from_slice(payload);
+        packet
+    }
+
+    pub fn build_status_packet(&self, id: u32, status: u32, msg: &str, lang: &str) -> Vec<u8> {
+        let mut payload = vec![101];
+        payload.extend_from_slice(&id.to_be_bytes());
+        payload.extend_from_slice(&status.to_be_bytes());
+        payload.extend_from_slice(&(msg.len() as u32).to_be_bytes());
+        payload.extend_from_slice(msg.as_bytes());
+        payload.extend_from_slice(&(lang.len() as u32).to_be_bytes());
+        payload.extend_from_slice(lang.as_bytes());
+        self.build_packet(&payload)
+    }
+
+    pub fn build_handle_packet(&self, id: u32, handle: &str) -> Vec<u8> {
+        let mut payload = vec![102];
+        payload.extend_from_slice(&id.to_be_bytes());
+        payload.extend_from_slice(&(handle.len() as u32).to_be_bytes());
+        payload.extend_from_slice(handle.as_bytes());
+        self.build_packet(&payload)
+    }
+
+    pub fn build_data_packet(&self, id: u32, data: &[u8]) -> Vec<u8> {
+        let mut payload = vec![103];
+        payload.extend_from_slice(&id.to_be_bytes());
+        payload.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        payload.extend_from_slice(data);
+        self.build_packet(&payload)
+    }
+
+    pub fn build_attrs(&self, is_dir: bool, size: u64) -> Vec<u8> {
+        let mut attrs = Vec::new();
+        let flags: u32 = 0x00000001 | 0x00000002 | 0x00000004 | 0x00000008;
+        attrs.extend_from_slice(&flags.to_be_bytes());
+        attrs.extend_from_slice(&size.to_be_bytes());
+        let uid: u32 = 1000;
+        let gid: u32 = 1000;
+        attrs.extend_from_slice(&uid.to_be_bytes());
+        attrs.extend_from_slice(&gid.to_be_bytes());
+        let permissions = if is_dir {
+            0o40755u32
+        } else {
+            0o100644u32
+        };
+        attrs.extend_from_slice(&permissions.to_be_bytes());
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as u32;
+        attrs.extend_from_slice(&now.to_be_bytes());
+        attrs.extend_from_slice(&now.to_be_bytes());
+        attrs
+    }
+
+    pub fn build_attrs_extended(&self, metadata: &std::fs::Metadata, is_dir: bool) -> Vec<u8> {
+        use std::os::windows::fs::MetadataExt;
+
+        let mut attrs = Vec::new();
+
+        let mut flags: u32 = 0x00000001
+            | 0x00000002
+            | 0x00000004
+            | 0x00000008;
+
+        attrs.extend_from_slice(&flags.to_be_bytes());
+
+        attrs.extend_from_slice(&metadata.len().to_be_bytes());
+
+        let uid: u32 = 1000;
+        let gid: u32 = 1000;
+        attrs.extend_from_slice(&uid.to_be_bytes());
+        attrs.extend_from_slice(&gid.to_be_bytes());
+
+        let permissions = if is_dir {
+            0o40755u32
+        } else {
+            0o100644u32
+        };
+        attrs.extend_from_slice(&permissions.to_be_bytes());
+
+        let atime = metadata
+            .accessed()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as u32)
+            .unwrap_or(0);
+
+        let mtime = metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as u32)
+            .unwrap_or(0);
+
+        attrs.extend_from_slice(&atime.to_be_bytes());
+        attrs.extend_from_slice(&mtime.to_be_bytes());
+
+        #[cfg(windows)]
+        {
+            if let Some(ctime) = metadata
+                .creation_time()
+                .checked_sub(11644473600000)
+                .and_then(|secs_since_1601| (secs_since_1601 / 1000).checked_add(0))
+            {
+                flags |= 0x80000000;
+
+                attrs[0..4].copy_from_slice(&flags.to_be_bytes());
+
+                attrs.extend_from_slice(&1u32.to_be_bytes());
+
+                let ext_name = "createtime";
+                attrs.extend_from_slice(&(ext_name.len() as u32).to_be_bytes());
+                attrs.extend_from_slice(ext_name.as_bytes());
+
+                attrs.extend_from_slice(&(ctime as u32).to_be_bytes());
+            }
+        }
+
+        attrs
+    }
+}

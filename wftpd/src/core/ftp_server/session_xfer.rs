@@ -1,4 +1,7 @@
-use std::net::IpAddr;
+//! FTP 文件传输命令处理
+//!
+//! 处理 RETR、STOR、LIST、NLST 等文件传输命令
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -9,7 +12,6 @@ use crate::core::rate_limiter::RateLimiter;
 
 use super::commands::FtpCommand;
 use super::transfer;
-use super::session_ip::{resolve_ip_for_pasv, find_masq_ip};
 use super::session_state::{ControlStream, SessionState};
 
 
@@ -24,37 +26,55 @@ pub async fn handle_transfer_command(
 
     match cmd {
         PASV => {
-            let client_ip_addr: IpAddr = ctx.client_ip.parse().unwrap_or(IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
-            if client_ip_addr.is_ipv6() {
-                control_stream
-                    .write_response(b"522 Use EPSV for IPv6 connections\r\n", "FTP response")
-                    .await;
-                return Ok(true);
-            }
-
-            let ((port_min, port_max), bind_ip, masquerade_address, passive_ip_override, masquerade_map) = {
+            let pasv_config = {
                 let cfg = ctx.config.lock();
-                (
-                    cfg.ftp.passive_ports,
-                    cfg.ftp.bind_ip.clone(),
-                    cfg.ftp.masquerade_address.clone(),
-                    cfg.ftp.passive_ip_override.clone(),
-                    cfg.ftp.masquerade_map.clone(),
-                )
+                super::passive::PasvConfig {
+                    client_ip: ctx.client_ip.to_string(),
+                    server_local_ip: state.server_local_ip.clone(),
+                    bind_ip: cfg.ftp.bind_ip.clone(),
+                    port_range: cfg.ftp.passive_ports,
+                    masquerade_address: cfg.ftp.masquerade_address.clone(),
+                    passive_ip_override: cfg.ftp.passive_ip_override.clone(),
+                    masquerade_map: cfg.ftp.masquerade_map.clone(),
+                }
             };
 
-            let passive_bind_ip = if bind_ip == "::" {
-                "0.0.0.0"
-            } else {
-                &bind_ip
-            };
+            match state.passive_manager.handle_pasv(&pasv_config).await {
+                Ok((passive_port, response_ip)) => {
+                    state.passive_mode = true;
+                    state.data_port = Some(passive_port);
 
-            let passive_port = match state
-                .passive_manager
-                .try_bind_port(port_min, port_max, passive_bind_ip, ctx.client_ip)
-                .await
-            {
-                Ok(port) => port,
+                    let ip_parts: Vec<&str> = response_ip.split('.').collect();
+                    if ip_parts.len() != 4 {
+                        tracing::warn!("PASV: Invalid IPv4 address format: {}, using 127.0.0.1", response_ip);
+                        control_stream
+                            .write_response(b"227 Entering Passive Mode (127,0,0,1,0,0).\r\n", "PASV response")
+                            .await;
+                        return Ok(true);
+                    }
+
+                    let p1 = passive_port >> 8;
+                    let p2 = passive_port & 0xFF;
+
+                    control_stream
+                        .write_response(
+                            format!(
+                                "227 Entering Passive Mode ({},{},{},{},{},{}).\r\n",
+                                ip_parts[0], ip_parts[1], ip_parts[2], ip_parts[3], p1, p2
+                            )
+                            .as_bytes(),
+                            "PASV response",
+                        )
+                        .await;
+
+                    tracing::info!(
+                        client_ip = %ctx.client_ip,
+                        username = ?state.current_user.as_deref(),
+                        action = "PASV",
+                        protocol = "FTP",
+                        "PASV mode: port {} on IP {}", passive_port, response_ip
+                    );
+                }
                 Err(e) => {
                     control_stream
                         .write_response(
@@ -62,121 +82,53 @@ pub async fn handle_transfer_command(
                             "FTP response",
                         )
                         .await;
-                    return Ok(true);
                 }
-            };
-
-            state.passive_mode = true;
-            state.data_port = Some(passive_port);
-
-            let response_ip = if let Some(override_ip) = passive_ip_override {
-                if !override_ip.is_empty() {
-                    resolve_ip_for_pasv(override_ip, &ctx.client_ip, &state.server_local_ip).await
-                } else {
-                    find_masq_ip(&masquerade_map, &masquerade_address, &state.server_local_ip, &ctx.client_ip).await
-                }
-            } else {
-                find_masq_ip(&masquerade_map, &masquerade_address, &state.server_local_ip, &ctx.client_ip).await
-            };
-
-            let ip_parts: Vec<&str> = response_ip.split('.').collect();
-            if ip_parts.len() != 4 {
-                tracing::warn!("PASV: Invalid IPv4 address format: {}, using 127.0.0.1", response_ip);
-                control_stream
-                    .write_response(
-                        b"227 Entering Passive Mode (127,0,0,1,0,0).\r\n",
-                        "PASV response",
-                    )
-                    .await;
-                return Ok(true);
             }
-
-            let p1 = passive_port >> 8;
-            let p2 = passive_port & 0xFF;
-
-            control_stream
-                .write_response(
-                    format!(
-                        "227 Entering Passive Mode ({},{},{},{},{},{}).\r\n",
-                        ip_parts[0], ip_parts[1], ip_parts[2], ip_parts[3], p1, p2
-                    )
-                    .as_bytes(),
-                    "PASV response",
-                )
-                .await;
-
-            tracing::info!(
-                client_ip = %ctx.client_ip,
-                username = ?state.current_user.as_deref(),
-                action = "PASV",
-                protocol = "FTP",
-                "PASV mode: port {} on IP {}", passive_port, response_ip
-            );
         }
 
         EPSV => {
-            let ((port_min, port_max), bind_ip, masquerade_address, passive_ip_override, masquerade_map) = {
+            let pasv_config = {
                 let cfg = ctx.config.lock();
-                (
-                    cfg.ftp.passive_ports,
-                    cfg.ftp.bind_ip.clone(),
-                    cfg.ftp.masquerade_address.clone(),
-                    cfg.ftp.passive_ip_override.clone(),
-                    cfg.ftp.masquerade_map.clone(),
-                )
+                super::passive::PasvConfig {
+                    client_ip: ctx.client_ip.to_string(),
+                    server_local_ip: state.server_local_ip.clone(),
+                    bind_ip: cfg.ftp.bind_ip.clone(),
+                    port_range: cfg.ftp.passive_ports,
+                    masquerade_address: cfg.ftp.masquerade_address.clone(),
+                    passive_ip_override: cfg.ftp.passive_ip_override.clone(),
+                    masquerade_map: cfg.ftp.masquerade_map.clone(),
+                }
             };
 
-            let passive_port = match state
-                .passive_manager
-                .try_bind_port(port_min, port_max, &bind_ip, ctx.client_ip)
-                .await
-            {
-                Ok(port) => port,
+            match state.passive_manager.handle_epsv(&pasv_config).await {
+                Ok(passive_port) => {
+                    state.passive_mode = true;
+                    state.data_port = Some(passive_port);
+
+                    control_stream
+                        .write_response(
+                            format!("229 Entering Extended Passive Mode (|||{}|)\r\n", passive_port).as_bytes(),
+                            "EPSV response",
+                        )
+                        .await;
+
+                    tracing::info!(
+                        client_ip = %ctx.client_ip,
+                        username = ?state.current_user.as_deref(),
+                        action = "EPSV",
+                        protocol = "FTP",
+                        "EPSV mode: port {}", passive_port
+                    );
+                }
                 Err(e) => {
                     control_stream
                         .write_response(
-                            format!("425 Could not enter extended passive mode: {}\r\n", e)
-                                .as_bytes(),
+                            format!("425 Could not enter extended passive mode: {}\r\n", e).as_bytes(),
                             "FTP response",
                         )
                         .await;
-                    return Ok(true);
                 }
-            };
-
-            state.passive_mode = true;
-            state.data_port = Some(passive_port);
-
-            let response_ip = if let Some(override_ip) = passive_ip_override {
-                if !override_ip.is_empty() {
-                    resolve_ip_for_pasv(override_ip, &ctx.client_ip, &state.server_local_ip).await
-                } else {
-                    find_masq_ip(&masquerade_map, &masquerade_address, &state.server_local_ip, &ctx.client_ip).await
-                }
-            } else {
-                find_masq_ip(&masquerade_map, &masquerade_address, &state.server_local_ip, &ctx.client_ip).await
-            };
-
-            control_stream
-                .write_response(
-                    format!(
-                        "229 Entering Extended Passive Mode (|||{}|)\r\n",
-                        passive_port
-                    )
-                    .as_bytes(),
-                    "EPSV response",
-                )
-                .await;
-
-            tracing::info!(
-                client_ip = %ctx.client_ip,
-                username = ?state.current_user.as_deref(),
-                action = "EPSV",
-                protocol = "FTP",
-                response_ip = %response_ip,
-                "EPSV mode: port {}",
-                passive_port
-            );
+            }
         }
 
         PORT(data) => {

@@ -1,3 +1,8 @@
+//! FTP 服务器核心模块
+//!
+//! 提供 FTP 服务器的启动、监听和会话管理功能
+
+mod cert_gen;
 mod commands;
 mod passive;
 pub mod session;
@@ -11,6 +16,7 @@ pub mod session_state;
 pub mod session_xfer;
 mod tls;
 mod transfer;
+mod upnp_manager;
 
 mod ftps_listener;
 
@@ -23,14 +29,15 @@ use crate::core::config::{Config, get_program_data_path};
 use crate::core::quota::QuotaManager;
 use crate::core::users::UserManager;
 use crate::core::fail2ban::{Fail2BanManager, Fail2BanConfig};
-
 use crate::core::ftp_server::tls::TlsConfig;
+use crate::core::ftp_server::upnp_manager::UpnpManager;
 
 pub struct FtpServer {
     config: Arc<Mutex<Config>>,
     user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
     fail2ban_manager: Arc<Fail2BanManager>,
+    upnp_manager: Arc<UpnpManager>,
     running: Arc<Mutex<bool>>,
     shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     ftps_shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
@@ -69,11 +76,27 @@ impl FtpServer {
         let fail2ban_config = Arc::new(Mutex::new(fail2ban_config_inner));
         let fail2ban_manager = Arc::new(Fail2BanManager::new(fail2ban_config.clone()));
 
+        // 初始化 UPnP 管理器
+        let upnp_enabled = {
+            let cfg = config.lock();
+            cfg.ftp.upnp_enabled
+        };
+        let upnp_manager = Arc::new(UpnpManager::new(upnp_enabled));
+
+        // 启动 UPnP 初始化任务
+        let upnp_init = Arc::clone(&upnp_manager);
+        tokio::spawn(async move {
+            if let Err(e) = upnp_init.initialize().await {
+                tracing::warn!("UPnP 初始化失败: {}", e);
+            }
+        });
+
         FtpServer {
             config,
             user_manager,
             quota_manager: Arc::new(quota_manager),
             fail2ban_manager,
+            upnp_manager,
             running: Arc::new(Mutex::new(false)),
             shutdown_tx: Arc::new(TokioMutex::new(None)),
             ftps_shutdown_tx: Arc::new(TokioMutex::new(None)),
@@ -149,14 +172,23 @@ impl FtpServer {
             *running = true;
         }
 
-        let config = Arc::clone(&self.config);
-        let user_manager = Arc::clone(&self.user_manager);
-        let quota_manager = Arc::clone(&self.quota_manager);
-        let fail2ban_manager = Arc::clone(&self.fail2ban_manager);
+        let config_spawn = Arc::clone(&self.config);
+        let user_manager_spawn = Arc::clone(&self.user_manager);
+        let quota_manager_spawn = Arc::clone(&self.quota_manager);
+        let fail2ban_spawn = Arc::clone(&self.fail2ban_manager);
+        let upnp_spawn = Arc::clone(&self.upnp_manager);
         let running_clone = Arc::clone(&self.running);
 
         // 启动 Fail2Ban 后台清理任务
-        Arc::clone(&self.fail2ban_manager).start_cleanup_task();
+        Arc::clone(&fail2ban_spawn).start_cleanup_task();
+
+        // 初始化 UPnP 端口映射
+        let upnp_init = Arc::clone(&upnp_spawn);
+        tokio::spawn(async move {
+            if let Err(e) = upnp_init.initialize().await {
+                tracing::warn!("UPnP 初始化失败: {}", e);
+            }
+        });
 
         tracing::info!("FTP server started on {}", bind_addr);
 
@@ -172,10 +204,11 @@ impl FtpServer {
                 let ftps_bind_addr = format!("{}:{}", bind_ip, ftps_port);
                 tracing::info!("FTPS implicit SSL server starting on {}", ftps_bind_addr);
 
-                let config_clone = Arc::clone(&config);
-                let user_manager_clone = Arc::clone(&user_manager);
-                let quota_manager_clone = Arc::clone(&quota_manager);
-                let fail2ban_clone = Arc::clone(&self.fail2ban_manager);
+                let config_clone = Arc::clone(&config_spawn);
+                let user_manager_clone = Arc::clone(&user_manager_spawn);
+                let quota_manager_clone = Arc::clone(&quota_manager_spawn);
+                let fail2ban_clone = Arc::clone(&fail2ban_spawn);
+                let upnp_clone = Arc::clone(&upnp_spawn);
 
                 tokio::spawn(async move {
                     if let Err(e) = ftps_listener::start_ftps_implicit_server(
@@ -183,6 +216,7 @@ impl FtpServer {
                         user_manager_clone,
                         quota_manager_clone,
                         fail2ban_clone,
+                        Some(upnp_clone),
                         tls_cfg,
                         ftps_shutdown_rx,
                     )
@@ -204,7 +238,7 @@ impl FtpServer {
                         match accept_result {
                             Ok((socket, peer_addr)) => {
                                 let client_ip = peer_addr.ip().to_string();
-                                let config_arc = Arc::clone(&config);
+                                let config_arc = Arc::clone(&config_spawn);
 
                                 // 优化的并发控制：在单个锁保护下完成所有检查
                                 let checks_result = {
@@ -221,7 +255,7 @@ impl FtpServer {
                                 let (ip_allowed, connection_allowed) = checks_result;
 
                                 // 检查 IP 是否被封禁 (Fail2Ban) - 独立检查，不使用锁
-                                if fail2ban_manager.is_banned(&client_ip).await {
+                                if fail2ban_spawn.is_banned(&client_ip).await {
                                     tracing::warn!(
                                         "Connection rejected from {}: IP is banned by Fail2Ban",
                                         client_ip
@@ -260,8 +294,8 @@ impl FtpServer {
                                     continue;
                                 }
 
-                                let user_manager = Arc::clone(&user_manager);
-                                let quota_manager = Arc::clone(&quota_manager);
+                                let _user_manager = Arc::clone(&user_manager_spawn);
+                                let _quota_manager = Arc::clone(&quota_manager_spawn);
                                 let client_ip_clone = client_ip.clone();
 
                                 tracing::info!(
@@ -271,10 +305,11 @@ impl FtpServer {
                                     "Client connected from {}", client_ip
                                 );
 
-                                let config_for_spawn = Arc::clone(&config_arc);
-                                let user_manager_for_spawn = Arc::clone(&user_manager);
-                                let quota_manager_for_spawn = Arc::clone(&quota_manager);
-                                let fail2ban_for_spawn = Arc::clone(&fail2ban_manager);
+                                let config_for_spawn = Arc::clone(&config_spawn);
+                                let user_manager_for_spawn = Arc::clone(&user_manager_spawn);
+                                let quota_manager_for_spawn = Arc::clone(&quota_manager_spawn);
+                                let fail2ban_for_spawn = Arc::clone(&fail2ban_spawn);
+                                let upnp_for_spawn = Arc::clone(&upnp_spawn);
                                 tokio::spawn(async move {
                                     if let Err(e) = session::handle_session(
                                         socket,
@@ -282,6 +317,7 @@ impl FtpServer {
                                         user_manager_for_spawn,
                                         quota_manager_for_spawn,
                                         fail2ban_for_spawn,
+                                        Some(upnp_for_spawn),
                                         client_ip,
                                     ).await {
                                         tracing::debug!("FTP session error: {}", e);

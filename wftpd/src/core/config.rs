@@ -1,3 +1,8 @@
+//! 配置管理器
+//! IP 白名单/黑名单配置
+//! 负责加载、验证和管理服务器配置，支持热重载
+
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

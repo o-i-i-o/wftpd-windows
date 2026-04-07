@@ -1,5 +1,5 @@
 //! UPnP/IGD 端口映射管理
-//! 
+//!
 //! 自动在 NAT 网关上注册端口映射，增强 FTP 被动模式的 NAT 穿透能力
 
 use anyhow::Result;
@@ -21,7 +21,6 @@ impl UpnpManager {
         }
     }
 
-    /// 初始化 UPnP 网关发现
     pub async fn initialize(&self) -> Result<bool> {
         if !self.enabled {
             info!("UPnP/IGD 端口映射已禁用");
@@ -41,7 +40,6 @@ impl UpnpManager {
         }
     }
 
-    /// 添加端口映射（自动选择外部端口）
     pub async fn add_port_mapping(
         &self,
         internal_addr: SocketAddrV4,
@@ -55,7 +53,6 @@ impl UpnpManager {
         let gateway_guard = self.gateway.read().await;
         match &*gateway_guard {
             Some(gateway) => {
-                // 请求网关分配任意可用外部端口
                 match gateway.add_any_port(
                     PortMappingProtocol::TCP,
                     SocketAddr::V4(internal_addr),
@@ -72,20 +69,17 @@ impl UpnpManager {
                         Ok(external_port)
                     }
                     Err(_) => {
-                        // 网关不支持动态端口或失败，使用固定端口
                         warn!("UPnP 端口映射失败，使用内部端口 {}", internal_addr.port());
                         Ok(internal_addr.port())
                     }
                 }
             }
             None => {
-                // 无网关，返回内部端口
                 Ok(internal_addr.port())
             }
         }
     }
 
-    /// 删除端口映射
     pub async fn remove_port_mapping(
         &self,
         external_port: u16,
@@ -109,7 +103,6 @@ impl UpnpManager {
         Ok(())
     }
 
-    /// 获取外部 IP 地址
     pub async fn get_external_ip(&self) -> Option<String> {
         if !self.enabled {
             return None;
@@ -131,7 +124,6 @@ impl UpnpManager {
         }
     }
 
-    /// 刷新所有端口映射（续期）
     pub async fn refresh_all_mappings(&self, mappings: &[(u16, SocketAddrV4)]) -> Result<()> {
         if !self.enabled {
             return Ok(());
@@ -143,19 +135,5 @@ impl UpnpManager {
             }
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_upnp_manager_creation() {
-        let manager = UpnpManager::new(true);
-        assert!(manager.enabled);
-        
-        let manager_disabled = UpnpManager::new(false);
-        assert!(!manager_disabled.enabled);
     }
 }

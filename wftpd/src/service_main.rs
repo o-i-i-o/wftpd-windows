@@ -1,8 +1,6 @@
-//! WFTPD - SFTP/FTP Server Daemon
+//! WFTPD - FTP/SFTP 服务器守护进程
 //!
-//! This is the main daemon that runs in the background and manages
-//! FTP and SFTP services. It listens on a named pipe for IPC commands
-//! to reload configuration files.
+//! 作为 Windows 服务运行，管理 FTP 和 SFTP 服务，并通过命名管道接收 IPC 命令进行配置重载
 
 #![windows_subsystem = "windows"]
 extern crate windows_service;

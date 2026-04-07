@@ -1,3 +1,7 @@
+//! FTP 会话主处理流程
+//!
+//! 处理 FTP 控制连接和命令分发的核心逻辑
+
 use std::net::IpAddr;
 use std::sync::Arc;
 use parking_lot::Mutex;
@@ -19,6 +23,7 @@ use super::session_cmds::{handle_basic_command, handle_help_command, handle_stat
 use super::session_dirs::handle_directory_command;
 use super::session_xfer::{handle_transfer_command, handle_list_command, handle_retrieve_command, handle_store_command, handle_fileinfo_command};
 use super::session_site::handle_site_command;
+use super::upnp_manager::UpnpManager;
 
 const MAX_COMMAND_LENGTH: usize = 8192;
 
@@ -28,6 +33,7 @@ pub async fn handle_session(
     user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
     fail2ban_manager: Arc<Fail2BanManager>,
+    upnp_manager: Option<Arc<UpnpManager>>,
     client_ip: String,
 ) -> Result<()> {
     let local_addr = socket.local_addr()?;
@@ -83,7 +89,7 @@ pub async fn handle_session(
         let cfg = config.lock();
         cfg.security.allow_symlinks
     };
-    let mut state = SessionState::new(&client_ip, &server_local_ip, allow_symlinks);
+    let mut state = SessionState::new(&client_ip, &server_local_ip, allow_symlinks, upnp_manager);
     state.transfer_mode = session_config.default_transfer_mode;
     state.passive_mode = session_config.default_passive_mode;
     state.encoding = session_config.encoding;

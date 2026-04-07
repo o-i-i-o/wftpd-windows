@@ -1,3 +1,7 @@
+//! 全局日志系统
+//!
+//! 基于 tracing 实现，支持日志级别控制和日志文件轮转
+
 use chrono::{DateTime, Local};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};

@@ -1,7 +1,10 @@
+//! FTP 认证命令处理
+//!
+//! 处理 USER、PASS、AUTH 等认证相关命令
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use parking_lot::Mutex;
-
 use anyhow::Result;
 
 use crate::core::config::Config;
