@@ -8,6 +8,13 @@ use std::path::PathBuf;
 use super::commands::FtpCommand;
 use super::session_state::{ControlStream, SessionState};
 
+/// 生成随机 u16 值
+fn random_u16() -> u16 {
+    let mut buf = [0u8; 2];
+    getrandom::fill(&mut buf).expect("Failed to generate random bytes");
+    u16::from_be_bytes(buf)
+}
+
 pub async fn handle_directory_command(
     control_stream: &mut ControlStream,
     cmd: &FtpCommand,
@@ -550,14 +557,9 @@ pub async fn generate_unique_filename(
 
     for attempt in 0..max_attempts {
         let unique_name = if attempt == 0 {
-            format!("stou_{}_{:04x}", base_name, rand::random::<u16>())
+            format!("stou_{}_{:04x}", base_name, random_u16())
         } else {
-            format!(
-                "stou_{}_{:04x}_{}",
-                base_name,
-                rand::random::<u16>(),
-                attempt
-            )
+            format!("stou_{}_{:04x}_{}", base_name, random_u16(), attempt)
         };
 
         let file_path = match state.resolve_path(&unique_name) {

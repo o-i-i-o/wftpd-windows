@@ -193,7 +193,7 @@ impl UserManager {
     fn hash_password(password: &str) -> Result<String, UserError> {
         // 生成随机盐值
         let mut salt_bytes = [0u8; 16];
-        getrandom::getrandom(&mut salt_bytes)
+        getrandom::fill(&mut salt_bytes)
             .map_err(|e| UserError::PasswordHashFailed(e.to_string()))?;
         let salt = SaltString::encode_b64(&salt_bytes)
             .map_err(|e| UserError::PasswordHashFailed(e.to_string()))?;

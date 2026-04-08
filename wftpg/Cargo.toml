@@ -7,36 +7,34 @@ description = "SFTP+FTP GUI Management Tool for Windows (Rust + egui)"
 build = "build.rs"
 
 [dependencies]
-# GUI 框架
+# ========== GUI 框架 ==========
 egui = "0.34.0"
 eframe = { version = "0.34.0", default-features = false, features = ["accesskit", "default_fonts", "glow", "persistence"] }
 egui_extras = { version = "0.34.0", default-features = false }
 
-# 文件操作
+# ========== 文件操作 ==========
 rfd = "0.17.2"
 ico = "0.5"
 notify = "8.2.0"
 
-# 序列化与配置
+# ========== 序列化与配置 ==========
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1.1"
+chrono = { version = "0.4", features = ["serde"] }
 
-# 安全与加密
+# ========== 安全与加密 ==========
 argon2 = "0.5.3"
 getrandom = "0.4.2"
 
-# 时间处理
-chrono = { version = "0.4", features = ["serde"] }
-
-# 错误处理
+# ========== 错误处理 ==========
 anyhow = "1"
 thiserror = "2"
 
-# 网络地址格式验证
+# ========== 网络地址格式验证 ==========
 ipnet = "2"
 
-# Windows API
+# ========== Windows API ==========
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Security",
@@ -49,12 +47,12 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
-# 日志系统
+# ========== 日志系统 ==========
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "json", "time", "chrono"] }
 tracing-appender = "0.2.4"
 
-# 并发原语
+# ========== 并发原语 ==========
 parking_lot = "0.12.5"
 
 [build-dependencies]

@@ -6,7 +6,6 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use russh::MethodKind;
-use russh::keys::ssh_key::rand_core::OsRng;
 use russh::keys::*;
 use russh::*;
 use std::collections::HashMap;
@@ -413,7 +412,7 @@ impl SftpServer {
             tokio::fs::create_dir_all(parent).await?;
         }
 
-        let mut rng = OsRng;
+        let mut rng = russh::keys::key::safe_rng();
         let key = PrivateKey::random(&mut rng, keys::Algorithm::Ed25519)?;
         let openssh = key.to_openssh(keys::ssh_key::LineEnding::default())?;
         tokio::fs::write(path, openssh.to_string()).await?;
@@ -445,7 +444,7 @@ impl SftpServer {
             tracing::info!("已创建 SFTP 密钥目录: {}", parent.display());
         }
 
-        let mut rng = OsRng;
+        let mut rng = russh::keys::key::safe_rng();
         let key = PrivateKey::random(&mut rng, keys::Algorithm::Ed25519)?;
         let openssh = key.to_openssh(keys::ssh_key::LineEnding::default())?;
         tokio::fs::write(&path, openssh.to_string()).await?;
