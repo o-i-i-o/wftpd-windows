@@ -62,18 +62,20 @@ func runSFTPTests() {
 }
 
 type SftpConn struct {
-	Client *sftp.Client
-	Conn   *ssh.Client
+	Client  *sftp.Client
+	Conn    *ssh.Client
+	done    chan struct{}
 }
 
 func (c *SftpConn) Close() error {
+	close(c.done)
 	var errs []error
 	if c.Client != nil {
 		done := make(chan error, 1)
 		go func() {
 			done <- c.Client.Close()
 		}()
-		
+
 		select {
 		case err := <-done:
 			if err != nil {
@@ -111,29 +113,35 @@ func sftpConnect() (*SftpConn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("SSH 连接失败: %w", err)
 	}
-	
-	// 启用 SSH KeepAlive 以保持连接稳定
+
+	done := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
-		for range ticker.C {
-			_, _, err := conn.SendRequest("keepalive@openssh.com", true, nil)
-			if err != nil {
+		for {
+			select {
+			case <-done:
 				return
+			case <-ticker.C:
+				_, _, err := conn.SendRequest("keepalive@openssh.com", true, nil)
+				if err != nil {
+					return
+				}
 			}
 		}
 	}()
 
 	client, err := sftp.NewClient(conn,
 		sftp.MaxPacket(32768),
-		sftp.MaxConcurrentRequestsPerFile(16), // 降低并发请求数以提高稳定性
+		sftp.MaxConcurrentRequestsPerFile(16),
 	)
 	if err != nil {
+		close(done)
 		conn.Close()
 		return nil, fmt.Errorf("SFTP 客户端创建失败: %w", err)
 	}
 
-	return &SftpConn{Client: client, Conn: conn}, nil
+	return &SftpConn{Client: client, Conn: conn, done: done}, nil
 }
 
 func testSftpBasicConnection() error {
@@ -219,20 +227,17 @@ func testSftpFileOperations() error {
 	testFilename := "sftp_test_file.txt"
 	testContent := []byte("Hello, SFTP! 测试中文内容。\n")
 
-	// 创建远程文件
 	dstFile, err := conn.Client.Create(testFilename)
 	if err != nil {
 		return fmt.Errorf("创建远程文件失败: %w", err)
 	}
 
-	// 写入文件内容
 	written, err := dstFile.Write(testContent)
 	if err != nil {
 		dstFile.Close()
 		return fmt.Errorf("写入文件失败 (已写入 %d bytes): %w", written, err)
 	}
-	
-	// 关闭文件
+
 	err = dstFile.Close()
 	if err != nil {
 		return fmt.Errorf("关闭文件失败: %w", err)
@@ -278,25 +283,11 @@ func testSftpLargeFileTransfer() error {
 	defer conn.Close()
 
 	testFilename := "sftp_large_test.bin"
-	fileSize := 1024 * 1024
-
 	srcPath := filepath.Join(config.TestDataDir, "medium.bin")
+
 	if _, err := os.Stat(srcPath); os.IsNotExist(err) {
-		f, err := os.Create(srcPath)
-		if err != nil {
-			return fmt.Errorf("创建测试文件失败: %w", err)
-		}
-		buf := make([]byte, 4096)
-		written := 0
-		for written < fileSize {
-			chunk := fileSize - written
-			if chunk > 4096 {
-				chunk = 4096
-			}
-			f.Write(buf[:chunk])
-			written += chunk
-		}
-		f.Close()
+		logger.Printf("  ⚠ medium.bin 不存在，跳过大文件传输测试\n")
+		return nil
 	}
 
 	localFile, err := os.Open(srcPath)
@@ -316,7 +307,10 @@ func testSftpLargeFileTransfer() error {
 		dstFile.Close()
 		return fmt.Errorf("上传文件失败: %w", err)
 	}
-	dstFile.Close()
+	err = dstFile.Close()
+	if err != nil {
+		return fmt.Errorf("关闭远程文件失败: %w", err)
+	}
 
 	uploadDuration := time.Since(uploadStart)
 	uploadThroughput := float64(bytesWritten) / uploadDuration.Seconds() / 1024 / 1024
@@ -342,7 +336,10 @@ func testSftpLargeFileTransfer() error {
 		return fmt.Errorf("下载文件失败: %w", err)
 	}
 	srcFile.Close()
-	downloadFile.Close()
+	err = downloadFile.Close()
+	if err != nil {
+		return fmt.Errorf("关闭本地文件失败: %w", err)
+	}
 
 	downloadDuration := time.Since(downloadStart)
 	downloadThroughput := float64(bytesRead) / downloadDuration.Seconds() / 1024 / 1024
@@ -350,13 +347,17 @@ func testSftpLargeFileTransfer() error {
 
 	originalMD5, err := calculateMD5(srcPath)
 	if err != nil {
+		conn.Client.Remove(testFilename)
 		return fmt.Errorf("计算原始文件 MD5 失败: %w", err)
 	}
 	downloadedMD5, err := calculateMD5(downloadPath)
 	if err != nil {
+		conn.Client.Remove(testFilename)
 		return fmt.Errorf("计算下载文件 MD5 失败: %w", err)
 	}
 	if originalMD5 != downloadedMD5 {
+		conn.Client.Remove(testFilename)
+		os.Remove(downloadPath)
 		return fmt.Errorf("数据完整性验证失败: MD5 不匹配 (原始: %s, 下载: %s)", originalMD5, downloadedMD5)
 	}
 	logger.Printf("  ✓ 数据完整性验证通过\n")
@@ -387,11 +388,15 @@ func testSftpRename() error {
 		return fmt.Errorf("创建文件失败: %w", err)
 	}
 	dstFile.Write(testContent)
-	dstFile.Close()
+	err = dstFile.Close()
+	if err != nil {
+		return fmt.Errorf("关闭文件失败: %w", err)
+	}
 	logger.Printf("  ✓ 创建文件: %s\n", oldName)
 
 	err = conn.Client.Rename(oldName, newName)
 	if err != nil {
+		conn.Client.Remove(oldName)
 		return fmt.Errorf("重命名失败: %w", err)
 	}
 	logger.Printf("  ✓ 重命名: %s -> %s\n", oldName, newName)
@@ -402,10 +407,7 @@ func testSftpRename() error {
 	}
 	logger.Printf("  ✓ 验证成功: 文件存在\n")
 
-	err = conn.Client.Remove(newName)
-	if err != nil {
-		logger.Printf("  ⚠ 清理文件失败: %v\n", err)
-	}
+	conn.Client.Remove(newName)
 
 	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
 	return nil
@@ -468,10 +470,8 @@ func testSftpSymlink() error {
 
 	err = conn.Client.Symlink(targetFile, linkFile)
 	if err != nil {
-		logger.Printf("  ⚠ 创建符号链接失败 (可能不支持): %v\n", err)
 		conn.Client.Remove(targetFile)
-		logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
-		return nil
+		return fmt.Errorf("创建符号链接失败 (服务器可能不支持): %w", err)
 	}
 	logger.Printf("  ✓ 创建符号链接: %s -> %s\n", linkFile, targetFile)
 
@@ -606,6 +606,22 @@ func sftpConcurrentUpload(id int) error {
 		return fmt.Errorf("关闭文件失败: %w", err)
 	}
 
+	srcFile, err := conn.Client.Open(filename)
+	if err != nil {
+		conn.Client.Remove(filename)
+		return fmt.Errorf("打开文件验证失败: %w", err)
+	}
+	downloaded, err := io.ReadAll(srcFile)
+	srcFile.Close()
+	if err != nil {
+		conn.Client.Remove(filename)
+		return fmt.Errorf("读取文件验证失败: %w", err)
+	}
+	if !bytes.Equal(testContent, downloaded) {
+		conn.Client.Remove(filename)
+		return fmt.Errorf("数据完整性验证失败: 内容不匹配")
+	}
+
 	err = conn.Client.Remove(filename)
 	if err != nil {
 		logger.Printf("  ⚠ 清理并发测试文件失败: %v\n", err)
@@ -628,7 +644,6 @@ func testSftpResumeTransfer() error {
 
 	if _, err := os.Stat(srcPath); os.IsNotExist(err) {
 		logger.Printf("  ⚠ medium.bin 不存在，跳过断点续传测试\n")
-		logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
 		return nil
 	}
 
@@ -653,8 +668,15 @@ func testSftpResumeTransfer() error {
 		dstFile.Close()
 		return fmt.Errorf("读取部分数据失败: %w", err)
 	}
-	dstFile.Write(partialBuf)
-	dstFile.Close()
+	_, err = dstFile.Write(partialBuf)
+	if err != nil {
+		dstFile.Close()
+		return fmt.Errorf("写入部分数据失败: %w", err)
+	}
+	err = dstFile.Close()
+	if err != nil {
+		return fmt.Errorf("关闭远程文件失败: %w", err)
+	}
 	logger.Printf("  ✓ 上传前半部分: %d bytes\n", partialSize)
 
 	remoteInfo, err := conn.Client.Stat(testFilename)
@@ -676,9 +698,13 @@ func testSftpResumeTransfer() error {
 	}
 
 	_, err = remoteFile.Write(remainingBuf)
-	remoteFile.Close()
 	if err != nil {
+		remoteFile.Close()
 		return fmt.Errorf("追加写入失败: %w", err)
+	}
+	err = remoteFile.Close()
+	if err != nil {
+		return fmt.Errorf("关闭远程文件失败: %w", err)
 	}
 	logger.Printf("  ✓ 追加剩余部分: %d bytes\n", len(remainingBuf))
 
@@ -693,7 +719,6 @@ func testSftpResumeTransfer() error {
 	}
 	logger.Printf("  ✓ 断点续传验证通过\n")
 
-	// 下载完整文件进行 MD5 验证
 	downloadPath := filepath.Join(config.TestDataDir, "sftp_resume_verify.bin")
 	downloadFile, err := os.Create(downloadPath)
 	if err != nil {
