@@ -174,18 +174,9 @@ pub async fn handle_auth_command(
         }
 
         CCC => {
-            if state.tls_enabled {
-                control_stream
-                    .write_response(b"200 CCC OK - reverting to clear text\r\n", "FTP response")
-                    .await;
-            } else {
-                control_stream
-                    .write_response(
-                        b"533 CCC not available - not in TLS mode\r\n",
-                        "FTP response",
-                    )
-                    .await;
-            }
+            control_stream
+                .write_response(b"534 CCC is disabled for security reasons\r\n", "FTP response")
+                .await;
         }
 
         ADAT(_data) => {

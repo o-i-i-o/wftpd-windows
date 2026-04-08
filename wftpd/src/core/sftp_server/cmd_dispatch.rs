@@ -10,6 +10,11 @@ impl SftpState {
             return Ok(self.build_status_packet(0, 5, "Bad packet", ""));
         }
 
+        if self.last_handle_cleanup.elapsed() > std::time::Duration::from_secs(60) {
+            self.cleanup_expired_handles().await;
+            self.last_handle_cleanup = std::time::Instant::now();
+        }
+
         let msg_type = data[0];
 
         match msg_type {

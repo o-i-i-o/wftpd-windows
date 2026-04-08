@@ -43,6 +43,7 @@ pub const MAX_BUFFER_SIZE: usize = 10 * 1024 * 1024;
 pub const MAX_HANDLES: usize = 256;
 pub const SFTP_READ_BUFFER_SIZE: usize = 128 * 1024;
 pub const SFTP_WRITE_FLUSH_THRESHOLD: usize = 64 * 1024;
+pub const HANDLE_TIMEOUT_SECS: u64 = 1800;
 
 pub enum SftpFileHandle {
     File {
@@ -53,11 +54,13 @@ pub enum SftpFileHandle {
         written_bytes: u64,
         read_bytes: u64,
         pending_flush_bytes: u64,
+        last_access: std::time::Instant,
     },
     Dir {
         path: PathBuf,
         entries: Vec<(String, bool, u64)>,
         index: usize,
+        last_access: std::time::Instant,
     },
 }
 
@@ -87,8 +90,7 @@ impl SftpServer {
                 find_time: 600,
             }
         };
-        let fail2ban_config = Arc::new(Mutex::new(fail2ban_config_inner));
-        let fail2ban_manager = Arc::new(Fail2BanManager::new(fail2ban_config));
+        let fail2ban_manager = Arc::new(Fail2BanManager::new(fail2ban_config_inner));
 
         SftpServer {
             config,
@@ -522,6 +524,7 @@ pub struct SftpState {
     pub cached_permissions: Option<crate::core::users::Permissions>,
     pub rate_limiter: Option<RateLimiter>,
     pub cache_expiry: Option<std::time::Instant>,
+    pub last_handle_cleanup: std::time::Instant,
 }
 
 impl SftpState {
@@ -547,6 +550,7 @@ impl SftpState {
             cached_permissions: None,
             rate_limiter: None,
             cache_expiry: None,
+            last_handle_cleanup: std::time::Instant::now(),
         };
         state.cache_permissions();
         state.init_rate_limiter();
@@ -608,6 +612,47 @@ impl SftpState {
         }
         self.locked_files.clear();
         tracing::info!("SFTP session cleanup completed");
+    }
+
+    pub async fn cleanup_expired_handles(&mut self) {
+        let timeout = std::time::Duration::from_secs(HANDLE_TIMEOUT_SECS);
+        let expired: Vec<String> = self
+            .handles
+            .iter()
+            .filter(|(_, h)| match h {
+                SftpFileHandle::File { last_access, .. } => last_access.elapsed() > timeout,
+                SftpFileHandle::Dir { last_access, .. } => last_access.elapsed() > timeout,
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        for handle_key in expired {
+            if let Some(handle) = self.handles.remove(&handle_key) {
+                match handle {
+                    SftpFileHandle::File {
+                        locked, path, mut file, ..
+                    } => {
+                        use tokio::io::AsyncWriteExt;
+                        let _ = file.flush().await;
+                        if locked {
+                            self.locked_files.remove(&path);
+                        }
+                        tracing::info!(
+                            "SFTP handle expired and closed: {:?} (handle={})",
+                            path,
+                            handle_key
+                        );
+                    }
+                    SftpFileHandle::Dir { path, .. } => {
+                        tracing::info!(
+                            "SFTP dir handle expired and closed: {:?} (handle={})",
+                            path,
+                            handle_key
+                        );
+                    }
+                }
+            }
+        }
     }
 
     pub fn resolve_path(&self, path: &str) -> Result<PathBuf, PathResolveError> {

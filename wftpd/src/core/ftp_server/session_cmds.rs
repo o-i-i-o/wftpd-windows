@@ -49,7 +49,7 @@ pub async fn handle_basic_command(
                 "211-Features:\r\n SIZE\r\n MDTM\r\n REST STREAM\r\n PASV\r\n EPSV\r\n EPRT\r\n PORT\r\n MLST\r\n MLSD\r\n MODE S\r\n STRU F\r\n UTF8\r\n TVFS\r\n".to_string()
             };
             if ctx.tls_config.is_tls_available() {
-                features.push_str(" AUTH TLS\r\n PBSZ\r\n PROT\r\n CCC\r\n");
+                features.push_str(" AUTH TLS\r\n PBSZ\r\n PROT\r\n");
                 features.push_str(" MIC\r\n CONF\r\n ENC\r\n");
             }
             features.push_str(" SITE SYMLINK\r\n SITE WHO\r\n");

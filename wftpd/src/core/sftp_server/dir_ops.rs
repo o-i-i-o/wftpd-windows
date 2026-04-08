@@ -46,6 +46,7 @@ impl SftpState {
                 path: full_path,
                 entries: Vec::new(),
                 index: 0,
+                last_access: std::time::Instant::now(),
             },
         );
 
@@ -63,6 +64,7 @@ impl SftpState {
                     path,
                     entries,
                     index,
+                    last_access,
                 }) => {
                     if entries.is_empty() && *index == 0 {
                         let mut read_entries = Vec::new();
@@ -99,6 +101,7 @@ impl SftpState {
                     let result_entries: Vec<(String, bool, u64)> =
                         entries[*index..*index + count].to_vec();
                     *index += count;
+                    *last_access = std::time::Instant::now();
                     Some(result_entries)
                 }
                 _ => None,

@@ -9,10 +9,12 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    pub server: ServerConfig,
+    #[serde(skip)]
+    pub server: Arc<ServerConfig>,
     pub ftp: FtpConfig,
     pub sftp: SftpConfig,
     pub security: SecurityConfig,
@@ -21,20 +23,13 @@ pub struct Config {
 
 impl Clone for Config {
     fn clone(&self) -> Self {
-        let global_count = self.server.get_global_count();
-        let ip_counts = self.server.get_all_ip_counts();
-
-        let new_config = Config {
-            server: ServerConfig::new(),
+        Config {
+            server: Arc::clone(&self.server),
             ftp: self.ftp.clone(),
             sftp: self.sftp.clone(),
             security: self.security.clone(),
             logging: self.logging.clone(),
-        };
-
-        // 恢复连接计数（避免 reload 时丢失活跃连接统计）
-        new_config.server.restore_counts(global_count, &ip_counts);
-        new_config
+        }
     }
 }
 
@@ -82,22 +77,6 @@ impl ServerConfig {
     pub fn get_all_ip_counts(&self) -> std::collections::HashMap<String, usize> {
         let map = self.connection_count_per_ip.lock();
         map.clone()
-    }
-
-    pub fn restore_counts(
-        &self,
-        global_count: usize,
-        ip_counts: &std::collections::HashMap<String, usize>,
-    ) {
-        self.global_connection_count
-            .store(global_count, Ordering::SeqCst);
-        let mut map = self.connection_count_per_ip.lock();
-        map.clear();
-        for (ip, count) in ip_counts {
-            if *count > 0 {
-                map.insert(ip.clone(), *count);
-            }
-        }
     }
 
     pub fn try_register(&self, client_ip: &str, max_global: usize, max_per_ip: usize) -> bool {
@@ -372,7 +351,7 @@ impl Default for Config {
             .to_string();
 
         Config {
-            server: ServerConfig::new(),
+            server: Arc::new(ServerConfig::new()),
             ftp: FtpConfig {
                 enabled: true,
                 bind_ip: "0.0.0.0".to_string(),
@@ -467,6 +446,7 @@ impl Config {
         let content = fs::read_to_string(path).context("Failed to read config file")?;
 
         let mut config: Config = toml::from_str(&content).context("Failed to parse config file")?;
+        config.server = Arc::new(ServerConfig::new());
 
         // 规范化绑定 IP 地址（自动为 IPv6 添加 []）
         config.ftp.bind_ip = Self::normalize_bind_ip(&config.ftp.bind_ip);

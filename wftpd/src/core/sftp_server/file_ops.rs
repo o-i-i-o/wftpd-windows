@@ -118,6 +118,7 @@ impl SftpState {
                         written_bytes: 0,
                         read_bytes: 0,
                         pending_flush_bytes: 0,
+                        last_access: std::time::Instant::now(),
                     },
                 );
                 tracing::debug!("SFTP OPEN: handle '{}' created for {}", handle, path);
@@ -143,12 +144,15 @@ impl SftpState {
                     written_bytes,
                     read_bytes,
                     pending_flush_bytes: _,
+                    last_access: _,
                     mut file,
                 } => {
                     use tokio::io::AsyncWriteExt;
-                    // 确保 flush 错误也被记录
                     if let Err(e) = file.flush().await {
                         tracing::warn!("Failed to flush file on close {:?}: {}", path, e);
+                    }
+                    if let Err(e) = file.sync_all().await {
+                        tracing::warn!("Failed to sync file on close {:?}: {}", path, e);
                     }
 
                     // 文件会在 drop 时自动关闭，但显式关闭可以更早释放资源
@@ -251,6 +255,7 @@ impl SftpState {
                 path,
                 file,
                 read_bytes,
+                last_access,
                 ..
             }) => {
                 use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -274,6 +279,7 @@ impl SftpState {
                     Ok(n) => {
                         buffer.truncate(n);
                         *read_bytes += n as u64;
+                        *last_access = std::time::Instant::now();
 
                         tracing::debug!(
                             client_ip = %self.client_ip,
@@ -375,6 +381,7 @@ impl SftpState {
                 file,
                 written_bytes,
                 pending_flush_bytes,
+                last_access,
                 ..
             }) => {
                 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
@@ -391,6 +398,7 @@ impl SftpState {
 
                 *written_bytes += data_len as u64;
                 *pending_flush_bytes += data_len as u64;
+                *last_access = std::time::Instant::now();
 
                 if *pending_flush_bytes >= SFTP_WRITE_FLUSH_THRESHOLD as u64 {
                     if let Err(e) = file.flush().await {
@@ -401,6 +409,9 @@ impl SftpState {
                             &format!("Flush error: {}", e),
                             "",
                         ));
+                    }
+                    if let Err(e) = file.sync_all().await {
+                        tracing::warn!("SFTP WRITE sync_all error for {:?}: {}", path, e);
                     }
                     *pending_flush_bytes = 0;
                 }

@@ -190,9 +190,10 @@ impl AppState {
     }
 
     pub fn reload_config(&self) -> anyhow::Result<()> {
-        let config = crate::core::config::Config::load(&self.config_path)?;
+        let mut new_config = crate::core::config::Config::load(&self.config_path)?;
         let mut current_config = self.config.lock();
-        *current_config = config;
+        new_config.server = Arc::clone(&current_config.server);
+        *current_config = new_config;
         Ok(())
     }
 

@@ -281,12 +281,10 @@ pub async fn handle_list_command(
                 return Ok(true);
             }
 
-            let can_list = if state.current_user.as_deref() == Some("anonymous") {
-                true
-            } else {
+            let can_list = {
                 let users = ctx.user_manager.lock();
                 let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
-                user.is_some_and(|u| u.permissions.can_list)
+                user.is_none_or(|u| u.permissions.can_list)
             };
 
             if !can_list {

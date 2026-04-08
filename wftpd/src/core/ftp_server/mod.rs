@@ -73,8 +73,7 @@ impl FtpServer {
                 find_time: 600, // 10 分钟检测窗口
             }
         };
-        let fail2ban_config = Arc::new(Mutex::new(fail2ban_config_inner));
-        let fail2ban_manager = Arc::new(Fail2BanManager::new(fail2ban_config.clone()));
+        let fail2ban_manager = Arc::new(Fail2BanManager::new(fail2ban_config_inner));
 
         // 初始化 UPnP 管理器
         let upnp_enabled = {

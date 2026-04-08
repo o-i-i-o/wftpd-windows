@@ -120,15 +120,10 @@ pub async fn handle_site_command(
                         return Ok(true);
                     }
 
-                    let can_write = if state.current_user.as_deref() == Some("anonymous") {
-                        false
-                    } else {
+                    let can_write = {
                         let users = ctx.user_manager.lock();
-                        state
-                            .current_user
-                            .as_ref()
-                            .and_then(|u| users.get_user(u))
-                            .is_some_and(|u| u.permissions.can_write)
+                        let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
+                        user.is_some_and(|u| u.permissions.can_write)
                     };
 
                     if !can_write {
