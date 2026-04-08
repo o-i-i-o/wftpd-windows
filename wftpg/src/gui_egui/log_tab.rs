@@ -432,31 +432,59 @@ impl LogTab {
                     table
                         .header(styles::FONT_SIZE_MD, |mut header| {
                             header.col(|ui| {
-                                ui.label(
-                                    RichText::new("时间")
-                                        .strong()
-                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                ui.with_layout(
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
+                                    |ui| {
+                                        ui.label(
+                                            RichText::new("时间")
+                                                .strong()
+                                                .color(styles::TEXT_PRIMARY_COLOR),
+                                        );
+                                    },
                                 );
                             });
                             header.col(|ui| {
-                                ui.label(
-                                    RichText::new("级别")
-                                        .strong()
-                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                ui.with_layout(
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
+                                    |ui| {
+                                        ui.label(
+                                            RichText::new("级别")
+                                                .strong()
+                                                .color(styles::TEXT_PRIMARY_COLOR),
+                                        );
+                                    },
                                 );
                             });
                             header.col(|ui| {
-                                ui.label(
-                                    RichText::new("协议")
-                                        .strong()
-                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                ui.with_layout(
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
+                                    |ui| {
+                                        ui.label(
+                                            RichText::new("协议")
+                                                .strong()
+                                                .color(styles::TEXT_PRIMARY_COLOR),
+                                        );
+                                    },
                                 );
                             });
                             header.col(|ui| {
-                                ui.label(
-                                    RichText::new("客户端")
-                                        .strong()
-                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                ui.with_layout(
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
+                                    |ui| {
+                                        ui.label(
+                                            RichText::new("客户端")
+                                                .strong()
+                                                .color(styles::TEXT_PRIMARY_COLOR),
+                                        );
+                                    },
                                 );
                             });
                             header.col(|ui| {
@@ -472,59 +500,90 @@ impl LogTab {
                             for entry in &self.logs {
                                 body.row(styles::FONT_SIZE_MD, |mut row| {
                                     row.col(|ui| {
-                                        ui.label(
-                                            RichText::new(
-                                                entry
-                                                    .timestamp
-                                                    .format("%Y-%m-%d %H:%M:%S")
-                                                    .to_string(),
-                                            )
-                                            .size(styles::FONT_SIZE_MD)
-                                            .color(styles::TEXT_SECONDARY_COLOR),
+                                        ui.with_layout(
+                                            egui::Layout::centered_and_justified(
+                                                egui::Direction::LeftToRight,
+                                            ),
+                                            |ui| {
+                                                ui.label(
+                                                    RichText::new(
+                                                        entry
+                                                            .timestamp
+                                                            .format("%Y-%m-%d %H:%M:%S")
+                                                            .to_string(),
+                                                    )
+                                                    .size(styles::FONT_SIZE_MD)
+                                                    .color(styles::TEXT_SECONDARY_COLOR),
+                                                );
+                                            },
                                         );
                                     });
                                     row.col(|ui| {
-                                        let level_color = match entry.level {
-                                            crate::core::logger::LogLevel::Error => {
-                                                styles::DANGER_COLOR
-                                            }
-                                            crate::core::logger::LogLevel::Warning => {
-                                                styles::WARNING_COLOR
-                                            }
-                                            crate::core::logger::LogLevel::Debug => {
-                                                styles::TEXT_MUTED_COLOR
-                                            }
-                                            _ => styles::SUCCESS_COLOR,
-                                        };
-                                        ui.label(
-                                            RichText::new(entry.level.to_string())
-                                                .size(styles::FONT_SIZE_MD)
-                                                .strong()
-                                                .color(level_color),
+                                        ui.with_layout(
+                                            egui::Layout::centered_and_justified(
+                                                egui::Direction::LeftToRight,
+                                            ),
+                                            |ui| {
+                                                let level_color = match entry.level {
+                                                    crate::core::logger::LogLevel::Error => {
+                                                        styles::DANGER_COLOR
+                                                    }
+                                                    crate::core::logger::LogLevel::Warning => {
+                                                        styles::WARNING_COLOR
+                                                    }
+                                                    crate::core::logger::LogLevel::Debug => {
+                                                        styles::TEXT_MUTED_COLOR
+                                                    }
+                                                    _ => styles::SUCCESS_COLOR,
+                                                };
+                                                ui.label(
+                                                    RichText::new(entry.level.to_string())
+                                                        .size(styles::FONT_SIZE_MD)
+                                                        .strong()
+                                                        .color(level_color),
+                                                );
+                                            },
                                         );
                                     });
                                     row.col(|ui| {
-                                        let protocol =
-                                            entry.fields.protocol.as_deref().unwrap_or("-");
-                                        let protocol_color = match protocol {
-                                            "FTP" => styles::PRIMARY_COLOR,
-                                            "SFTP" => styles::INFO_COLOR,
-                                            _ => styles::TEXT_MUTED_COLOR,
-                                        };
-                                        ui.label(
-                                            RichText::new(protocol)
-                                                .size(styles::FONT_SIZE_MD)
-                                                .strong()
-                                                .color(protocol_color),
+                                        ui.with_layout(
+                                            egui::Layout::centered_and_justified(
+                                                egui::Direction::LeftToRight,
+                                            ),
+                                            |ui| {
+                                                let protocol =
+                                                    entry.fields.protocol.as_deref().unwrap_or("-");
+                                                let protocol_color = match protocol {
+                                                    "FTP" => styles::PRIMARY_COLOR,
+                                                    "SFTP" => styles::INFO_COLOR,
+                                                    _ => styles::TEXT_MUTED_COLOR,
+                                                };
+                                                ui.label(
+                                                    RichText::new(protocol)
+                                                        .size(styles::FONT_SIZE_MD)
+                                                        .strong()
+                                                        .color(protocol_color),
+                                                );
+                                            },
                                         );
                                     });
                                     row.col(|ui| {
-                                        let client_ip =
-                                            entry.fields.client_ip.as_deref().unwrap_or("-");
-                                        ui.label(
-                                            RichText::new(client_ip)
-                                                .size(styles::FONT_SIZE_MD)
-                                                .color(styles::TEXT_LABEL_COLOR),
+                                        ui.with_layout(
+                                            egui::Layout::centered_and_justified(
+                                                egui::Direction::LeftToRight,
+                                            ),
+                                            |ui| {
+                                                let client_ip = entry
+                                                    .fields
+                                                    .client_ip
+                                                    .as_deref()
+                                                    .unwrap_or("-");
+                                                ui.label(
+                                                    RichText::new(client_ip)
+                                                        .size(styles::FONT_SIZE_MD)
+                                                        .color(styles::TEXT_LABEL_COLOR),
+                                                );
+                                            },
                                         );
                                     });
                                     row.col(|ui| {

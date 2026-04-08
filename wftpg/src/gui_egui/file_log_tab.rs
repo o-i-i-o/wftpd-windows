@@ -420,45 +420,75 @@ impl FileLogTab {
             table
                 .header(styles::FONT_SIZE_MD, |mut header| {
                     header.col(|ui| {
-                        ui.label(
-                            RichText::new("时间")
-                                .strong()
-                                .color(styles::TEXT_PRIMARY_COLOR),
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                ui.label(
+                                    RichText::new("时间")
+                                        .strong()
+                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                );
+                            },
                         );
                     });
                     header.col(|ui| {
-                        ui.label(
-                            RichText::new("用户")
-                                .strong()
-                                .color(styles::TEXT_PRIMARY_COLOR),
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                ui.label(
+                                    RichText::new("用户")
+                                        .strong()
+                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                );
+                            },
                         );
                     });
                     header.col(|ui| {
-                        ui.label(
-                            RichText::new("客户端")
-                                .strong()
-                                .color(styles::TEXT_PRIMARY_COLOR),
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                ui.label(
+                                    RichText::new("客户端")
+                                        .strong()
+                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                );
+                            },
                         );
                     });
                     header.col(|ui| {
-                        ui.label(
-                            RichText::new("协议")
-                                .strong()
-                                .color(styles::TEXT_PRIMARY_COLOR),
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                ui.label(
+                                    RichText::new("协议")
+                                        .strong()
+                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                );
+                            },
                         );
                     });
                     header.col(|ui| {
-                        ui.label(
-                            RichText::new("操作")
-                                .strong()
-                                .color(styles::TEXT_PRIMARY_COLOR),
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                ui.label(
+                                    RichText::new("操作")
+                                        .strong()
+                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                );
+                            },
                         );
                     });
                     header.col(|ui| {
-                        ui.label(
-                            RichText::new("大小")
-                                .strong()
-                                .color(styles::TEXT_PRIMARY_COLOR),
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                ui.label(
+                                    RichText::new("大小")
+                                        .strong()
+                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                );
+                            },
                         );
                     });
                     header.col(|ui| {
@@ -474,74 +504,123 @@ impl FileLogTab {
                     for entry in &self.logs {
                         body.row(styles::FONT_SIZE_MD, |mut row| {
                             row.col(|ui| {
-                                ui.label(
-                                    RichText::new(
-                                        entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
-                                    )
-                                    .size(styles::FONT_SIZE_MD)
-                                    .color(styles::TEXT_SECONDARY_COLOR),
+                                ui.with_layout(
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
+                                    |ui| {
+                                        ui.label(
+                                            RichText::new(
+                                                entry
+                                                    .timestamp
+                                                    .format("%Y-%m-%d %H:%M:%S")
+                                                    .to_string(),
+                                            )
+                                            .size(styles::FONT_SIZE_MD)
+                                            .color(styles::TEXT_SECONDARY_COLOR),
+                                        );
+                                    },
                                 );
                             });
                             row.col(|ui| {
-                                let username = entry.fields.username.as_deref().unwrap_or("-");
-                                ui.label(
-                                    RichText::new(username)
-                                        .size(styles::FONT_SIZE_MD)
-                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                ui.with_layout(
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
+                                    |ui| {
+                                        let username =
+                                            entry.fields.username.as_deref().unwrap_or("-");
+                                        ui.label(
+                                            RichText::new(username)
+                                                .size(styles::FONT_SIZE_MD)
+                                                .color(styles::TEXT_PRIMARY_COLOR),
+                                        );
+                                    },
                                 );
                             });
                             row.col(|ui| {
-                                let client_ip = entry.fields.client_ip.as_deref().unwrap_or("-");
-                                ui.label(
-                                    RichText::new(client_ip)
-                                        .size(styles::FONT_SIZE_MD)
-                                        .color(styles::TEXT_LABEL_COLOR),
+                                ui.with_layout(
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
+                                    |ui| {
+                                        let client_ip =
+                                            entry.fields.client_ip.as_deref().unwrap_or("-");
+                                        ui.label(
+                                            RichText::new(client_ip)
+                                                .size(styles::FONT_SIZE_MD)
+                                                .color(styles::TEXT_LABEL_COLOR),
+                                        );
+                                    },
                                 );
                             });
                             row.col(|ui| {
-                                let protocol = entry.fields.protocol.as_deref().unwrap_or("-");
-                                let protocol_color = match protocol {
-                                    "FTP" => styles::PRIMARY_COLOR,
-                                    "SFTP" => styles::INFO_COLOR,
-                                    _ => styles::TEXT_MUTED_COLOR,
-                                };
-                                ui.label(
-                                    RichText::new(protocol)
-                                        .size(styles::FONT_SIZE_MD)
-                                        .strong()
-                                        .color(protocol_color),
+                                ui.with_layout(
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
+                                    |ui| {
+                                        let protocol =
+                                            entry.fields.protocol.as_deref().unwrap_or("-");
+                                        let protocol_color = match protocol {
+                                            "FTP" => styles::PRIMARY_COLOR,
+                                            "SFTP" => styles::INFO_COLOR,
+                                            _ => styles::TEXT_MUTED_COLOR,
+                                        };
+                                        ui.label(
+                                            RichText::new(protocol)
+                                                .size(styles::FONT_SIZE_MD)
+                                                .strong()
+                                                .color(protocol_color),
+                                        );
+                                    },
                                 );
                             });
                             row.col(|ui| {
-                                let operation = entry.fields.operation.as_deref().unwrap_or("-");
-                                let success = entry.fields.success.unwrap_or(true);
-                                let op_color = match operation {
-                                    "DELETE" | "RMDIR" => styles::DANGER_COLOR,
-                                    "UPLOAD" | "MKDIR" => styles::SUCCESS_COLOR,
-                                    "DOWNLOAD" => styles::INFO_COLOR,
-                                    "RENAME" | "COPY" | "MOVE" => styles::WARNING_COLOR,
-                                    "UPDATE" => styles::TEXT_MUTED_COLOR,
-                                    _ => styles::TEXT_LABEL_COLOR,
-                                };
-                                let status_icon = if success { "√" } else { "×" };
-                                ui.label(
-                                    RichText::new(format!("{} {}", status_icon, operation))
-                                        .size(styles::FONT_SIZE_MD)
-                                        .strong()
-                                        .color(op_color),
+                                ui.with_layout(
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
+                                    |ui| {
+                                        let operation =
+                                            entry.fields.operation.as_deref().unwrap_or("-");
+                                        let success = entry.fields.success.unwrap_or(true);
+                                        let op_color = match operation {
+                                            "DELETE" | "RMDIR" => styles::DANGER_COLOR,
+                                            "UPLOAD" | "MKDIR" => styles::SUCCESS_COLOR,
+                                            "DOWNLOAD" => styles::INFO_COLOR,
+                                            "RENAME" | "COPY" | "MOVE" => styles::WARNING_COLOR,
+                                            "UPDATE" => styles::TEXT_MUTED_COLOR,
+                                            _ => styles::TEXT_LABEL_COLOR,
+                                        };
+                                        let status_icon = if success { "√" } else { "×" };
+                                        ui.label(
+                                            RichText::new(format!("{} {}", status_icon, operation))
+                                                .size(styles::FONT_SIZE_MD)
+                                                .strong()
+                                                .color(op_color),
+                                        );
+                                    },
                                 );
                             });
                             row.col(|ui| {
-                                let size_str = entry
-                                    .fields
-                                    .file_size
-                                    .filter(|&s| s > 0)
-                                    .map(format_size)
-                                    .unwrap_or_else(|| "-".to_string());
-                                ui.label(
-                                    RichText::new(&size_str)
-                                        .size(styles::FONT_SIZE_MD)
-                                        .color(styles::TEXT_LABEL_COLOR),
+                                ui.with_layout(
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
+                                    |ui| {
+                                        let size_str = entry
+                                            .fields
+                                            .file_size
+                                            .filter(|&s| s > 0)
+                                            .map(format_size)
+                                            .unwrap_or_else(|| "-".to_string());
+                                        ui.label(
+                                            RichText::new(&size_str)
+                                                .size(styles::FONT_SIZE_MD)
+                                                .color(styles::TEXT_LABEL_COLOR),
+                                        );
+                                    },
                                 );
                             });
                             row.col(|ui| {
