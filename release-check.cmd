@@ -44,6 +44,17 @@ if not exist "Cargo.toml" (
     goto :check_wftpg
 )
 
+:: 先格式化代码
+echo [准备] 正在格式化代码...
+cargo fmt >nul 2>&1
+if errorlevel 1 (
+    echo   ❌ 代码格式化失败
+    exit /b 1
+) else (
+    echo   ✅ 代码格式化完成
+)
+echo.
+
 call :run_check "代码格式检查" "cargo fmt --check"
 call :run_check "Clippy 静态分析" "cargo clippy --release -- -D warnings"
 call :run_check "编译检查" "cargo check --release"
@@ -62,6 +73,17 @@ if not exist "Cargo.toml" (
     set /a TOTAL_CHECKS+=1
     goto :summary
 )
+
+:: 先格式化代码
+echo [准备] 正在格式化代码...
+cargo fmt >nul 2>&1
+if errorlevel 1 (
+    echo   ❌ 代码格式化失败
+    exit /b 1
+) else (
+    echo   ✅ 代码格式化完成
+)
+echo.
 
 call :run_check "代码格式检查" "cargo fmt --check"
 call :run_check "Clippy 静态分析" "cargo clippy --release -- -D warnings"

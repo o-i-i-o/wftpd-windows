@@ -20,3 +20,5 @@ env/
 *.swp
 *.swo
 *~
+.trae
+.lingma
