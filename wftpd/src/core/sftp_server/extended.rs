@@ -28,10 +28,10 @@ impl SftpState {
     }
 
     pub async fn handle_limits(&self, id: u32) -> Result<Vec<u8>, anyhow::Error> {
-        let max_packet_size: u64 = 32768;
-        let max_read_size: u64 = 32768;
-        let max_write_size: u64 = 32768;
-        let max_open_handles: u64 = 1000;
+        let max_packet_size: u64 = 256 * 1024;
+        let max_read_size: u64 = 128 * 1024;
+        let max_write_size: u64 = 256 * 1024;
+        let max_open_handles: u64 = 256;
         let max_locks: u64 = 100;
 
         let mut payload = vec![201];

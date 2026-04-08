@@ -521,7 +521,6 @@ pub struct SftpState {
     pub client_ip: String,
     pub cached_permissions: Option<crate::core::users::Permissions>,
     pub rate_limiter: Option<RateLimiter>,
-    pub permission_cache: std::collections::HashMap<String, bool>,
     pub cache_expiry: Option<std::time::Instant>,
 }
 
@@ -547,7 +546,6 @@ impl SftpState {
             client_ip,
             cached_permissions: None,
             rate_limiter: None,
-            permission_cache: std::collections::HashMap::new(),
             cache_expiry: None,
         };
         state.cache_permissions();
@@ -559,16 +557,11 @@ impl SftpState {
         &self,
         check_fn: impl Fn(&crate::core::users::Permissions) -> bool,
     ) -> bool {
-        if let Some(expiry) = self.cache_expiry
-            && std::time::Instant::now() < expiry
-            && let Some(&result) = self.permission_cache.get("check")
-        {
-            return result;
+        if let Some(perms) = &self.cached_permissions {
+            return check_fn(perms);
         }
 
-        if let Some(perms) = &self.cached_permissions {
-            check_fn(perms)
-        } else if let Some(username) = &self.username {
+        if let Some(username) = &self.username {
             let users = self.user_manager.lock();
             if let Some(user) = users.get_user(username) {
                 check_fn(&user.permissions)
@@ -586,8 +579,7 @@ impl SftpState {
             if let Some(user) = users.get_user(username) {
                 self.cached_permissions = Some(user.permissions);
                 self.cache_expiry =
-                    Some(std::time::Instant::now() + std::time::Duration::from_secs(2));
-                self.permission_cache.insert("check".to_string(), true);
+                    Some(std::time::Instant::now() + std::time::Duration::from_secs(30));
             }
         }
     }
