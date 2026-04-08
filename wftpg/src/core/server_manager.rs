@@ -8,6 +8,10 @@ use windows::Win32::System::Services::*;
 use windows::core::PCWSTR;
 
 const SERVICE_NAME: &str = "wftpd";
+/// 服务启动/停止最大等待次数
+const SERVICE_WAIT_MAX_ATTEMPTS: u32 = 30;
+/// 服务启动/停止每次等待间隔（毫秒）
+const SERVICE_WAIT_INTERVAL_MS: u64 = 500;
 
 pub struct ServerManager;
 
@@ -203,7 +207,7 @@ impl ServerManager {
             StartServiceW(service, None).context("无法启动服务")?;
 
             let mut status = SERVICE_STATUS::default();
-            for _ in 0..30 {
+            for _ in 0..SERVICE_WAIT_MAX_ATTEMPTS {
                 if QueryServiceStatus(service, &mut status).is_ok() {
                     if status.dwCurrentState == SERVICE_RUNNING {
                         break;
@@ -213,7 +217,7 @@ impl ServerManager {
                         anyhow::bail!("服务启动后立即停止，请检查服务配置");
                     }
                 }
-                std::thread::sleep(std::time::Duration::from_millis(500));
+                std::thread::sleep(std::time::Duration::from_millis(SERVICE_WAIT_INTERVAL_MS));
             }
 
             let _ = CloseServiceHandle(service);
@@ -245,13 +249,13 @@ impl ServerManager {
             let mut status = SERVICE_STATUS::default();
             ControlService(service, SERVICE_CONTROL_STOP, &mut status).context("无法停止服务")?;
 
-            for _ in 0..30 {
+            for _ in 0..SERVICE_WAIT_MAX_ATTEMPTS {
                 if QueryServiceStatus(service, &mut status).is_ok()
                     && status.dwCurrentState == SERVICE_STOPPED
                 {
                     break;
                 }
-                std::thread::sleep(std::time::Duration::from_millis(500));
+                std::thread::sleep(std::time::Duration::from_millis(SERVICE_WAIT_INTERVAL_MS));
             }
 
             let _ = CloseServiceHandle(service);

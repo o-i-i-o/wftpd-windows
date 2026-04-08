@@ -8,6 +8,11 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
+/// 配置文件防抖时间（毫秒）
+const CONFIG_RELOAD_DEBOUNCE_MS: u64 = 500;
+/// 每帧最大处理事件数
+const MAX_EVENTS_PER_FRAME: usize = 5;
+
 /// 配置文件监听器
 pub struct ConfigWatcher {
     watcher: Option<RecommendedWatcher>,
@@ -79,7 +84,6 @@ impl ConfigWatcher {
     pub fn check_and_reload(&mut self) -> bool {
         if let Some(rx) = &self.receiver {
             let mut event_count = 0;
-            const MAX_EVENTS_PER_FRAME: usize = 5;
 
             while let Ok(result) = rx.try_recv() {
                 event_count += 1;
@@ -96,11 +100,10 @@ impl ConfigWatcher {
                             {
                                 let now = std::time::Instant::now();
 
-                                // 防抖：500ms 内只处理一次
-                                if self
-                                    .last_event_time
-                                    .is_none_or(|t| t.elapsed() >= Duration::from_millis(500))
-                                {
+                                // 防抖：在指定时间内只处理一次
+                                if self.last_event_time.is_none_or(|t| {
+                                    t.elapsed() >= Duration::from_millis(CONFIG_RELOAD_DEBOUNCE_MS)
+                                }) {
                                     self.needs_reload = true;
                                     self.last_event_time = Some(now);
                                     tracing::info!("Config file changed: {:?}, will reload", path);

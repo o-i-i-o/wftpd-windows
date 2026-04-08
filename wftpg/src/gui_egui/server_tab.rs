@@ -145,6 +145,9 @@ impl ServerTab {
 
         let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
+            // 先更新 config_manager 中的配置，确保保存的是经过验证的配置
+            config_manager.modify(|c| *c = config.clone());
+
             let result = match config_manager.save(&Config::get_config_path()) {
                 Ok(_) => {
                     tracing::info!("服务器配置保存成功");

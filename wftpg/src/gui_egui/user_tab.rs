@@ -482,26 +482,21 @@ impl UserTab {
                 Ok(_) => {
                     tracing::info!("用户 {} 已删除", name);
                     self.save();
-                    // 删除成功后关闭模态框
-                    self.modal = ModalMode::None;
                 }
                 Err(e) => {
                     tracing::error!("删除用户 {} 失败：{}", name, e);
                     self.status_message = Some((format!("删除用户失败：{}", e), false));
                 }
             }
+            // 无论成功或失败，都关闭模态框
+            close_modal = true;
         }
 
-        // 分开处理提交和关闭逻辑，避免状态冲突
-        if do_submit {
-            // 提交操作已在上方完成，模态框已关闭
-            self.form_error = None;
-        } else if close_modal {
-            // 取消操作直接关闭模态框
+        // 统一处理模态框关闭逻辑
+        if close_modal {
             self.modal = ModalMode::None;
             self.form_error = None;
         }
-        // 删除操作的模态框关闭已在删除逻辑中处理
     }
 
     pub fn ui(&mut self, ui: &mut Ui) {

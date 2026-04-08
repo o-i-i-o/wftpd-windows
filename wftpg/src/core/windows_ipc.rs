@@ -114,6 +114,7 @@ impl IpcServerInner {
             Ok(IpcStream {
                 handle: current_handle,
                 read_timeout: std::cell::RefCell::new(None),
+                write_timeout: std::cell::RefCell::new(None),
             })
         }
     }
@@ -178,6 +179,7 @@ impl IpcServerInner {
             Ok(Some(IpcStream {
                 handle: current_handle,
                 read_timeout: std::cell::RefCell::new(None),
+                write_timeout: std::cell::RefCell::new(None),
             }))
         }
     }
@@ -197,6 +199,7 @@ impl Drop for IpcServerInner {
 pub struct IpcStream {
     handle: HANDLE,
     read_timeout: std::cell::RefCell<Option<Duration>>,
+    write_timeout: std::cell::RefCell<Option<Duration>>,
 }
 
 unsafe impl Send for IpcStream {}
@@ -245,6 +248,7 @@ impl IpcStream {
             Ok(IpcStream {
                 handle,
                 read_timeout: std::cell::RefCell::new(None),
+                write_timeout: std::cell::RefCell::new(None),
             })
         }
     }
@@ -326,9 +330,9 @@ impl Write for &IpcStream {
             match result {
                 Ok(()) => Ok(bytes_written as usize), // 立即完成
                 Err(e) if e.code() == ERROR_IO_PENDING.to_hresult() => {
-                    // 等待超时（使用与读取相同的超时）
+                    // 等待超时（使用写入超时）
                     let timeout_ms = self
-                        .read_timeout
+                        .write_timeout
                         .borrow()
                         .map(|d| d.as_millis() as u32)
                         .unwrap_or(INFINITE);
@@ -383,7 +387,7 @@ impl IpcStream {
 
     /// 设置写入超时
     pub fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
-        *self.read_timeout.borrow_mut() = timeout;
+        *self.write_timeout.borrow_mut() = timeout;
         Ok(())
     }
 }

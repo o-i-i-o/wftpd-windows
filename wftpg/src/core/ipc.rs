@@ -7,6 +7,8 @@ use crate::core::windows_ipc::{IpcServerInner, IpcStream};
 
 /// IPC 操作默认超时时间（秒）
 const IPC_TIMEOUT_SECS: u64 = 10;
+/// IPC 消息最大大小（10 MB）
+const MAX_IPC_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReloadCommand {
@@ -52,7 +54,7 @@ fn read_message<R: Read>(reader: &mut R) -> Result<Vec<u8>> {
     let len = u32::from_be_bytes(len_bytes) as usize;
 
     // 限制最大消息大小，防止内存溢出
-    if len > 10 * 1024 * 1024 {
+    if len > MAX_IPC_MESSAGE_SIZE {
         anyhow::bail!("消息过大：{} 字节", len);
     }
 

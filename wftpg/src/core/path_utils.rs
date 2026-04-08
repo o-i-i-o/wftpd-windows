@@ -616,7 +616,7 @@ pub fn validate_existing_path(path: &Path, home_canon: &Path) -> Result<PathBuf,
         PathResolveError::CanonicalizeFailed
     })?;
 
-    if !canon.starts_with(home_canon) {
+    if !path_starts_with_ignore_case(&canon, home_canon) {
         tracing::warn!(
             "validate_existing_path: Path escape detected - canonicalized: {:?}, home: {:?}",
             canon,
