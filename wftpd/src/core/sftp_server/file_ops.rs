@@ -44,12 +44,9 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 4, "Too many open handles", ""));
         }
 
-        let full_path = match self.resolve_path(&path) {
+        let full_path = match self.resolve_path_checked(id, &path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("OPEN failed for '{}': {}", path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
         let file_existed = full_path.exists();
 

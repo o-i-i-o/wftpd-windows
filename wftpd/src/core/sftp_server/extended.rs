@@ -48,11 +48,9 @@ impl SftpState {
         let (_ext_name, ext_len) = self.parse_string_with_len(data, 5)?;
         let path_offset = 5 + 4 + ext_len;
         let path = self.parse_string(data, path_offset)?;
-        let full_path = match self.resolve_path(&path) {
+        let full_path = match self.resolve_path_checked(id, &path) {
             Ok(p) => p,
-            Err(_) => {
-                return Ok(self.build_status_packet(id, 2, "Invalid path", ""));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         #[cfg(windows)]
@@ -182,11 +180,9 @@ impl SftpState {
         let (_ext_name, ext_len) = self.parse_string_with_len(data, 5 + 4)?;
         let path_pos = 5 + 4 + ext_len;
         let path = self.parse_string(data, path_pos)?;
-        let full_path = match self.resolve_path(&path) {
+        let full_path = match self.resolve_path_checked(id, &path) {
             Ok(p) => p,
-            Err(e) => {
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         if !self.check_permission(|p| p.can_read) {
@@ -206,14 +202,7 @@ impl SftpState {
                         Err(_) => return Ok(self.build_status_packet(id, 4, "Read error", "")),
                     }
                 }
-                let hash = hasher.finalize();
-                let hash_hex = hex::encode(hash);
-
-                let mut payload = vec![201];
-                payload.extend_from_slice(&id.to_be_bytes());
-                payload.extend_from_slice(&(hash_hex.len() as u32).to_be_bytes());
-                payload.extend_from_slice(hash_hex.as_bytes());
-                Ok(self.build_packet(&payload))
+                Ok(self.build_hash_response(id, &hex::encode(hasher.finalize())))
             }
             Err(_) => Ok(self.build_status_packet(id, 2, "No such file", "")),
         }
@@ -223,11 +212,9 @@ impl SftpState {
         let (_ext_name, ext_len) = self.parse_string_with_len(data, 5 + 4)?;
         let path_pos = 5 + 4 + ext_len;
         let path = self.parse_string(data, path_pos)?;
-        let full_path = match self.resolve_path(&path) {
+        let full_path = match self.resolve_path_checked(id, &path) {
             Ok(p) => p,
-            Err(e) => {
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         if !self.check_permission(|p| p.can_read) {
@@ -247,17 +234,18 @@ impl SftpState {
                         Err(_) => return Ok(self.build_status_packet(id, 4, "Read error", "")),
                     }
                 }
-                let hash = hasher.finalize();
-                let hash_hex = hex::encode(hash);
-
-                let mut payload = vec![201];
-                payload.extend_from_slice(&id.to_be_bytes());
-                payload.extend_from_slice(&(hash_hex.len() as u32).to_be_bytes());
-                payload.extend_from_slice(hash_hex.as_bytes());
-                Ok(self.build_packet(&payload))
+                Ok(self.build_hash_response(id, &hex::encode(hasher.finalize())))
             }
             Err(_) => Ok(self.build_status_packet(id, 2, "No such file", "")),
         }
+    }
+
+    fn build_hash_response(&self, id: u32, hash_hex: &str) -> Vec<u8> {
+        let mut payload = vec![201];
+        payload.extend_from_slice(&id.to_be_bytes());
+        payload.extend_from_slice(&(hash_hex.len() as u32).to_be_bytes());
+        payload.extend_from_slice(hash_hex.as_bytes());
+        self.build_packet(&payload)
     }
 
     pub async fn handle_copy_file(
@@ -275,19 +263,13 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
-        let src_full = match self.resolve_path(&src_path) {
+        let src_full = match self.resolve_path_checked(id, &src_path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("COPY failed for src path '{}': {}", src_path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
-        let dst_full = match self.resolve_path(&dst_path) {
+        let dst_full = match self.resolve_path_checked(id, &dst_path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("COPY failed for dst path '{}': {}", dst_path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         match tokio::fs::copy(&src_full, &dst_full).await {
@@ -325,19 +307,13 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
-        let src_full = match self.resolve_path(&src_path) {
+        let src_full = match self.resolve_path_checked(id, &src_path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("HARDLINK failed for src path '{}': {}", src_path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
-        let dst_full = match self.resolve_path(&dst_path) {
+        let dst_full = match self.resolve_path_checked(id, &dst_path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("HARDLINK failed for dst path '{}': {}", dst_path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         match std::fs::hard_link(&src_full, &dst_full) {

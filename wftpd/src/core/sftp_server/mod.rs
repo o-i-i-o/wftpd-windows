@@ -601,6 +601,56 @@ impl SftpState {
         }
     }
 
+    pub fn resolve_path_checked(
+        &self,
+        id: u32,
+        path: &str,
+    ) -> std::result::Result<PathBuf, Vec<u8>> {
+        self.resolve_path(path).map_err(|e| {
+            tracing::warn!("Path resolve failed for '{}': {}", path, e);
+            self.build_status_packet(id, 2, &e.to_string(), "")
+        })
+    }
+
+    pub async fn check_symlink_in_home(&self, path: &PathBuf) -> std::result::Result<(), Vec<u8>> {
+        if !path.is_symlink() {
+            return Ok(());
+        }
+        match tokio::fs::read_link(path).await {
+            Ok(link_target) => {
+                let resolved = if link_target.is_absolute() {
+                    link_target
+                } else {
+                    let parent = path
+                        .parent()
+                        .unwrap_or(std::path::Path::new(&self.home_dir));
+                    parent.join(&link_target)
+                };
+                if let Ok(canon) = resolved.canonicalize() {
+                    let home = PathBuf::from(&self.home_dir);
+                    if !crate::core::path_utils::path_starts_with_ignore_case(&canon, home) {
+                        tracing::warn!(
+                            "Symlink points outside home: {:?} -> {:?}",
+                            path,
+                            canon
+                        );
+                        return Err(self.build_status_packet(
+                            0,
+                            3,
+                            "Permission denied: symlink target outside home",
+                            "",
+                        ));
+                    }
+                }
+                Ok(())
+            }
+            Err(e) => {
+                tracing::warn!("Cannot read symlink {:?}: {}", path, e);
+                Err(self.build_status_packet(0, 4, "Failed to read symlink", ""))
+            }
+        }
+    }
+
     pub fn cleanup(&mut self) {
         for (_, handle) in self.handles.drain() {
             if let SftpFileHandle::File { locked, path, .. } = handle

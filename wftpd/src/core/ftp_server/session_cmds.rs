@@ -296,9 +296,9 @@ pub async fn handle_basic_command(
         REIN => {
             let tls_was_enabled = state.tls_enabled;
             let tls_config_preserved = state.data_protection;
+            let previous_user = state.current_user.take();
 
             state.authenticated = false;
-            state.current_user = None;
             state.cwd = String::new();
             state.home_dir = String::new();
             state.data_port = None;
@@ -323,7 +323,7 @@ pub async fn handle_basic_command(
 
             tracing::info!(
                 client_ip = %ctx.client_ip,
-                previous_user = ?state.current_user,
+                previous_user = ?previous_user,
                 tls_preserved = tls_was_enabled,
                 action = "REIN",
                 protocol = "FTP",

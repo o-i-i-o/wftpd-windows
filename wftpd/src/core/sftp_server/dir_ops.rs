@@ -23,12 +23,9 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 4, "Too many open handles", ""));
         }
 
-        let full_path = match self.resolve_path(&path) {
+        let full_path = match self.resolve_path_checked(id, &path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("OPENDIR failed for '{}': {}", path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         if !full_path.exists() {
@@ -153,12 +150,9 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
-        let full_path = match self.resolve_path(&path) {
+        let full_path = match self.resolve_path_checked(id, &path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("REMOVE failed for '{}': {}", path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         if tokio::fs::remove_file(&full_path).await.is_ok() {
@@ -183,12 +177,9 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
-        let full_path = match self.resolve_path(&path) {
+        let full_path = match self.resolve_path_checked(id, &path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("MKDIR failed for '{}': {}", path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         if tokio::fs::create_dir_all(&full_path).await.is_ok() {
@@ -213,12 +204,9 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
-        let full_path = match self.resolve_path(&path) {
+        let full_path = match self.resolve_path_checked(id, &path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("RMDIR failed for '{}': {}", path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         let is_symlink = full_path.is_symlink();
@@ -257,19 +245,13 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
-        let old_full = match self.resolve_path(&old_path) {
+        let old_full = match self.resolve_path_checked(id, &old_path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("RENAME failed for old path '{}': {}", old_path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
-        let new_full = match self.resolve_path(&new_path) {
+        let new_full = match self.resolve_path_checked(id, &new_path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("RENAME failed for new path '{}': {}", new_path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         tracing::debug!(
@@ -299,90 +281,12 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
-        if old_full.is_symlink() {
-            match tokio::fs::read_link(&old_full).await {
-                Ok(link_target) => {
-                    let resolved_target = if link_target.is_absolute() {
-                        link_target
-                    } else {
-                        let parent = old_full
-                            .parent()
-                            .unwrap_or(std::path::Path::new(&self.home_dir));
-                        parent.join(&link_target)
-                    };
-
-                    let canon_target = match resolved_target.canonicalize() {
-                        Ok(c) => c,
-                        Err(_) => {
-                            tracing::warn!(
-                                "SFTP RENAME denied: cannot resolve symlink target - {}",
-                                old_full.display()
-                            );
-                            return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
-                        }
-                    };
-
-                    if !path_starts_with_ignore_case(&canon_target, PathBuf::from(&self.home_dir)) {
-                        tracing::warn!(
-                            "SFTP RENAME denied: symlink points outside home - {} -> {}",
-                            old_full.display(),
-                            canon_target.display()
-                        );
-                        return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "SFTP RENAME failed: cannot read symlink - {}: {}",
-                        old_full.display(),
-                        e
-                    );
-                    return Ok(self.build_status_packet(id, 4, "Failed to read symlink", ""));
-                }
-            }
+        if let Err(resp) = self.check_symlink_in_home(&old_full).await {
+            return Ok(resp);
         }
 
-        if new_full.exists() && new_full.is_symlink() {
-            match tokio::fs::read_link(&new_full).await {
-                Ok(link_target) => {
-                    let resolved_target = if link_target.is_absolute() {
-                        link_target
-                    } else {
-                        let parent = new_full
-                            .parent()
-                            .unwrap_or(std::path::Path::new(&self.home_dir));
-                        parent.join(&link_target)
-                    };
-
-                    let canon_target = match resolved_target.canonicalize() {
-                        Ok(c) => c,
-                        Err(_) => {
-                            tracing::warn!(
-                                "SFTP RENAME denied: cannot resolve destination symlink target - {}",
-                                new_full.display()
-                            );
-                            return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
-                        }
-                    };
-
-                    if !path_starts_with_ignore_case(&canon_target, PathBuf::from(&self.home_dir)) {
-                        tracing::warn!(
-                            "SFTP RENAME denied: destination symlink points outside home - {} -> {}",
-                            new_full.display(),
-                            canon_target.display()
-                        );
-                        return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "SFTP RENAME failed: cannot read destination symlink - {}: {}",
-                        new_full.display(),
-                        e
-                    );
-                    return Ok(self.build_status_packet(id, 4, "Failed to read symlink", ""));
-                }
-            }
+        if new_full.exists() && let Err(resp) = self.check_symlink_in_home(&new_full).await {
+            return Ok(resp);
         }
 
         match tokio::fs::rename(&old_full, &new_full).await {

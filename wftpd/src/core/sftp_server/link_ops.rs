@@ -10,12 +10,9 @@ impl SftpState {
         let id = self.parse_u32(data, 1);
         let path = self.parse_string(data, 5)?;
 
-        let full_path = match self.resolve_path(&path) {
+        let full_path = match self.resolve_path_checked(id, &path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("READLINK failed for '{}': {}", path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         match tokio::fs::read_link(&full_path).await {
@@ -45,19 +42,13 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
-        let full_link = match self.resolve_path(&link_path) {
+        let full_link = match self.resolve_path_checked(id, &link_path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("SYMLINK failed for link path '{}': {}", link_path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
-        let full_target = match self.resolve_path(&target) {
+        let full_target = match self.resolve_path_checked(id, &target) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("SYMLINK failed for target path '{}': {}", target, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         let home_path = std::path::Path::new(&self.home_dir);

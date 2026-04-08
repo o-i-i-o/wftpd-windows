@@ -14,12 +14,9 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
-        let full_path = match self.resolve_path(&path) {
+        let full_path = match self.resolve_path_checked(id, &path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("STAT failed for '{}': {}", path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         match tokio::fs::metadata(&full_path).await {
@@ -54,7 +51,7 @@ impl SftpState {
                 Ok(metadata) => {
                     let mut payload = vec![105];
                     payload.extend_from_slice(&id.to_be_bytes());
-                    payload.extend_from_slice(&self.build_attrs(metadata.is_dir(), metadata.len()));
+                    payload.extend_from_slice(&self.build_attrs_extended(&metadata, metadata.is_dir()));
                     Ok(self.build_packet(&payload))
                 }
                 Err(_) => Ok(self.build_status_packet(id, 2, "No such file", "")),
@@ -90,12 +87,9 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
-        let full_path = match self.resolve_path(&path) {
+        let full_path = match self.resolve_path_checked(id, &path) {
             Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("SETSTAT failed for '{}': {}", path, e);
-                return Ok(self.build_status_packet(id, 2, &e.to_string(), ""));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         if !full_path.exists() {
