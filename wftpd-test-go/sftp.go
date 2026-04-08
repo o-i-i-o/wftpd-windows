@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -112,10 +111,22 @@ func sftpConnect() (*SftpConn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("SSH 连接失败: %w", err)
 	}
+	
+	// 启用 SSH KeepAlive 以保持连接稳定
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			_, _, err := conn.SendRequest("keepalive@openssh.com", true, nil)
+			if err != nil {
+				return
+			}
+		}
+	}()
 
 	client, err := sftp.NewClient(conn,
 		sftp.MaxPacket(32768),
-		sftp.MaxConcurrentRequestsPerFile(64),
+		sftp.MaxConcurrentRequestsPerFile(16), // 降低并发请求数以提高稳定性
 	)
 	if err != nil {
 		conn.Close()
@@ -208,17 +219,24 @@ func testSftpFileOperations() error {
 	testFilename := "sftp_test_file.txt"
 	testContent := []byte("Hello, SFTP! 测试中文内容。\n")
 
+	// 创建远程文件
 	dstFile, err := conn.Client.Create(testFilename)
 	if err != nil {
 		return fmt.Errorf("创建远程文件失败: %w", err)
 	}
 
-	_, err = dstFile.Write(testContent)
+	// 写入文件内容
+	written, err := dstFile.Write(testContent)
 	if err != nil {
 		dstFile.Close()
-		return fmt.Errorf("写入文件失败: %w", err)
+		return fmt.Errorf("写入文件失败 (已写入 %d bytes): %w", written, err)
 	}
-	dstFile.Close()
+	
+	// 关闭文件
+	err = dstFile.Close()
+	if err != nil {
+		return fmt.Errorf("关闭文件失败: %w", err)
+	}
 	logger.Printf("  ✓ 上传文件: %s (%d bytes)\n", testFilename, len(testContent))
 
 	srcFile, err := conn.Client.Open(testFilename)
@@ -330,10 +348,16 @@ func testSftpLargeFileTransfer() error {
 	downloadThroughput := float64(bytesRead) / downloadDuration.Seconds() / 1024 / 1024
 	logger.Printf("  ✓ 下载完成: %.2f MB (%.2f MB/s)\n", float64(bytesRead)/1024/1024, downloadThroughput)
 
-	originalMD5, _ := calculateMD5(srcPath)
-	downloadedMD5, _ := calculateMD5(downloadPath)
+	originalMD5, err := calculateMD5(srcPath)
+	if err != nil {
+		return fmt.Errorf("计算原始文件 MD5 失败: %w", err)
+	}
+	downloadedMD5, err := calculateMD5(downloadPath)
+	if err != nil {
+		return fmt.Errorf("计算下载文件 MD5 失败: %w", err)
+	}
 	if originalMD5 != downloadedMD5 {
-		return fmt.Errorf("数据完整性验证失败: MD5 不匹配")
+		return fmt.Errorf("数据完整性验证失败: MD5 不匹配 (原始: %s, 下载: %s)", originalMD5, downloadedMD5)
 	}
 	logger.Printf("  ✓ 数据完整性验证通过\n")
 
@@ -378,7 +402,10 @@ func testSftpRename() error {
 	}
 	logger.Printf("  ✓ 验证成功: 文件存在\n")
 
-	conn.Client.Remove(newName)
+	err = conn.Client.Remove(newName)
+	if err != nil {
+		logger.Printf("  ⚠ 清理文件失败: %v\n", err)
+	}
 
 	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
 	return nil
@@ -428,8 +455,15 @@ func testSftpSymlink() error {
 	if err != nil {
 		return fmt.Errorf("创建目标文件失败: %w", err)
 	}
-	dstFile.Write(testContent)
-	dstFile.Close()
+	_, err = dstFile.Write(testContent)
+	if err != nil {
+		dstFile.Close()
+		return fmt.Errorf("写入目标文件失败: %w", err)
+	}
+	err = dstFile.Close()
+	if err != nil {
+		return fmt.Errorf("关闭目标文件失败: %w", err)
+	}
 	logger.Printf("  ✓ 创建目标文件: %s\n", targetFile)
 
 	err = conn.Client.Symlink(targetFile, linkFile)
@@ -449,7 +483,10 @@ func testSftpSymlink() error {
 	}
 
 	conn.Client.Remove(linkFile)
-	conn.Client.Remove(targetFile)
+	err = conn.Client.Remove(targetFile)
+	if err != nil {
+		logger.Printf("  ⚠ 清理目标文件失败: %v\n", err)
+	}
 
 	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
 	return nil
@@ -472,8 +509,15 @@ func testSftpPermissions() error {
 	if err != nil {
 		return fmt.Errorf("创建文件失败: %w", err)
 	}
-	dstFile.Write(testContent)
-	dstFile.Close()
+	_, err = dstFile.Write(testContent)
+	if err != nil {
+		dstFile.Close()
+		return fmt.Errorf("写入文件失败: %w", err)
+	}
+	err = dstFile.Close()
+	if err != nil {
+		return fmt.Errorf("关闭文件失败: %w", err)
+	}
 	logger.Printf("  ✓ 创建文件: %s\n", testFile)
 
 	info, err := conn.Client.Stat(testFile)
@@ -494,7 +538,10 @@ func testSftpPermissions() error {
 		logger.Printf("  ✓ 修改后权限: %s\n", info.Mode().String())
 	}
 
-	conn.Client.Remove(testFile)
+	err = conn.Client.Remove(testFile)
+	if err != nil {
+		logger.Printf("  ⚠ 清理文件失败: %v\n", err)
+	}
 
 	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
 	return nil
@@ -549,10 +596,20 @@ func sftpConcurrentUpload(id int) error {
 	if err != nil {
 		return err
 	}
-	dstFile.Write(testContent)
-	dstFile.Close()
+	_, err = dstFile.Write(testContent)
+	if err != nil {
+		dstFile.Close()
+		return fmt.Errorf("写入文件失败: %w", err)
+	}
+	err = dstFile.Close()
+	if err != nil {
+		return fmt.Errorf("关闭文件失败: %w", err)
+	}
 
-	conn.Client.Remove(filename)
+	err = conn.Client.Remove(filename)
+	if err != nil {
+		logger.Printf("  ⚠ 清理并发测试文件失败: %v\n", err)
+	}
 	return nil
 }
 
@@ -636,7 +693,53 @@ func testSftpResumeTransfer() error {
 	}
 	logger.Printf("  ✓ 断点续传验证通过\n")
 
+	// 下载完整文件进行 MD5 验证
+	downloadPath := filepath.Join(config.TestDataDir, "sftp_resume_verify.bin")
+	downloadFile, err := os.Create(downloadPath)
+	if err != nil {
+		conn.Client.Remove(testFilename)
+		return fmt.Errorf("创建验证文件失败: %w", err)
+	}
+
+	remoteFile, err = conn.Client.Open(testFilename)
+	if err != nil {
+		downloadFile.Close()
+		conn.Client.Remove(testFilename)
+		return fmt.Errorf("打开远程文件失败: %w", err)
+	}
+
+	_, err = io.Copy(downloadFile, remoteFile)
+	remoteFile.Close()
+	downloadFile.Close()
+	if err != nil {
+		conn.Client.Remove(testFilename)
+		os.Remove(downloadPath)
+		return fmt.Errorf("下载验证文件失败: %w", err)
+	}
+
+	originalMD5, err := calculateMD5(srcPath)
+	if err != nil {
+		conn.Client.Remove(testFilename)
+		os.Remove(downloadPath)
+		return fmt.Errorf("计算原始文件 MD5 失败: %w", err)
+	}
+
+	verifyMD5, err := calculateMD5(downloadPath)
+	if err != nil {
+		conn.Client.Remove(testFilename)
+		os.Remove(downloadPath)
+		return fmt.Errorf("计算验证文件 MD5 失败: %w", err)
+	}
+
+	if originalMD5 != verifyMD5 {
+		conn.Client.Remove(testFilename)
+		os.Remove(downloadPath)
+		return fmt.Errorf("数据完整性验证失败: MD5 不匹配 (原始: %s, 验证: %s)", originalMD5, verifyMD5)
+	}
+	logger.Printf("  ✓ 数据完整性验证通过 (MD5: %s)\n", originalMD5)
+
 	conn.Client.Remove(testFilename)
+	os.Remove(downloadPath)
 
 	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
 	return nil

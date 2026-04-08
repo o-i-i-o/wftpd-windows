@@ -420,10 +420,31 @@ impl russh::server::Handler for SftpHandler {
 
     async fn channel_open_session(
         &mut self,
-        _channel: Channel<Msg>,
-        _session: &mut server::Session,
+        channel: Channel<Msg>,
+        session: &mut server::Session,
     ) -> Result<bool, Self::Error> {
-        Ok(self.authenticated)
+        if !self.authenticated {
+            tracing::warn!(
+                client_ip = %self.client_ip,
+                action = "CHANNEL_OPEN_DENIED",
+                reason = "not_authenticated",
+                "拒绝未认证的通道打开请求"
+            );
+            return Ok(false);
+        }
+        
+        let channel_id = channel.id();
+        tracing::debug!(
+            client_ip = %self.client_ip,
+            action = "CHANNEL_OPEN_SESSION",
+            channel_id = ?channel_id,
+            "允许打开会话通道"
+        );
+        
+        // 接受通道打开请求
+        let _ = session.channel_success(channel_id);
+        
+        Ok(true)
     }
 
     async fn channel_open_direct_tcpip(
@@ -548,21 +569,57 @@ impl russh::server::Handler for SftpHandler {
         data: &[u8],
         session: &mut server::Session,
     ) -> Result<(), Self::Error> {
-        if self.sftp_channel == Some(channel)
-            && let Some(state) = &self.sftp_state
-        {
+        // 检查是否是 SFTP 通道
+        if self.sftp_channel != Some(channel) {
+            tracing::warn!(
+                client_ip = %self.client_ip,
+                action = "DATA_ON_INVALID_CHANNEL",
+                channel_id = ?channel,
+                expected_channel = ?self.sftp_channel,
+                reason = "channel_mismatch_or_not_initialized",
+                "收到非 SFTP 通道的数据或 SFTP 未初始化"
+            );
+            // 不要静默丢弃，发送 CHANNEL_FAILURE
+            let _ = session.channel_failure(channel);
+            return Ok(());
+        }
+        
+        // 检查 SFTP 状态是否已初始化
+        if self.sftp_state.is_none() {
+            tracing::warn!(
+                client_ip = %self.client_ip,
+                action = "DATA_BEFORE_SFTP_INIT",
+                channel_id = ?channel,
+                reason = "sftp_state_not_initialized",
+                "SFTP 状态未初始化，可能是子系统请求失败"
+            );
+            let _ = session.channel_failure(channel);
+            return Ok(());
+        }
+        
+        // 处理 SFTP 数据
+        if let Some(state) = &self.sftp_state {
             let state_clone = Arc::clone(state);
             let handle = session.handle();
             let data_vec = data.to_vec();
+            let client_ip = self.client_ip.clone();
 
             tokio::spawn(async move {
                 let response = Self::process_sftp_data(state_clone, data_vec).await;
 
                 if let Ok(resp) = response {
                     let _ = handle.data(channel, bytes::Bytes::from(resp)).await;
+                } else if let Err(e) = response {
+                    tracing::error!(
+                        client_ip = %client_ip,
+                        action = "SFTP_DATA_PROCESS_ERROR",
+                        error = %e,
+                        "处理 SFTP 数据时出错"
+                    );
                 }
             });
         }
+        
         Ok(())
     }
 
