@@ -129,7 +129,16 @@ impl SftpState {
 
                 Ok(self.build_packet(&payload))
             }
-            None => Ok(self.build_status_packet(id, 4, "Invalid handle", "")),
+            None => {
+                tracing::debug!(
+                    client_ip = %self.client_ip,
+                    username = ?self.username,
+                    action = "READDIR_INVALID_HANDLE",
+                    handle = %handle_str,
+                    "SFTP READDIR: handle not found or invalid type"
+                );
+                Ok(self.build_status_packet(id, 4, "Invalid handle", ""))
+            }
         }
     }
 

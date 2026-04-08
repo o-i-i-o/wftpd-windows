@@ -38,7 +38,27 @@ impl SftpState {
                     Err(_) => Ok(self.build_status_packet(id, 4, "Failed to lock file", "")),
                 }
             }
-            _ => Ok(self.build_status_packet(id, 4, "Invalid handle", "")),
+            Some(SftpFileHandle::Dir { path, .. }) => {
+                tracing::warn!(
+                    client_ip = %self.client_ip,
+                    username = ?self.username,
+                    action = "LOCK_INVALID_TYPE",
+                    handle = %handle_str,
+                    "SFTP LOCK on directory handle (expected file): {:?}",
+                    path
+                );
+                Ok(self.build_status_packet(id, 4, "Invalid handle type", ""))
+            }
+            None => {
+                tracing::debug!(
+                    client_ip = %self.client_ip,
+                    username = ?self.username,
+                    action = "LOCK_INVALID_HANDLE",
+                    handle = %handle_str,
+                    "SFTP LOCK: handle not found"
+                );
+                Ok(self.build_status_packet(id, 4, "Invalid handle", ""))
+            }
         }
     }
 
@@ -71,7 +91,27 @@ impl SftpState {
                     Err(_) => Ok(self.build_status_packet(id, 4, "Failed to unlock file", "")),
                 }
             }
-            _ => Ok(self.build_status_packet(id, 4, "Invalid handle", "")),
+            Some(SftpFileHandle::Dir { path, .. }) => {
+                tracing::warn!(
+                    client_ip = %self.client_ip,
+                    username = ?self.username,
+                    action = "UNLOCK_INVALID_TYPE",
+                    handle = %handle_str,
+                    "SFTP UNLOCK on directory handle (expected file): {:?}",
+                    path
+                );
+                Ok(self.build_status_packet(id, 4, "Invalid handle type", ""))
+            }
+            None => {
+                tracing::debug!(
+                    client_ip = %self.client_ip,
+                    username = ?self.username,
+                    action = "UNLOCK_INVALID_HANDLE",
+                    handle = %handle_str,
+                    "SFTP UNLOCK: handle not found"
+                );
+                Ok(self.build_status_packet(id, 4, "Invalid handle", ""))
+            }
         }
     }
 }

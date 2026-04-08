@@ -134,62 +134,96 @@ impl SftpState {
         let id = self.parse_u32(data, 1);
         let handle = self.parse_string(data, 5)?;
 
-        if let Some(SftpFileHandle::File {
-            path,
-            locked,
-            existed,
-            written_bytes,
-            read_bytes,
-            pending_flush_bytes: _,
-            mut file,
-        }) = self.handles.remove(&handle)
-        {
-            use tokio::io::AsyncWriteExt;
-            let _ = file.flush().await;
+        if let Some(handle_obj) = self.handles.remove(&handle) {
+            match handle_obj {
+                SftpFileHandle::File {
+                    path,
+                    locked,
+                    existed,
+                    written_bytes,
+                    read_bytes,
+                    pending_flush_bytes: _,
+                    mut file,
+                } => {
+                    use tokio::io::AsyncWriteExt;
+                    // 确保 flush 错误也被记录
+                    if let Err(e) = file.flush().await {
+                        tracing::warn!("Failed to flush file on close {:?}: {}", path, e);
+                    }
 
-            if locked {
-                self.locked_files.remove(&path);
-            }
+                    // 文件会在 drop 时自动关闭，但显式关闭可以更早释放资源
+                    drop(file);
 
-            if written_bytes > 0 {
-                let file_size = tokio::fs::metadata(&path)
-                    .await
-                    .map(|m| m.len())
-                    .unwrap_or(written_bytes);
+                    if locked {
+                        self.locked_files.remove(&path);
+                    }
 
-                if existed {
-                    crate::file_op_log!(
-                        update,
-                        self.username.as_deref().unwrap_or("anonymous"),
-                        &self.client_ip,
-                        &path.to_string_lossy(),
-                        file_size,
-                        "SFTP"
+                    if written_bytes > 0 {
+                        let file_size = tokio::fs::metadata(&path)
+                            .await
+                            .map(|m| m.len())
+                            .unwrap_or(written_bytes);
+
+                        if existed {
+                            crate::file_op_log!(
+                                update,
+                                self.username.as_deref().unwrap_or("anonymous"),
+                                &self.client_ip,
+                                &path.to_string_lossy(),
+                                file_size,
+                                "SFTP"
+                            );
+                        } else {
+                            crate::file_op_log!(
+                                upload,
+                                self.username.as_deref().unwrap_or("anonymous"),
+                                &self.client_ip,
+                                &path.to_string_lossy(),
+                                written_bytes,
+                                "SFTP"
+                            );
+                        }
+                    }
+
+                    if read_bytes > 0 {
+                        crate::file_op_log!(
+                            download,
+                            self.username.as_deref().unwrap_or("anonymous"),
+                            &self.client_ip,
+                            &path.to_string_lossy(),
+                            read_bytes,
+                            "SFTP"
+                        );
+                    }
+
+                    tracing::debug!(
+                        client_ip = %self.client_ip,
+                        username = ?self.username,
+                        action = "CLOSE",
+                        handle = %handle,
+                        "File handle closed: {:?}",
+                        path
                     );
-                } else {
-                    crate::file_op_log!(
-                        upload,
-                        self.username.as_deref().unwrap_or("anonymous"),
-                        &self.client_ip,
-                        &path.to_string_lossy(),
-                        written_bytes,
-                        "SFTP"
+                }
+                SftpFileHandle::Dir { path, .. } => {
+                    tracing::debug!(
+                        client_ip = %self.client_ip,
+                        username = ?self.username,
+                        action = "CLOSE",
+                        handle = %handle,
+                        "Directory handle closed: {:?}",
+                        path
                     );
                 }
             }
-
-            if read_bytes > 0 {
-                crate::file_op_log!(
-                    download,
-                    self.username.as_deref().unwrap_or("anonymous"),
-                    &self.client_ip,
-                    &path.to_string_lossy(),
-                    read_bytes,
-                    "SFTP"
-                );
-            }
         } else {
-            self.handles.remove(&handle);
+            tracing::debug!(
+                client_ip = %self.client_ip,
+                username = ?self.username,
+                action = "CLOSE_INVALID",
+                handle = %handle,
+                "Close request for non-existent handle (already closed or invalid)"
+            );
         }
         Ok(self.build_status_packet(id, 0, "OK", ""))
     }
@@ -203,8 +237,10 @@ impl SftpState {
 
         if !self.check_permission(|p| p.can_read) {
             tracing::warn!(
-                "SFTP READ denied: no read permission for user {:?}",
-                self.username
+                client_ip = %self.client_ip,
+                username = ?self.username,
+                action = "READ_DENIED",
+                "SFTP READ denied: no read permission"
             );
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
@@ -220,7 +256,13 @@ impl SftpState {
                 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
                 if let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await {
-                    tracing::error!("SFTP READ seek error for {:?}: {}", path, e);
+                    tracing::error!(
+                        client_ip = %self.client_ip,
+                        username = ?self.username,
+                        action = "READ_ERROR",
+                        "SFTP READ seek error for {:?}: {}",
+                        path, e
+                    );
                     return Ok(self.build_status_packet(id, 4, &format!("Seek error: {}", e), ""));
                 }
 
@@ -237,6 +279,7 @@ impl SftpState {
                             client_ip = %self.client_ip,
                             username = ?self.username.as_deref(),
                             action = "READ",
+                            handle = %handle_str,
                             "Read {} bytes from {:?} at offset {}",
                             n,
                             path,
@@ -246,13 +289,37 @@ impl SftpState {
                         Ok(self.build_data_packet(id, &buffer))
                     }
                     Err(e) => {
-                        tracing::error!("SFTP READ error for {:?}: {}", path, e);
+                        tracing::error!(
+                            client_ip = %self.client_ip,
+                            username = ?self.username,
+                            action = "READ_ERROR",
+                            "SFTP READ error for {:?}: {}",
+                            path, e
+                        );
                         Ok(self.build_status_packet(id, 4, &format!("Read error: {}", e), ""))
                     }
                 }
             }
-            _ => {
-                tracing::warn!("SFTP READ: invalid handle '{}'", handle_str);
+            Some(SftpFileHandle::Dir { path, .. }) => {
+                tracing::warn!(
+                    client_ip = %self.client_ip,
+                    username = ?self.username,
+                    action = "READ_INVALID_TYPE",
+                    handle = %handle_str,
+                    "SFTP READ on directory handle (expected file): {:?}",
+                    path
+                );
+                Ok(self.build_status_packet(id, 4, "Invalid handle type", ""))
+            }
+            None => {
+                tracing::warn!(
+                    client_ip = %self.client_ip,
+                    username = ?self.username,
+                    action = "READ_INVALID_HANDLE",
+                    handle = %handle_str,
+                    total_handles = self.handles.len(),
+                    "SFTP READ: handle not found (may be closed or invalid)"
+                );
                 Ok(self.build_status_packet(id, 4, "Invalid handle", ""))
             }
         }
@@ -348,8 +415,26 @@ impl SftpState {
 
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
-            _ => {
-                tracing::warn!("SFTP WRITE: invalid handle '{}'", handle_str);
+            Some(SftpFileHandle::Dir { path, .. }) => {
+                tracing::warn!(
+                    client_ip = %self.client_ip,
+                    username = ?self.username,
+                    action = "WRITE_INVALID_TYPE",
+                    handle = %handle_str,
+                    "SFTP WRITE on directory handle (expected file): {:?}",
+                    path
+                );
+                Ok(self.build_status_packet(id, 4, "Invalid handle type", ""))
+            }
+            None => {
+                tracing::warn!(
+                    client_ip = %self.client_ip,
+                    username = ?self.username,
+                    action = "WRITE_INVALID_HANDLE",
+                    handle = %handle_str,
+                    total_handles = self.handles.len(),
+                    "SFTP WRITE: handle not found (may be closed or invalid)"
+                );
                 Ok(self.build_status_packet(id, 4, "Invalid handle", ""))
             }
         }

@@ -12,6 +12,13 @@ use tokio::net::TcpListener;
 use super::session_ip::{find_masq_ip, resolve_ip_for_pasv};
 use super::upnp_manager::UpnpManager;
 
+/// 获取随机 u32 值（使用 getrandom crate）
+fn getrandom_u32() -> u32 {
+    let mut buf = [0u8; 4];
+    getrandom::fill(&mut buf).expect("Failed to generate random bytes");
+    u32::from_be_bytes(buf)
+}
+
 pub struct PassiveListenerInfo {
     pub listener: TcpListener,
     pub created_at: Instant,
@@ -75,7 +82,20 @@ impl PassiveManager {
             bind_ip
         };
 
-        for port in port_min..=port_max {
+        // 计算可用端口范围大小
+        let range_size = (port_max - port_min + 1) as usize;
+        if range_size == 0 {
+            anyhow::bail!("Invalid port range: {}-{}", port_min, port_max);
+        }
+
+        // 生成随机起始位置，避免顺序查找导致的竞争和可预测性
+        let start_offset = getrandom_u32() as usize % range_size;
+
+        // 最多尝试整个范围一次
+        for i in 0..range_size {
+            let offset = (start_offset + i) % range_size;
+            let port = port_min + offset as u16;
+
             if self.listeners.contains_key(&port) {
                 continue;
             }
@@ -98,7 +118,7 @@ impl PassiveManager {
                         client_ip
                     );
 
-                    // 尝试添加 UPnP 端口映射
+                    // 尝试添加 UPnP 端口映射（带错误处理）
                     if let Some(upnp) = &self.upnp_manager {
                         let internal_addr = SocketAddrV4::new(
                             actual_bind_ip
@@ -108,9 +128,19 @@ impl PassiveManager {
                         );
                         let upnp_clone = Arc::clone(upnp);
                         tokio::spawn(async move {
-                            let _ = upnp_clone
+                            match upnp_clone
                                 .add_port_mapping(internal_addr, 3600, "ftp-passive")
-                                .await;
+                                .await
+                            {
+                                Ok(_) => {
+                                    tracing::debug!("UPnP port mapping added for port {}", port)
+                                }
+                                Err(e) => tracing::warn!(
+                                    "Failed to add UPnP port mapping for port {}: {}",
+                                    port,
+                                    e
+                                ),
+                            }
                         });
                     }
 

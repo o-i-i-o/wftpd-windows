@@ -43,15 +43,17 @@ pub async fn handle_transfer_command(
                     state.passive_mode = true;
                     state.data_port = Some(passive_port);
 
+                    // 验证响应 IP 地址格式
                     let ip_parts: Vec<&str> = response_ip.split('.').collect();
                     if ip_parts.len() != 4 {
-                        tracing::warn!(
-                            "PASV: Invalid IPv4 address format: {}, using 127.0.0.1",
+                        tracing::error!(
+                            "PASV: Invalid IPv4 address format '{}' returned from handle_pasv. \
+                             Please check masquerade_address and passive_ip_override configuration.",
                             response_ip
                         );
                         control_stream
                             .write_response(
-                                b"227 Entering Passive Mode (127,0,0,1,0,0).\r\n",
+                                b"425 Cannot determine valid passive mode IP - configuration error\r\n",
                                 "PASV response",
                             )
                             .await;

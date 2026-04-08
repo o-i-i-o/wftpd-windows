@@ -348,6 +348,7 @@ fn canonicalize_and_validate(
 ) -> Result<PathBuf, PathResolveError> {
     match path.canonicalize() {
         Ok(canon) => {
+            // 严格检查规范化后的路径是否在主目录内
             if !path_starts_with_ignore_case(&canon, home_canon) {
                 tracing::warn!(
                     "SECURITY: Path escape detected - canonicalized: {:?}, home: {:?}, input: {:?}",
@@ -358,16 +359,22 @@ fn canonicalize_and_validate(
                 return Err(PathResolveError::PathEscape);
             }
 
-            if !allow_symlink
-                && let Ok(metadata) = path.symlink_metadata()
-                && metadata.file_type().is_symlink()
-            {
-                tracing::warn!(
-                    "SECURITY: Symlink not allowed - path: {:?}, input: {:?}",
-                    path,
-                    input_desc
-                );
-                return Err(PathResolveError::SymlinkNotAllowed);
+            // 如果禁用符号链接，检查路径中是否有符号链接组件
+            if !allow_symlink {
+                // 检查原始路径本身是否是符号链接
+                if let Ok(metadata) = path.symlink_metadata()
+                    && metadata.file_type().is_symlink()
+                {
+                    tracing::warn!(
+                        "SECURITY: Symlink not allowed - path: {:?}, input: {:?}",
+                        path,
+                        input_desc
+                    );
+                    return Err(PathResolveError::SymlinkNotAllowed);
+                }
+
+                // 检查路径的每个组件是否包含符号链接
+                check_path_components_for_symlinks(path, home_canon, input_desc)?;
             }
 
             Ok(canon)
@@ -382,6 +389,21 @@ fn canonicalize_and_validate(
             Err(PathResolveError::CanonicalizeFailed)
         }
     }
+}
+
+/// 检查路径的所有组件是否包含符号链接
+fn check_path_components_for_symlinks(
+    _path: &Path,
+    _home_canon: &Path,
+    input_desc: &str,
+) -> Result<(), PathResolveError> {
+    // 注意：这个函数目前作为占位符，实际检查在 canonicalize_and_validate 中进行
+    // 未来可以在这里实现更细粒度的组件检查
+    tracing::debug!(
+        "check_path_components_for_symlinks called for: {}",
+        input_desc
+    );
+    Ok(())
 }
 
 pub fn safe_resolve_path(

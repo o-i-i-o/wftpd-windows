@@ -95,13 +95,12 @@ fn load_tls_acceptor(cert_path: &str, key_path: &str) -> Result<TlsAcceptor> {
 
     let key = private_key.ok_or_else(|| anyhow::anyhow!("未找到有效的私钥"))?;
 
-    // 构建 TLS 配置
+    // 构建 TLS 配置，rustls 0.23 默认已启用安全协议（TLS 1.2/1.3）
     let config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(cert_chain, key)?;
 
-    // 设置安全的协议版本
-    tracing::info!("TLS acceptor configured with min_protocol=TLSv1.2");
+    tracing::info!("TLS acceptor configured with secure defaults (TLS 1.2/1.3 only)");
 
     let acceptor = TlsAcceptor::from(Arc::new(config));
     Ok(acceptor)

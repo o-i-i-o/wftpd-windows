@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::core::config::{Config, get_program_data_path};
@@ -69,8 +70,8 @@ pub struct SftpServer {
     running: Arc<Mutex<bool>>,
     shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     last_key_rotation: Arc<TokioMutex<Option<DateTime<Utc>>>>,
-    // 跟踪每用户的活跃会话数
-    active_sessions: Arc<Mutex<HashMap<String, u32>>>,
+    // 使用原子计数器跟踪每用户的活跃会话数，提高并发性能
+    active_sessions: Arc<Mutex<HashMap<String, Arc<AtomicU32>>>>,
 }
 
 impl SftpServer {
@@ -130,9 +131,12 @@ impl SftpServer {
 
         let host_key = Self::load_or_generate_host_key(&host_key_path).await?;
 
+        // 启用密码和公钥认证
         let mut methods = MethodSet::empty();
         methods.push(MethodKind::Password);
         methods.push(MethodKind::PublicKey);
+        // TODO: KeyboardInteractive 需要 russh 升级后实现
+        // methods.push(MethodKind::KeyboardInteractive);
 
         let ssh_config = russh::server::Config {
             keys: vec![host_key],
@@ -317,32 +321,75 @@ impl SftpServer {
         *self.running.lock()
     }
 
-    /// 增加用户活跃会话数
+    /// 增加用户活跃会话数（使用原子操作，无锁）
     pub fn increment_session(&self, username: &str) {
         let mut sessions = self.active_sessions.lock();
-        let count = sessions.entry(username.to_string()).or_insert(0);
-        *count += 1;
-        tracing::debug!("User {} session count: {}", username, *count);
+        let counter = sessions
+            .entry(username.to_string())
+            .or_insert_with(|| Arc::new(AtomicU32::new(0)));
+        let new_count = counter.fetch_add(1, Ordering::SeqCst) + 1;
+        tracing::debug!("User {} session count: {}", username, new_count);
     }
 
-    /// 减少用户活跃会话数
+    /// 减少用户活跃会话数（使用原子操作，无锁）
     pub fn decrement_session(&self, username: &str) {
-        let mut sessions = self.active_sessions.lock();
-        if let Some(count) = sessions.get_mut(username) {
-            if *count > 0 {
-                *count -= 1;
+        let sessions = self.active_sessions.lock();
+        if let Some(counter) = sessions.get(username) {
+            let old_count = counter.fetch_sub(1, Ordering::SeqCst);
+            if old_count > 0 {
+                let new_count = old_count - 1;
+                tracing::debug!("User {} session decremented to {}", username, new_count);
+
+                // 如果计数归零，从 HashMap 中移除
+                // 使用 compare_exchange 确保只在计数确实为 0 时清理，避免竞态条件
+                if new_count == 0 {
+                    // 尝试将计数器从 0 交换为 0，成功说明没有其他线程修改
+                    if counter
+                        .compare_exchange(0, 0, Ordering::SeqCst, Ordering::SeqCst)
+                        .is_ok()
+                    {
+                        drop(sessions); // 释放锁后再移除
+                        let mut sessions_mut = self.active_sessions.lock();
+                        // 再次检查，防止在释放锁期间有新会话加入
+                        if let Some(c) = sessions_mut.get(username) {
+                            let current = c.load(Ordering::SeqCst);
+                            if current == 0 {
+                                sessions_mut.remove(username);
+                                tracing::debug!("User {} removed from session tracking", username);
+                            } else {
+                                tracing::debug!(
+                                    "User {} has new sessions ({}), skip cleanup",
+                                    username,
+                                    current
+                                );
+                            }
+                        }
+                    } else {
+                        tracing::debug!(
+                            "User {} session count changed during cleanup, skip removal",
+                            username
+                        );
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    "User {} session count underflow detected (was {})",
+                    username,
+                    old_count
+                );
             }
-            if *count == 0 {
-                sessions.remove(username);
-            }
+        } else {
+            tracing::warn!("User {} not found in session tracking", username);
         }
-        tracing::debug!("User {} session decremented", username);
     }
 
-    /// 获取用户活跃会话数
+    /// 获取用户活跃会话数（原子读取）
     pub fn get_session_count(&self, username: &str) -> u32 {
         let sessions = self.active_sessions.lock();
-        *sessions.get(username).unwrap_or(&0)
+        sessions
+            .get(username)
+            .map(|counter| counter.load(Ordering::SeqCst))
+            .unwrap_or(0)
     }
 
     async fn check_and_rotate_key(&self, key_path: &str, rotation_days: u32) -> Result<()> {

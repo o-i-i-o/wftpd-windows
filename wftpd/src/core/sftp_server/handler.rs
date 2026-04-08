@@ -405,6 +405,19 @@ impl russh::server::Handler for SftpHandler {
         })
     }
 
+    // TODO: 实现 keyboard-interactive 认证需要 russh 0.60+ 的正确 API
+    // 当前版本暂不支持，留待后续升级 russh 后实现
+    /*
+    async fn auth_keyboard_interactive(
+        &mut self,
+        user: &str,
+        _submethods: &str,
+        response: Option<&[russh::server::AuthResponse]>,
+    ) -> Result<server::Auth, Self::Error> {
+        // 实现代码...
+    }
+    */
+
     async fn channel_open_session(
         &mut self,
         _channel: Channel<Msg>,

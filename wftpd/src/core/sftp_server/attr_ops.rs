@@ -59,7 +59,26 @@ impl SftpState {
                 }
                 Err(_) => Ok(self.build_status_packet(id, 2, "No such file", "")),
             },
-            _ => Ok(self.build_status_packet(id, 4, "Invalid handle", "")),
+            Some(SftpFileHandle::Dir { .. }) => {
+                tracing::warn!(
+                    client_ip = %self.client_ip,
+                    username = ?self.username,
+                    action = "FSTAT_INVALID_TYPE",
+                    handle = %handle_str,
+                    "SFTP FSTAT on directory handle (expected file)"
+                );
+                Ok(self.build_status_packet(id, 4, "Invalid handle type", ""))
+            }
+            None => {
+                tracing::debug!(
+                    client_ip = %self.client_ip,
+                    username = ?self.username,
+                    action = "FSTAT_INVALID_HANDLE",
+                    handle = %handle_str,
+                    "SFTP FSTAT: handle not found"
+                );
+                Ok(self.build_status_packet(id, 4, "Invalid handle", ""))
+            }
         }
     }
 
@@ -121,7 +140,16 @@ impl SftpState {
         let path = match self.handles.get(&handle_str) {
             Some(SftpFileHandle::File { path, .. }) => path.clone(),
             Some(SftpFileHandle::Dir { path, .. }) => path.clone(),
-            _ => return Ok(self.build_status_packet(id, 4, "Invalid handle", "")),
+            None => {
+                tracing::debug!(
+                    client_ip = %self.client_ip,
+                    username = ?self.username,
+                    action = "FSETSTAT_INVALID_HANDLE",
+                    handle = %handle_str,
+                    "SFTP FSETSTAT: handle not found"
+                );
+                return Ok(self.build_status_packet(id, 4, "Invalid handle", ""));
+            }
         };
 
         let attr_offset = 5 + 4 + handle_len;
