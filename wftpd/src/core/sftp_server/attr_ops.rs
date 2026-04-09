@@ -34,11 +34,31 @@ impl SftpState {
     }
 
     pub async fn handle_lstat(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+        let id = self.parse_u32(data, 1);
+        let path = self.parse_string(data, 5)?;
+
         if !self.check_permission(|p| p.can_read || p.can_list) {
-            let id = self.parse_u32(data, 1);
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
-        self.handle_stat(data).await
+
+        let full_path = match self.resolve_path_checked(id, &path) {
+            Ok(p) => p,
+            Err(resp) => return Ok(resp),
+        };
+
+        match tokio::fs::symlink_metadata(&full_path).await {
+            Ok(metadata) => {
+                let is_dir = metadata.is_dir();
+                let is_symlink = metadata.file_type().is_symlink();
+                let attrs = self.build_attrs_extended(&metadata, is_dir || is_symlink);
+
+                let mut payload = vec![105];
+                payload.extend_from_slice(&id.to_be_bytes());
+                payload.extend_from_slice(&attrs);
+                Ok(self.build_packet(&payload))
+            }
+            Err(_) => Ok(self.build_status_packet(id, 2, "No such file", "")),
+        }
     }
 
     pub async fn handle_fstat(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
@@ -47,7 +67,7 @@ impl SftpState {
 
         let handle = self.handles.get(&handle_str);
         match handle {
-            Some(SftpFileHandle::File { path, .. }) => match tokio::fs::metadata(path).await {
+            Some(SftpFileHandle::File { file, .. }) => match file.metadata().await {
                 Ok(metadata) => {
                     let mut payload = vec![105];
                     payload.extend_from_slice(&id.to_be_bytes());

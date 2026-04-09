@@ -111,6 +111,7 @@ impl SftpState {
                         path: full_path,
                         file,
                         locked: false,
+                        lock_handle: None,
                         existed: file_existed,
                         written_bytes: 0,
                         read_bytes: 0,
@@ -137,6 +138,7 @@ impl SftpState {
                 SftpFileHandle::File {
                     path,
                     locked,
+                    lock_handle: _,
                     existed,
                     written_bytes,
                     read_bytes,
@@ -148,8 +150,10 @@ impl SftpState {
                     if let Err(e) = file.flush().await {
                         tracing::warn!("Failed to flush file on close {:?}: {}", path, e);
                     }
-                    if let Err(e) = file.sync_all().await {
-                        tracing::warn!("Failed to sync file on close {:?}: {}", path, e);
+                    if written_bytes > 0 {
+                        if let Err(e) = file.sync_data().await {
+                            tracing::debug!("sync_data on close {:?}: {}", path, e);
+                        }
                     }
 
                     // 文件会在 drop 时自动关闭，但显式关闭可以更早释放资源
@@ -271,6 +275,10 @@ impl SftpState {
                 let read_len = len.min(SFTP_READ_BUFFER_SIZE);
                 let mut buffer = vec![0u8; read_len];
 
+                if let Some(limiter) = &self.rate_limiter {
+                    limiter.acquire(read_len).await;
+                }
+
                 match file.read(&mut buffer).await {
                     Ok(0) => Ok(self.build_status_packet(id, 1, "End of file", "")),
                     Ok(n) => {
@@ -345,6 +353,10 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 4, "Invalid data length", ""));
         }
         let write_data = &data[offset_pos + 12..offset_pos + 12 + data_len];
+
+        if let Some(limiter) = &self.rate_limiter {
+            limiter.acquire(data_len).await;
+        }
 
         if !self.check_permission(|p| p.can_write) {
             tracing::warn!(

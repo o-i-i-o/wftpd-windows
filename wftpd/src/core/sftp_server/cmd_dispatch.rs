@@ -57,6 +57,22 @@ impl SftpState {
 
         let mut payload = vec![2];
         payload.extend_from_slice(&self.sftp_version.to_be_bytes());
+
+        let extensions: &[(&str, &str)] = &[
+            ("limits@openssh.com", "1"),
+            ("statvfs@openssh.com", "2"),
+            ("md5-hash@openssh.com", "1"),
+            ("sha256-hash@openssh.com", "2"),
+            ("hardlink@openssh.com", "1"),
+        ];
+
+        for (name, data_val) in extensions {
+            payload.extend_from_slice(&(name.len() as u32).to_be_bytes());
+            payload.extend_from_slice(name.as_bytes());
+            payload.extend_from_slice(&(data_val.len() as u32).to_be_bytes());
+            payload.extend_from_slice(data_val.as_bytes());
+        }
+
         Ok(self.build_packet(&payload))
     }
 }

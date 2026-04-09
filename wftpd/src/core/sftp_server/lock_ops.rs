@@ -16,7 +16,7 @@ impl SftpState {
         let handle = self.handles.get_mut(&handle_str);
         match handle {
             Some(SftpFileHandle::File {
-                path, file, locked, ..
+                path, file, locked, lock_handle, ..
             }) => {
                 if *locked {
                     return Ok(self.build_status_packet(id, 0, "Already locked", ""));
@@ -26,6 +26,7 @@ impl SftpState {
                 match fs2::FileExt::lock_exclusive(&std_file) {
                     Ok(()) => {
                         *locked = true;
+                        *lock_handle = Some(std_file);
                         self.locked_files.insert(path.clone());
                         tracing::info!(
                             client_ip = %self.client_ip,
@@ -69,26 +70,31 @@ impl SftpState {
         let handle = self.handles.get_mut(&handle_str);
         match handle {
             Some(SftpFileHandle::File {
-                path, file, locked, ..
+                path, locked, lock_handle, ..
             }) => {
                 if !*locked {
                     return Ok(self.build_status_packet(id, 0, "Not locked", ""));
                 }
 
-                let std_file = file.try_clone().await?.into_std().await;
-                match fs2::FileExt::unlock(&std_file) {
-                    Ok(()) => {
-                        *locked = false;
-                        self.locked_files.remove(path);
-                        tracing::info!(
-                            client_ip = %self.client_ip,
-                            username = ?self.username.as_deref(),
-                            action = "UNLOCK",
-                            "Unlocked file: {:?}", path
-                        );
-                        Ok(self.build_status_packet(id, 0, "OK", ""))
+                if let Some(ref std_file) = lock_handle {
+                    match fs2::FileExt::unlock(std_file) {
+                        Ok(()) => {
+                            *locked = false;
+                            *lock_handle = None;
+                            self.locked_files.remove(path);
+                            tracing::info!(
+                                client_ip = %self.client_ip,
+                                username = ?self.username.as_deref(),
+                                action = "UNLOCK",
+                                "Unlocked file: {:?}", path
+                            );
+                            Ok(self.build_status_packet(id, 0, "OK", ""))
+                        }
+                        Err(_) => Ok(self.build_status_packet(id, 4, "Failed to unlock file", "")),
                     }
-                    Err(_) => Ok(self.build_status_packet(id, 4, "Failed to unlock file", "")),
+                } else {
+                    *locked = false;
+                    Ok(self.build_status_packet(id, 0, "OK", ""))
                 }
             }
             Some(SftpFileHandle::Dir { path, .. }) => {

@@ -50,6 +50,7 @@ pub enum SftpFileHandle {
         path: PathBuf,
         file: tokio::fs::File,
         locked: bool,
+        lock_handle: Option<std::fs::File>,
         existed: bool,
         written_bytes: u64,
         read_bytes: u64,
@@ -58,10 +59,18 @@ pub enum SftpFileHandle {
     },
     Dir {
         path: PathBuf,
-        entries: Vec<(String, bool, u64)>,
+        entries: Vec<DirEntry>,
         index: usize,
         last_access: std::time::Instant,
     },
+}
+
+#[derive(Clone)]
+pub struct DirEntry {
+    pub name: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub mtime: u32,
 }
 
 #[derive(Clone)]
@@ -105,7 +114,7 @@ impl SftpServer {
     }
 
     pub async fn start(&self) -> Result<()> {
-        let (bind_ip, sftp_port, host_key_path, warnings, key_rotation_days) = {
+        let (bind_ip, sftp_port, host_key_path, warnings, key_rotation_days, max_auth_attempts, auth_timeout) = {
             let cfg = self.config.lock();
             let warnings = cfg.validate_paths();
             (
@@ -114,6 +123,8 @@ impl SftpServer {
                 cfg.sftp.host_key_path.clone(),
                 warnings,
                 cfg.sftp.host_key_rotation_days,
+                cfg.sftp.max_auth_attempts,
+                cfg.sftp.auth_timeout,
             )
         };
 
@@ -143,6 +154,13 @@ impl SftpServer {
         let ssh_config = russh::server::Config {
             keys: vec![host_key],
             methods,
+            max_auth_attempts: max_auth_attempts as usize,
+            auth_rejection_time: std::time::Duration::from_secs(1),
+            auth_rejection_time_initial: Some(std::time::Duration::from_millis(0)),
+            inactivity_timeout: Some(std::time::Duration::from_secs(auth_timeout)),
+            keepalive_interval: Some(std::time::Duration::from_secs(30)),
+            keepalive_max: 3,
+            nodelay: true,
             ..Default::default()
         };
 
@@ -255,10 +273,9 @@ impl SftpServer {
                                 let config_for_handler = Arc::clone(&config_clone);
                                 let sftp_server_clone = sftp_server_for_handler.clone();
                                 tokio::spawn(async move {
-                                    // 从配置中读取认证限制
-                                    let (max_auth_attempts, auth_timeout, max_sessions) = {
+                                    let max_sessions = {
                                         let cfg = config_for_handler.lock();
-                                        (cfg.sftp.max_auth_attempts, cfg.sftp.auth_timeout, cfg.sftp.max_sessions_per_user)
+                                        cfg.sftp.max_sessions_per_user
                                     };
 
                                     let handler = crate::core::sftp_server::handler::SftpHandler {
@@ -558,9 +575,16 @@ impl SftpState {
     }
 
     pub fn check_permission(
-        &self,
+        &mut self,
         check_fn: impl Fn(&crate::core::users::Permissions) -> bool,
     ) -> bool {
+        if let Some(expiry) = self.cache_expiry
+            && expiry < std::time::Instant::now()
+        {
+            self.cached_permissions = None;
+            self.cache_permissions();
+        }
+
         if let Some(perms) = &self.cached_permissions {
             return check_fn(perms);
         }

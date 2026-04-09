@@ -299,8 +299,10 @@ impl SftpState {
         id: u32,
         data: &[u8],
     ) -> Result<Vec<u8>, anyhow::Error> {
-        let (src_path, src_len) = self.parse_string_with_len(data, 5 + 4)?;
-        let dst_pos = 5 + 4 + 4 + src_len;
+        let (_ext_name, ext_len) = self.parse_string_with_len(data, 5)?;
+        let src_pos = 5 + 4 + ext_len;
+        let (src_path, src_len) = self.parse_string_with_len(data, src_pos)?;
+        let dst_pos = src_pos + 4 + src_len;
         let dst_path = self.parse_string(data, dst_pos)?;
 
         if !self.check_permission(|p| p.can_write) {

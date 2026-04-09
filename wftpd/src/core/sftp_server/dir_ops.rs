@@ -3,7 +3,7 @@
 //! 处理 opendir、readdir、mkdir、rmdir、realpath、rename、remove 等目录操作命令
 
 use crate::core::path_utils::path_starts_with_ignore_case;
-use crate::core::sftp_server::{MAX_HANDLES, SftpFileHandle, SftpState};
+use crate::core::sftp_server::{DirEntry, MAX_HANDLES, SftpFileHandle, SftpState};
 use std::path::PathBuf;
 
 impl SftpState {
@@ -74,8 +74,20 @@ impl SftpState {
                                         .await
                                         .map(|t| t.is_dir())
                                         .unwrap_or(false);
-                                    let size = entry.metadata().await.map(|m| m.len()).unwrap_or(0);
-                                    read_entries.push((name, is_dir, size));
+                                    let (size, mtime) = entry
+                                        .metadata()
+                                        .await
+                                        .map(|m| {
+                                            let mt = m
+                                                .modified()
+                                                .ok()
+                                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                                .map(|d| d.as_secs() as u32)
+                                                .unwrap_or(0);
+                                            (m.len(), mt)
+                                        })
+                                        .unwrap_or((0, 0));
+                                    read_entries.push(DirEntry { name, is_dir, size, mtime });
                                 }
                             }
                             Err(e) => {
@@ -95,7 +107,7 @@ impl SftpState {
                     }
 
                     let count = (entries.len() - *index).min(100);
-                    let result_entries: Vec<(String, bool, u64)> =
+                    let result_entries: Vec<DirEntry> =
                         entries[*index..*index + count].to_vec();
                     *index += count;
                     *last_access = std::time::Instant::now();
@@ -111,20 +123,25 @@ impl SftpState {
                 payload.extend_from_slice(&id.to_be_bytes());
                 payload.extend_from_slice(&(dir_entries.len() as u32).to_be_bytes());
 
-                for (name, is_dir, size) in dir_entries {
-                    payload.extend_from_slice(&(name.len() as u32).to_be_bytes());
-                    payload.extend_from_slice(name.as_bytes());
+                for entry in &dir_entries {
+                    payload.extend_from_slice(&(entry.name.len() as u32).to_be_bytes());
+                    payload.extend_from_slice(entry.name.as_bytes());
+
+                    let mtime_str = chrono::DateTime::from_timestamp(entry.mtime as i64, 0)
+                        .map(|dt| dt.format("%b %d %H:%M").to_string())
+                        .unwrap_or_else(|| "Jan 01 00:00".to_string());
 
                     let long_name = format!(
-                        "{} 1 user user {:>10} Jan 01 00:00 {}",
-                        if is_dir { "drwxr-xr-x" } else { "-rw-r--r--" },
-                        size,
-                        name
+                        "{} 1 user user {:>10} {} {}",
+                        if entry.is_dir { "drwxr-xr-x" } else { "-rw-r--r--" },
+                        entry.size,
+                        mtime_str,
+                        entry.name
                     );
                     payload.extend_from_slice(&(long_name.len() as u32).to_be_bytes());
                     payload.extend_from_slice(long_name.as_bytes());
 
-                    payload.extend_from_slice(&self.build_attrs(is_dir, size));
+                    payload.extend_from_slice(&self.build_attrs(entry.is_dir, entry.size));
                 }
 
                 Ok(self.build_packet(&payload))
@@ -209,13 +226,7 @@ impl SftpState {
             Err(resp) => return Ok(resp),
         };
 
-        let is_symlink = full_path.is_symlink();
-
-        let result = if is_symlink {
-            std::fs::remove_dir(&full_path)
-        } else {
-            tokio::fs::remove_dir_all(&full_path).await
-        };
+        let result = tokio::fs::remove_dir(&full_path).await;
 
         if result.is_ok() {
             crate::file_op_log!(
@@ -227,7 +238,12 @@ impl SftpState {
             );
             Ok(self.build_status_packet(id, 0, "OK", ""))
         } else {
-            Ok(self.build_status_packet(id, 4, "Failed to remove directory", ""))
+            let err = result.unwrap_err();
+            if err.kind() == std::io::ErrorKind::DirectoryNotEmpty {
+                Ok(self.build_status_packet(id, 4, "Directory not empty", ""))
+            } else {
+                Ok(self.build_status_packet(id, 4, "Failed to remove directory", ""))
+            }
         }
     }
 
@@ -287,6 +303,10 @@ impl SftpState {
 
         if new_full.exists() && let Err(resp) = self.check_symlink_in_home(&new_full).await {
             return Ok(resp);
+        }
+
+        if new_full.exists() {
+            return Ok(self.build_status_packet(id, 4, "File already exists", ""));
         }
 
         match tokio::fs::rename(&old_full, &new_full).await {

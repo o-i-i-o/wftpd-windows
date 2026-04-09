@@ -123,7 +123,13 @@ impl SftpState {
             );
             Ok(self.build_status_packet(id, 0, "OK", ""))
         } else {
-            Ok(self.build_status_packet(id, 4, "Failed to create symlink", ""))
+            let e = symlink_result.unwrap_err();
+            let msg = if e.raw_os_error() == Some(1314) {
+                "Symlink requires administrator privileges on Windows"
+            } else {
+                "Failed to create symlink"
+            };
+            Ok(self.build_status_packet(id, 4, msg, ""))
         }
     }
 }
