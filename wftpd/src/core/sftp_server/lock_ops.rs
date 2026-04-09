@@ -76,7 +76,7 @@ impl SftpState {
                     return Ok(self.build_status_packet(id, 0, "Not locked", ""));
                 }
 
-                if let Some(ref std_file) = lock_handle {
+                if let Some(std_file) = lock_handle.as_ref() {
                     match fs2::FileExt::unlock(std_file) {
                         Ok(()) => {
                             *locked = false;

@@ -3319,7 +3319,7 @@ dependencies = [
 
 [[package]]
 name = "wftpd"
-version = "3.3.10"
+version = "3.3.11"
 dependencies = [
  "anyhow",
  "argon2",

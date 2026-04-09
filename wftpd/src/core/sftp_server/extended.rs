@@ -176,7 +176,7 @@ impl SftpState {
         }
     }
 
-    pub async fn handle_md5sum(&self, id: u32, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+    pub async fn handle_md5sum(&mut self, id: u32, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
         let (_ext_name, ext_len) = self.parse_string_with_len(data, 5 + 4)?;
         let path_pos = 5 + 4 + ext_len;
         let path = self.parse_string(data, path_pos)?;
@@ -208,7 +208,7 @@ impl SftpState {
         }
     }
 
-    pub async fn handle_sha256sum(&self, id: u32, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+    pub async fn handle_sha256sum(&mut self, id: u32, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
         let (_ext_name, ext_len) = self.parse_string_with_len(data, 5 + 4)?;
         let path_pos = 5 + 4 + ext_len;
         let path = self.parse_string(data, path_pos)?;

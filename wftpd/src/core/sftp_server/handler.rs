@@ -15,30 +15,34 @@ use crate::core::quota::QuotaManager;
 use crate::core::sftp_server::{MAX_BUFFER_SIZE, SftpServer, SftpState};
 use crate::core::users::UserManager;
 
+pub struct AuthContext {
+    pub authenticated: bool,
+    pub username: Option<String>,
+    pub home_dir: Option<String>,
+    pub auth_attempts: u32,
+    pub max_auth_attempts: u32,
+    pub auth_start_time: Option<std::time::Instant>,
+    pub auth_timeout_secs: u64,
+}
+
 pub struct SftpHandler {
     pub user_manager: Arc<Mutex<UserManager>>,
     pub quota_manager: Arc<QuotaManager>,
     pub fail2ban_manager: Arc<Fail2BanManager>,
     pub sftp_server: Option<Arc<SftpServer>>,
-    pub authenticated: bool,
-    pub username: Option<String>,
-    pub home_dir: Option<String>,
+    pub auth: AuthContext,
     pub sftp_channel: Option<ChannelId>,
     pub sftp_state: Option<Arc<TokioMutex<SftpState>>>,
     pub client_ip: String,
     pub users_path: std::path::PathBuf,
-    pub auth_attempts: u32,
-    pub max_auth_attempts: u32,
-    pub auth_start_time: Option<std::time::Instant>,
-    pub auth_timeout_secs: u64,
     pub max_sessions_per_user: u32,
 }
 
 impl SftpHandler {
     fn check_auth_preconditions(&mut self, user: &str) -> Option<server::Auth> {
-        if let Some(start_time) = self.auth_start_time {
+        if let Some(start_time) = self.auth.auth_start_time {
             let elapsed = start_time.elapsed().as_secs();
-            if elapsed > self.auth_timeout_secs {
+            if elapsed > self.auth.auth_timeout_secs {
                 tracing::warn!(
                     client_ip = %self.client_ip,
                     username = %user,
@@ -53,14 +57,14 @@ impl SftpHandler {
             }
         }
 
-        self.auth_attempts += 1;
-        if self.auth_attempts > self.max_auth_attempts {
+        self.auth.auth_attempts += 1;
+        if self.auth.auth_attempts > self.auth.max_auth_attempts {
             tracing::warn!(
                 client_ip = %self.client_ip,
                 username = %user,
                 action = "AUTH_MAX_ATTEMPTS",
                 protocol = "SFTP",
-                "Maximum authentication attempts ({}) exceeded", self.max_auth_attempts
+                "Maximum authentication attempts ({}) exceeded", self.auth.max_auth_attempts
             );
             return Some(server::Auth::Reject {
                 proceed_with_methods: None,
@@ -75,7 +79,7 @@ impl SftpHandler {
         if let Some(hd) = home_dir {
             match std::path::PathBuf::from(&hd).canonicalize() {
                 Ok(home_canon) => {
-                    self.home_dir = Some(home_canon.to_string_lossy().to_string());
+                    self.auth.home_dir = Some(home_canon.to_string_lossy().to_string());
                 }
                 Err(e) => {
                     tracing::error!(
@@ -111,8 +115,8 @@ impl SftpHandler {
             };
         }
 
-        self.authenticated = true;
-        self.username = Some(user.to_string());
+        self.auth.authenticated = true;
+        self.auth.username = Some(user.to_string());
 
         if let Some(ref server) = self.sftp_server {
             server.increment_session(user);
@@ -194,7 +198,7 @@ impl russh::server::Handler for SftpHandler {
         password: &str,
     ) -> Result<server::Auth, Self::Error> {
         if let Some(reject) = self.check_auth_preconditions(user) {
-            if self.auth_attempts > self.max_auth_attempts {
+            if self.auth.auth_attempts > self.auth.max_auth_attempts {
                 self.fail2ban_manager.add_failure(&self.client_ip).await;
             }
             return Ok(reject);
@@ -259,7 +263,7 @@ impl russh::server::Handler for SftpHandler {
         public_key: &PublicKey,
     ) -> Result<server::Auth, Self::Error> {
         if let Some(reject) = self.check_auth_preconditions(user) {
-            if self.auth_attempts > self.max_auth_attempts {
+            if self.auth.auth_attempts > self.auth.max_auth_attempts {
                 self.fail2ban_manager.add_failure(&self.client_ip).await;
             }
             return Ok(reject);
@@ -340,7 +344,7 @@ impl russh::server::Handler for SftpHandler {
         channel: Channel<Msg>,
         _session: &mut server::Session,
     ) -> Result<bool, Self::Error> {
-        if !self.authenticated {
+        if !self.auth.authenticated {
             tracing::warn!(
                 client_ip = %self.client_ip,
                 action = "CHANNEL_OPEN_DENIED",
@@ -449,13 +453,13 @@ impl russh::server::Handler for SftpHandler {
         name: &str,
         session: &mut server::Session,
     ) -> Result<(), Self::Error> {
-        if name == "sftp" && self.authenticated {
-            if let Some(ref home_dir) = self.home_dir {
+        if name == "sftp" && self.auth.authenticated {
+            if let Some(ref home_dir) = self.auth.home_dir {
                 let _ = session.channel_success(channel);
 
                 self.sftp_channel = Some(channel);
 
-                let username = self.username.clone();
+                let username = self.auth.username.clone();
 
                 let state = SftpState::new(
                     home_dir.clone(),
@@ -546,8 +550,8 @@ impl russh::server::Handler for SftpHandler {
 impl Drop for SftpHandler {
     fn drop(&mut self) {
         // 连接断开时减少会话计数
-        if let (Some(username), Some(server)) = (&self.username, &self.sftp_server)
-            && self.authenticated
+        if let (Some(username), Some(server)) = (&self.auth.username, &self.sftp_server)
+            && self.auth.authenticated
         {
             server.decrement_session(username);
             tracing::debug!("User {} session ended", username);

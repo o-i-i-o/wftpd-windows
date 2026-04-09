@@ -27,7 +27,7 @@ mod cmd_dispatch;
 mod dir_ops;
 mod extended;
 mod file_ops;
-mod handler;
+pub mod handler;
 mod link_ops;
 mod lock_ops;
 
@@ -283,17 +283,19 @@ impl SftpServer {
                                         quota_manager,
                                         fail2ban_manager,
                                         sftp_server: Some(Arc::new(sftp_server_clone)),
-                                        authenticated: false,
-                                        username: None,
-                                        home_dir: None,
+                                        auth: crate::core::sftp_server::handler::AuthContext {
+                                            authenticated: false,
+                                            username: None,
+                                            home_dir: None,
+                                            auth_attempts: 0,
+                                            max_auth_attempts,
+                                            auth_start_time: Some(std::time::Instant::now()),
+                                            auth_timeout_secs: auth_timeout,
+                                        },
                                         sftp_channel: None,
                                         sftp_state: None,
                                         client_ip: client_ip.clone(),
                                         users_path: get_program_data_path().join("users.json"),
-                                        auth_attempts: 0,
-                                        max_auth_attempts,
-                                        auth_start_time: Some(std::time::Instant::now()),
-                                        auth_timeout_secs: auth_timeout,
                                         max_sessions_per_user: max_sessions,
                                     };
 
