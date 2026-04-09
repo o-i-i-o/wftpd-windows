@@ -114,7 +114,15 @@ impl SftpServer {
     }
 
     pub async fn start(&self) -> Result<()> {
-        let (bind_ip, sftp_port, host_key_path, warnings, key_rotation_days, max_auth_attempts, auth_timeout) = {
+        let (
+            bind_ip,
+            sftp_port,
+            host_key_path,
+            warnings,
+            key_rotation_days,
+            max_auth_attempts,
+            auth_timeout,
+        ) = {
             let cfg = self.config.lock();
             let warnings = cfg.validate_paths();
             (
@@ -655,11 +663,7 @@ impl SftpState {
                 if let Ok(canon) = resolved.canonicalize() {
                     let home = PathBuf::from(&self.home_dir);
                     if !crate::core::path_utils::path_starts_with_ignore_case(&canon, home) {
-                        tracing::warn!(
-                            "Symlink points outside home: {:?} -> {:?}",
-                            path,
-                            canon
-                        );
+                        tracing::warn!("Symlink points outside home: {:?} -> {:?}", path, canon);
                         return Err(self.build_status_packet(
                             0,
                             3,
@@ -706,7 +710,10 @@ impl SftpState {
             if let Some(handle) = self.handles.remove(&handle_key) {
                 match handle {
                     SftpFileHandle::File {
-                        locked, path, mut file, ..
+                        locked,
+                        path,
+                        mut file,
+                        ..
                     } => {
                         use tokio::io::AsyncWriteExt;
                         let _ = file.flush().await;
@@ -886,8 +893,8 @@ impl SftpState {
         {
             if let Some(ctime) = metadata
                 .creation_time()
-                .checked_sub(11644473600000)
-                .and_then(|secs_since_1601| (secs_since_1601 / 1000).checked_add(0))
+                .checked_sub(116444736000000000)
+                .map(|ns100| ns100 / 10_000_000)
             {
                 flags |= 0x80000000;
 
@@ -899,7 +906,9 @@ impl SftpState {
                 attrs.extend_from_slice(&(ext_name.len() as u32).to_be_bytes());
                 attrs.extend_from_slice(ext_name.as_bytes());
 
-                attrs.extend_from_slice(&(ctime as u32).to_be_bytes());
+                let ctime_str = ctime.to_string();
+                attrs.extend_from_slice(&(ctime_str.len() as u32).to_be_bytes());
+                attrs.extend_from_slice(ctime_str.as_bytes());
             }
         }
 

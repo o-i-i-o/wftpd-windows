@@ -16,7 +16,11 @@ impl SftpState {
         let handle = self.handles.get_mut(&handle_str);
         match handle {
             Some(SftpFileHandle::File {
-                path, file, locked, lock_handle, ..
+                path,
+                file,
+                locked,
+                lock_handle,
+                ..
             }) => {
                 if *locked {
                     return Ok(self.build_status_packet(id, 0, "Already locked", ""));
@@ -70,7 +74,10 @@ impl SftpState {
         let handle = self.handles.get_mut(&handle_str);
         match handle {
             Some(SftpFileHandle::File {
-                path, locked, lock_handle, ..
+                path,
+                locked,
+                lock_handle,
+                ..
             }) => {
                 if !*locked {
                     return Ok(self.build_status_packet(id, 0, "Not locked", ""));

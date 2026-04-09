@@ -75,7 +75,12 @@ impl SftpHandler {
         None
     }
 
-    fn finalize_auth_success(&mut self, user: &str, home_dir: Option<String>, method: &str) -> server::Auth {
+    fn finalize_auth_success(
+        &mut self,
+        user: &str,
+        home_dir: Option<String>,
+        method: &str,
+    ) -> server::Auth {
         if let Some(hd) = home_dir {
             match std::path::PathBuf::from(&hd).canonicalize() {
                 Ok(home_canon) => {
@@ -84,7 +89,9 @@ impl SftpHandler {
                 Err(e) => {
                     tracing::error!(
                         "SFTP auth failed: cannot canonicalize home directory '{}' for user '{}': {}",
-                        hd, user, e
+                        hd,
+                        user,
+                        e
                     );
                     tracing::warn!(
                         client_ip = %self.client_ip,
@@ -100,7 +107,10 @@ impl SftpHandler {
             }
         }
 
-        let session_count = self.sftp_server.as_ref().map_or(0, |s| s.get_session_count(user));
+        let session_count = self
+            .sftp_server
+            .as_ref()
+            .map_or(0, |s| s.get_session_count(user));
         if session_count >= self.max_sessions_per_user {
             tracing::warn!(
                 client_ip = %self.client_ip,

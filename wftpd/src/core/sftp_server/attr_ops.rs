@@ -71,7 +71,9 @@ impl SftpState {
                 Ok(metadata) => {
                     let mut payload = vec![105];
                     payload.extend_from_slice(&id.to_be_bytes());
-                    payload.extend_from_slice(&self.build_attrs_extended(&metadata, metadata.is_dir()));
+                    payload.extend_from_slice(
+                        &self.build_attrs_extended(&metadata, metadata.is_dir()),
+                    );
                     Ok(self.build_packet(&payload))
                 }
                 Err(_) => Ok(self.build_status_packet(id, 2, "No such file", "")),

@@ -81,13 +81,20 @@ impl SftpState {
                                             let mt = m
                                                 .modified()
                                                 .ok()
-                                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                                .and_then(|t| {
+                                                    t.duration_since(std::time::UNIX_EPOCH).ok()
+                                                })
                                                 .map(|d| d.as_secs() as u32)
                                                 .unwrap_or(0);
                                             (m.len(), mt)
                                         })
                                         .unwrap_or((0, 0));
-                                    read_entries.push(DirEntry { name, is_dir, size, mtime });
+                                    read_entries.push(DirEntry {
+                                        name,
+                                        is_dir,
+                                        size,
+                                        mtime,
+                                    });
                                 }
                             }
                             Err(e) => {
@@ -107,8 +114,7 @@ impl SftpState {
                     }
 
                     let count = (entries.len() - *index).min(100);
-                    let result_entries: Vec<DirEntry> =
-                        entries[*index..*index + count].to_vec();
+                    let result_entries: Vec<DirEntry> = entries[*index..*index + count].to_vec();
                     *index += count;
                     *last_access = std::time::Instant::now();
                     Some(result_entries)
@@ -133,7 +139,11 @@ impl SftpState {
 
                     let long_name = format!(
                         "{} 1 user user {:>10} {} {}",
-                        if entry.is_dir { "drwxr-xr-x" } else { "-rw-r--r--" },
+                        if entry.is_dir {
+                            "drwxr-xr-x"
+                        } else {
+                            "-rw-r--r--"
+                        },
                         entry.size,
                         mtime_str,
                         entry.name
@@ -226,24 +236,21 @@ impl SftpState {
             Err(resp) => return Ok(resp),
         };
 
-        let result = tokio::fs::remove_dir(&full_path).await;
-
-        if result.is_ok() {
-            crate::file_op_log!(
-                rmdir,
-                self.username.as_deref().unwrap_or("anonymous"),
-                &self.client_ip,
-                &full_path.to_string_lossy(),
-                "SFTP"
-            );
-            Ok(self.build_status_packet(id, 0, "OK", ""))
-        } else {
-            let err = result.unwrap_err();
-            if err.kind() == std::io::ErrorKind::DirectoryNotEmpty {
-                Ok(self.build_status_packet(id, 4, "Directory not empty", ""))
-            } else {
-                Ok(self.build_status_packet(id, 4, "Failed to remove directory", ""))
+        match tokio::fs::remove_dir(&full_path).await {
+            Ok(()) => {
+                crate::file_op_log!(
+                    rmdir,
+                    self.username.as_deref().unwrap_or("anonymous"),
+                    &self.client_ip,
+                    &full_path.to_string_lossy(),
+                    "SFTP"
+                );
+                Ok(self.build_status_packet(id, 0, "OK", ""))
             }
+            Err(e) if e.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
+                Ok(self.build_status_packet(id, 4, "Directory not empty", ""))
+            }
+            Err(_) => Ok(self.build_status_packet(id, 4, "Failed to remove directory", "")),
         }
     }
 
@@ -301,7 +308,9 @@ impl SftpState {
             return Ok(resp);
         }
 
-        if new_full.exists() && let Err(resp) = self.check_symlink_in_home(&new_full).await {
+        if new_full.exists()
+            && let Err(resp) = self.check_symlink_in_home(&new_full).await
+        {
             return Ok(resp);
         }
 

@@ -86,7 +86,8 @@ async fn run_session(
     initial_tls_enabled: bool,
     res: SessionResources,
 ) -> Result<()> {
-    let server_local_ip = control_stream.local_ip()
+    let server_local_ip = control_stream
+        .local_ip()
         .map(|ip| match ip {
             IpAddr::V4(ipv4) => ipv4.to_string(),
             IpAddr::V6(ipv6) => {
@@ -117,7 +118,10 @@ async fn run_session(
     if !session_config.ip_allowed {
         tracing::warn!("Connection rejected from {} by IP filter", res.client_ip);
         control_stream
-            .write_response(b"530 Connection denied by IP filter\r\n", "IP filter rejection")
+            .write_response(
+                b"530 Connection denied by IP filter\r\n",
+                "IP filter rejection",
+            )
             .await;
         return Ok(());
     }
@@ -133,7 +137,12 @@ async fn run_session(
         let cfg = res.config.lock();
         cfg.security.allow_symlinks
     };
-    let mut state = SessionState::new(&res.client_ip, &server_local_ip, allow_symlinks, res.upnp_manager.clone());
+    let mut state = SessionState::new(
+        &res.client_ip,
+        &server_local_ip,
+        allow_symlinks,
+        res.upnp_manager.clone(),
+    );
     state.transfer_mode = session_config.default_transfer_mode;
     state.passive_mode = session_config.default_passive_mode;
     state.encoding = session_config.encoding;

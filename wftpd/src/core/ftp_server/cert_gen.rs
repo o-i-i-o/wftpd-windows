@@ -27,7 +27,9 @@ pub fn generate_self_signed_cert(cert_path: &str, key_path: &str) -> Result<()> 
     params.subject_alt_names = vec![
         rcgen::SanType::DnsName("localhost".try_into()?),
         rcgen::SanType::IpAddress(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))),
-        rcgen::SanType::IpAddress(std::net::IpAddr::V6(std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))),
+        rcgen::SanType::IpAddress(std::net::IpAddr::V6(std::net::Ipv6Addr::new(
+            0, 0, 0, 0, 0, 0, 0, 1,
+        ))),
     ];
 
     params.not_before = time::OffsetDateTime::now_utc();

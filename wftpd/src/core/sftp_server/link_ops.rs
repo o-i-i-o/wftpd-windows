@@ -104,32 +104,32 @@ impl SftpState {
             }
         }
 
-        let symlink_result = std::os::windows::fs::symlink_file(&full_target, &full_link);
-
-        if symlink_result.is_ok() {
-            crate::file_op_log!(
-                self.username.as_deref().unwrap_or("anonymous"),
-                &self.client_ip,
-                "SYMLINK",
-                &format!(
-                    "{} -> {}",
-                    full_link.to_string_lossy(),
-                    full_target.to_string_lossy()
-                ),
-                0,
-                "SFTP",
-                true,
-                "符号链接创建成功"
-            );
-            Ok(self.build_status_packet(id, 0, "OK", ""))
-        } else {
-            let e = symlink_result.unwrap_err();
-            let msg = if e.raw_os_error() == Some(1314) {
-                "Symlink requires administrator privileges on Windows"
-            } else {
-                "Failed to create symlink"
-            };
-            Ok(self.build_status_packet(id, 4, msg, ""))
+        match std::os::windows::fs::symlink_file(&full_target, &full_link) {
+            Ok(()) => {
+                crate::file_op_log!(
+                    self.username.as_deref().unwrap_or("anonymous"),
+                    &self.client_ip,
+                    "SYMLINK",
+                    &format!(
+                        "{} -> {}",
+                        full_link.to_string_lossy(),
+                        full_target.to_string_lossy()
+                    ),
+                    0,
+                    "SFTP",
+                    true,
+                    "符号链接创建成功"
+                );
+                Ok(self.build_status_packet(id, 0, "OK", ""))
+            }
+            Err(e) => {
+                let msg = if e.raw_os_error() == Some(1314) {
+                    "Symlink requires administrator privileges on Windows"
+                } else {
+                    "Failed to create symlink"
+                };
+                Ok(self.build_status_packet(id, 4, msg, ""))
+            }
         }
     }
 }

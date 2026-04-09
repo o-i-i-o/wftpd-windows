@@ -150,10 +150,10 @@ impl SftpState {
                     if let Err(e) = file.flush().await {
                         tracing::warn!("Failed to flush file on close {:?}: {}", path, e);
                     }
-                    if written_bytes > 0 {
-                        if let Err(e) = file.sync_data().await {
-                            tracing::debug!("sync_data on close {:?}: {}", path, e);
-                        }
+                    if written_bytes > 0
+                        && let Err(e) = file.sync_data().await
+                    {
+                        tracing::debug!("sync_data on close {:?}: {}", path, e);
                     }
 
                     // 文件会在 drop 时自动关闭，但显式关闭可以更早释放资源
@@ -275,13 +275,13 @@ impl SftpState {
                 let read_len = len.min(SFTP_READ_BUFFER_SIZE);
                 let mut buffer = vec![0u8; read_len];
 
-                if let Some(limiter) = &self.rate_limiter {
-                    limiter.acquire(read_len).await;
-                }
-
                 match file.read(&mut buffer).await {
                     Ok(0) => Ok(self.build_status_packet(id, 1, "End of file", "")),
                     Ok(n) => {
+                        if let Some(limiter) = &self.rate_limiter {
+                            limiter.acquire(n).await;
+                        }
+
                         buffer.truncate(n);
                         *read_bytes += n as u64;
                         *last_access = std::time::Instant::now();

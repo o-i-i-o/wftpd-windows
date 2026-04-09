@@ -992,8 +992,13 @@ pub async fn handle_store_command(
                 .await
                 {
                     let abort = Arc::clone(&state.abort_flag);
-                    match transfer::receive_file_append(&mut data_stream, &file_path, abort, is_ascii)
-                        .await
+                    match transfer::receive_file_append(
+                        &mut data_stream,
+                        &file_path,
+                        abort,
+                        is_ascii,
+                    )
+                    .await
                     {
                         Ok(_) => transfer_ok = true,
                         Err(e) => tracing::warn!("APPE transfer error: {}", e),

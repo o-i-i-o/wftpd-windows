@@ -175,7 +175,10 @@ pub async fn handle_auth_command(
 
         CCC => {
             control_stream
-                .write_response(b"534 CCC is disabled for security reasons\r\n", "FTP response")
+                .write_response(
+                    b"534 CCC is disabled for security reasons\r\n",
+                    "FTP response",
+                )
                 .await;
         }
 
