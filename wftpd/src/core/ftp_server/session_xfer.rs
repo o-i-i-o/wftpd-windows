@@ -22,6 +22,13 @@ pub async fn handle_transfer_command(
 ) -> Result<bool> {
     use super::commands::FtpCommand::*;
 
+    if !state.authenticated {
+        control_stream
+            .write_response(b"530 Not logged in\r\n", "FTP response")
+            .await;
+        return Ok(true);
+    }
+
     match cmd {
         PASV => {
             let pasv_config = {
@@ -335,6 +342,7 @@ pub async fn handle_list_command(
                 .clone()
                 .unwrap_or_else(|| "anonymous".to_string());
             let is_ascii = state.transfer_mode == "ascii";
+            let mut transfer_ok = false;
 
             if let Ok(mut data_stream) = transfer::get_data_connection(
                 state.passive_mode,
@@ -342,11 +350,13 @@ pub async fn handle_list_command(
                 &state.data_addr,
                 ctx.client_ip,
                 &mut state.passive_manager,
+                state.data_protection,
+                ctx.tls_config.acceptor.as_deref(),
             )
             .await
             {
                 let is_nlst = matches!(cmd, NLST(_));
-                if let Err(e) = transfer::send_directory_listing(
+                match transfer::send_directory_listing(
                     &mut data_stream,
                     &list_path,
                     &current_username,
@@ -355,7 +365,8 @@ pub async fn handle_list_command(
                 )
                 .await
                 {
-                    tracing::warn!("LIST/NLST transfer error: {}", e);
+                    Ok(()) => transfer_ok = true,
+                    Err(e) => tracing::warn!("LIST/NLST transfer error: {}", e),
                 }
             }
 
@@ -364,10 +375,18 @@ pub async fn handle_list_command(
             {
                 state.passive_manager.remove_listener(port);
             }
+            state.data_port = None;
+            state.data_addr = None;
 
-            control_stream
-                .write_response(b"226 Transfer complete\r\n", "FTP response")
-                .await;
+            if transfer_ok {
+                control_stream
+                    .write_response(b"226 Transfer complete\r\n", "FTP response")
+                    .await;
+            } else {
+                control_stream
+                    .write_response(b"426 Transfer aborted\r\n", "FTP response")
+                    .await;
+            }
         }
 
         MLSD(path) | MLST(path) => {
@@ -458,6 +477,7 @@ pub async fn handle_list_command(
                     .current_user
                     .clone()
                     .unwrap_or_else(|| "anonymous".to_string());
+                let mut transfer_ok = false;
 
                 if let Ok(mut data_stream) = transfer::get_data_connection(
                     state.passive_mode,
@@ -465,13 +485,17 @@ pub async fn handle_list_command(
                     &state.data_addr,
                     ctx.client_ip,
                     &mut state.passive_manager,
+                    state.data_protection,
+                    ctx.tls_config.acceptor.as_deref(),
                 )
                 .await
-                    && let Err(e) =
-                        transfer::send_mlsd_listing(&mut data_stream, &target_path, &mlst_owner)
-                            .await
                 {
-                    tracing::warn!("MLSD transfer error: {}", e);
+                    match transfer::send_mlsd_listing(&mut data_stream, &target_path, &mlst_owner)
+                        .await
+                    {
+                        Ok(()) => transfer_ok = true,
+                        Err(e) => tracing::warn!("MLSD transfer error: {}", e),
+                    }
                 }
 
                 if state.passive_mode
@@ -479,10 +503,18 @@ pub async fn handle_list_command(
                 {
                     state.passive_manager.remove_listener(port);
                 }
+                state.data_port = None;
+                state.data_addr = None;
 
-                control_stream
-                    .write_response(b"226 Transfer complete\r\n", "FTP response")
-                    .await;
+                if transfer_ok {
+                    control_stream
+                        .write_response(b"226 Transfer complete\r\n", "FTP response")
+                        .await;
+                } else {
+                    control_stream
+                        .write_response(b"426 Transfer aborted\r\n", "FTP response")
+                        .await;
+                }
             }
         }
 
@@ -602,6 +634,7 @@ pub async fn handle_retrieve_command(
             let is_ascii = state.transfer_mode == "ascii";
             let rate_limiter: Option<std::sync::Arc<RateLimiter>> =
                 speed_limit_kbps.map(|limit| std::sync::Arc::new(RateLimiter::new(limit)));
+            let mut transfer_ok = false;
 
             if let Ok(mut data_stream) = transfer::get_data_connection(
                 state.passive_mode,
@@ -609,11 +642,13 @@ pub async fn handle_retrieve_command(
                 &state.data_addr,
                 ctx.client_ip,
                 &mut state.passive_manager,
+                state.data_protection,
+                ctx.tls_config.acceptor.as_deref(),
             )
             .await
             {
                 let abort = Arc::clone(&state.abort_flag);
-                if let Err(e) = transfer::send_file_with_limits(
+                match transfer::send_file_with_limits(
                     &mut data_stream,
                     &file_path,
                     state.rest_offset,
@@ -623,7 +658,8 @@ pub async fn handle_retrieve_command(
                 )
                 .await
                 {
-                    tracing::warn!("RETR transfer error: {}", e);
+                    Ok(()) => transfer_ok = true,
+                    Err(e) => tracing::warn!("RETR transfer error: {}", e),
                 }
             }
 
@@ -632,23 +668,31 @@ pub async fn handle_retrieve_command(
             {
                 state.passive_manager.remove_listener(port);
             }
+            state.data_port = None;
+            state.data_addr = None;
 
-            control_stream
-                .write_response(b"226 Transfer complete\r\n", "FTP response")
-                .await;
+            if transfer_ok {
+                control_stream
+                    .write_response(b"226 Transfer complete\r\n", "FTP response")
+                    .await;
 
-            let final_size = tokio::fs::metadata(&file_path)
-                .await
-                .map(|m| m.len())
-                .unwrap_or(remaining);
-            crate::file_op_log!(
-                download,
-                state.current_user.as_deref().unwrap_or("anonymous"),
-                ctx.client_ip,
-                &file_path.to_string_lossy(),
-                final_size,
-                "FTP"
-            );
+                let final_size = tokio::fs::metadata(&file_path)
+                    .await
+                    .map(|m| m.len())
+                    .unwrap_or(remaining);
+                crate::file_op_log!(
+                    download,
+                    state.current_user.as_deref().unwrap_or("anonymous"),
+                    ctx.client_ip,
+                    &file_path.to_string_lossy(),
+                    final_size,
+                    "FTP"
+                );
+            } else {
+                control_stream
+                    .write_response(b"426 Transfer aborted\r\n", "FTP response")
+                    .await;
+            }
 
             state.rest_offset = 0;
         }
@@ -782,6 +826,8 @@ pub async fn handle_store_command(
                     &state.data_addr,
                     ctx.client_ip,
                     &mut state.passive_manager,
+                    state.data_protection,
+                    ctx.tls_config.acceptor.as_deref(),
                 )
                 .await
                 {
@@ -816,6 +862,8 @@ pub async fn handle_store_command(
                 {
                     state.passive_manager.remove_listener(port);
                 }
+                state.data_port = None;
+                state.data_addr = None;
 
                 if transfer_success {
                     control_stream
@@ -930,6 +978,7 @@ pub async fn handle_store_command(
                     .await;
 
                 let is_ascii = state.transfer_mode == "ascii";
+                let mut transfer_ok = false;
 
                 if let Ok(mut data_stream) = transfer::get_data_connection(
                     state.passive_mode,
@@ -937,15 +986,17 @@ pub async fn handle_store_command(
                     &state.data_addr,
                     ctx.client_ip,
                     &mut state.passive_manager,
+                    state.data_protection,
+                    ctx.tls_config.acceptor.as_deref(),
                 )
                 .await
                 {
                     let abort = Arc::clone(&state.abort_flag);
-                    if let Err(e) =
-                        transfer::receive_file_append(&mut data_stream, &file_path, abort, is_ascii)
-                            .await
+                    match transfer::receive_file_append(&mut data_stream, &file_path, abort, is_ascii)
+                        .await
                     {
-                        tracing::warn!("APPE transfer error: {}", e);
+                        Ok(_) => transfer_ok = true,
+                        Err(e) => tracing::warn!("APPE transfer error: {}", e),
                     }
                 }
 
@@ -954,25 +1005,33 @@ pub async fn handle_store_command(
                 {
                     state.passive_manager.remove_listener(port);
                 }
+                state.data_port = None;
+                state.data_addr = None;
 
-                control_stream
-                    .write_response(b"226 Transfer complete\r\n", "FTP response")
-                    .await;
+                if transfer_ok {
+                    control_stream
+                        .write_response(b"226 Transfer complete\r\n", "FTP response")
+                        .await;
 
-                let appended_size = tokio::fs::metadata(&file_path)
-                    .await
-                    .map(|m| m.len())
-                    .unwrap_or(0);
-                crate::file_op_log!(
-                    state.current_user.as_deref().unwrap_or("anonymous"),
-                    ctx.client_ip,
-                    "APPEND",
-                    &file_path.to_string_lossy(),
-                    appended_size,
-                    "FTP",
-                    true,
-                    "文件追加成功"
-                );
+                    let appended_size = tokio::fs::metadata(&file_path)
+                        .await
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+                    crate::file_op_log!(
+                        state.current_user.as_deref().unwrap_or("anonymous"),
+                        ctx.client_ip,
+                        "APPEND",
+                        &file_path.to_string_lossy(),
+                        appended_size,
+                        "FTP",
+                        true,
+                        "文件追加成功"
+                    );
+                } else {
+                    control_stream
+                        .write_response(b"426 Transfer aborted\r\n", "FTP response")
+                        .await;
+                }
             }
         }
 
@@ -1021,6 +1080,7 @@ pub async fn handle_store_command(
                 .await;
 
             let is_ascii = state.transfer_mode == "ascii";
+            let mut transfer_ok = false;
 
             if let Ok(mut data_stream) = transfer::get_data_connection(
                 state.passive_mode,
@@ -1028,14 +1088,16 @@ pub async fn handle_store_command(
                 &state.data_addr,
                 ctx.client_ip,
                 &mut state.passive_manager,
+                state.data_protection,
+                ctx.tls_config.acceptor.as_deref(),
             )
             .await
             {
                 let abort = Arc::clone(&state.abort_flag);
-                if let Err(e) =
-                    transfer::receive_file(&mut data_stream, &file_path, 0, abort, is_ascii).await
+                match transfer::receive_file(&mut data_stream, &file_path, 0, abort, is_ascii).await
                 {
-                    tracing::warn!("STOU transfer error: {}", e);
+                    Ok(_) => transfer_ok = true,
+                    Err(e) => tracing::warn!("STOU transfer error: {}", e),
                 }
             }
 
@@ -1044,23 +1106,31 @@ pub async fn handle_store_command(
             {
                 state.passive_manager.remove_listener(port);
             }
+            state.data_port = None;
+            state.data_addr = None;
 
-            control_stream
-                .write_response(b"226 Transfer complete\r\n", "FTP response")
-                .await;
+            if transfer_ok {
+                control_stream
+                    .write_response(b"226 Transfer complete\r\n", "FTP response")
+                    .await;
 
-            let uploaded_size = tokio::fs::metadata(&file_path)
-                .await
-                .map(|m| m.len())
-                .unwrap_or(0);
-            crate::file_op_log!(
-                upload,
-                state.current_user.as_deref().unwrap_or("anonymous"),
-                ctx.client_ip,
-                &file_path.to_string_lossy(),
-                uploaded_size,
-                "FTP"
-            );
+                let uploaded_size = tokio::fs::metadata(&file_path)
+                    .await
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+                crate::file_op_log!(
+                    upload,
+                    state.current_user.as_deref().unwrap_or("anonymous"),
+                    ctx.client_ip,
+                    &file_path.to_string_lossy(),
+                    uploaded_size,
+                    "FTP"
+                );
+            } else {
+                control_stream
+                    .write_response(b"426 Transfer aborted\r\n", "FTP response")
+                    .await;
+            }
         }
 
         _ => return Ok(true),

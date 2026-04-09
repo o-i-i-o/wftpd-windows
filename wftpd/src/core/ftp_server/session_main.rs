@@ -7,7 +7,6 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use anyhow::Result;
-use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
 use crate::core::config::Config;
@@ -26,12 +25,22 @@ use super::session_xfer::{
     handle_fileinfo_command, handle_list_command, handle_retrieve_command, handle_store_command,
     handle_transfer_command,
 };
+use super::tls::AsyncTlsTcpStream;
 use super::upnp_manager::UpnpManager;
 
 const MAX_COMMAND_LENGTH: usize = 8192;
 
+struct SessionResources {
+    config: Arc<Mutex<Config>>,
+    user_manager: Arc<Mutex<UserManager>>,
+    quota_manager: Arc<QuotaManager>,
+    fail2ban_manager: Arc<Fail2BanManager>,
+    upnp_manager: Option<Arc<UpnpManager>>,
+    client_ip: String,
+}
+
 pub async fn handle_session(
-    mut socket: TcpStream,
+    socket: TcpStream,
     config: Arc<Mutex<Config>>,
     user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
@@ -39,52 +48,80 @@ pub async fn handle_session(
     upnp_manager: Option<Arc<UpnpManager>>,
     client_ip: String,
 ) -> Result<()> {
-    let local_addr = socket.local_addr()?;
-    let server_local_ip = {
-        let local_ip = local_addr.ip();
-        if local_ip.is_unspecified() {
-            super::session_ip::get_local_ip_for_client(&client_ip)
-        } else {
-            match local_ip {
-                IpAddr::V4(ipv4) => ipv4.to_string(),
-                IpAddr::V6(ipv6) => {
-                    if let Some(ipv4) = ipv6.to_ipv4_mapped() {
-                        ipv4.to_string()
-                    } else {
-                        tracing::warn!("Server has pure IPv6 address {}, using fallback", ipv6);
-                        super::session_ip::get_local_ip_for_client(&client_ip)
-                    }
+    let control_stream = ControlStream::Plain(Some(socket));
+    let resources = SessionResources {
+        config,
+        user_manager,
+        quota_manager,
+        fail2ban_manager,
+        upnp_manager,
+        client_ip,
+    };
+    run_session(control_stream, false, resources).await
+}
+
+pub async fn handle_session_tls(
+    socket: AsyncTlsTcpStream,
+    config: Arc<Mutex<Config>>,
+    user_manager: Arc<Mutex<UserManager>>,
+    quota_manager: Arc<QuotaManager>,
+    fail2ban_manager: Arc<Fail2BanManager>,
+    upnp_manager: Option<Arc<UpnpManager>>,
+    client_ip: String,
+) -> Result<()> {
+    let control_stream = ControlStream::Tls(Box::new(socket));
+    let resources = SessionResources {
+        config,
+        user_manager,
+        quota_manager,
+        fail2ban_manager,
+        upnp_manager,
+        client_ip,
+    };
+    run_session(control_stream, true, resources).await
+}
+
+async fn run_session(
+    mut control_stream: ControlStream,
+    initial_tls_enabled: bool,
+    res: SessionResources,
+) -> Result<()> {
+    let server_local_ip = control_stream.local_ip()
+        .map(|ip| match ip {
+            IpAddr::V4(ipv4) => ipv4.to_string(),
+            IpAddr::V6(ipv6) => {
+                if let Some(ipv4) = ipv6.to_ipv4_mapped() {
+                    ipv4.to_string()
+                } else {
+                    tracing::warn!("Server has pure IPv6 address {}, using fallback", ipv6);
+                    super::session_ip::get_local_ip_for_client(&res.client_ip)
                 }
             }
-        }
-    };
+        })
+        .unwrap_or_else(|| super::session_ip::get_local_ip_for_client(&res.client_ip));
 
     tracing::debug!(
-        "FTP session: client_ip={}, server_local_ip={}, socket_local_addr={}",
-        client_ip,
+        "FTP session: client_ip={}, server_local_ip={}, tls={}",
+        res.client_ip,
         server_local_ip,
-        local_addr
+        initial_tls_enabled
     );
 
     let session_config = {
-        let cfg = config.lock();
-        super::session_state::SessionConfig::from_config(&cfg, &client_ip)
+        let cfg = res.config.lock();
+        super::session_state::SessionConfig::from_config(&cfg, &res.client_ip)
     };
 
     let passive_timeout = session_config.idle_timeout;
 
     if !session_config.ip_allowed {
-        tracing::warn!("Connection rejected from {} by IP filter", client_ip);
-        if let Err(e) = socket
-            .write_all(b"530 Connection denied by IP filter\r\n")
-            .await
-        {
-            tracing::debug!("Failed to send IP filter rejection to {}: {}", client_ip, e);
-        }
+        tracing::warn!("Connection rejected from {} by IP filter", res.client_ip);
+        control_stream
+            .write_response(b"530 Connection denied by IP filter\r\n", "IP filter rejection")
+            .await;
         return Ok(());
     }
 
-    let mut control_stream = ControlStream::Plain(Some(socket));
     control_stream
         .write_response(
             format!("220 {}\r\n", session_config.welcome_msg).as_bytes(),
@@ -93,21 +130,23 @@ pub async fn handle_session(
         .await;
 
     let allow_symlinks = {
-        let cfg = config.lock();
+        let cfg = res.config.lock();
         cfg.security.allow_symlinks
     };
-    let mut state = SessionState::new(&client_ip, &server_local_ip, allow_symlinks, upnp_manager);
+    let mut state = SessionState::new(&res.client_ip, &server_local_ip, allow_symlinks, res.upnp_manager.clone());
     state.transfer_mode = session_config.default_transfer_mode;
     state.passive_mode = session_config.default_passive_mode;
     state.encoding = session_config.encoding;
+    state.tls_enabled = initial_tls_enabled;
 
     let mut cmd_buffer: Vec<u8> = Vec::with_capacity(MAX_COMMAND_LENGTH);
     let mut read_buffer = [0u8; 4096];
     let mut last_activity = std::time::Instant::now();
+    let mut last_cleanup = std::time::Instant::now();
 
     loop {
         let (conn_timeout, idle_timeout) = {
-            let cfg = config.lock();
+            let cfg = res.config.lock();
             (cfg.ftp.connection_timeout, cfg.ftp.idle_timeout)
         };
 
@@ -121,7 +160,10 @@ pub async fn handle_session(
             }
         }
 
-        state.passive_manager.cleanup_expired(passive_timeout);
+        if last_cleanup.elapsed() >= std::time::Duration::from_secs(30) {
+            state.passive_manager.cleanup_expired(passive_timeout);
+            last_cleanup = std::time::Instant::now();
+        }
 
         let timeout_result = tokio::time::timeout(
             std::time::Duration::from_secs(conn_timeout),
@@ -158,11 +200,11 @@ pub async fn handle_session(
                     let ftp_cmd = FtpCommand::parse(&cmd, arg);
 
                     let ctx = CommandContext {
-                        config: &config,
-                        user_manager: &user_manager,
-                        quota_manager: &quota_manager,
-                        fail2ban_manager: &fail2ban_manager,
-                        client_ip: &client_ip,
+                        config: &res.config,
+                        user_manager: &res.user_manager,
+                        quota_manager: &res.quota_manager,
+                        fail2ban_manager: &res.fail2ban_manager,
+                        client_ip: &res.client_ip,
                         allow_anonymous: &session_config.allow_anonymous,
                         anonymous_home: &session_config.anonymous_home,
                         tls_config: &session_config.tls_config,

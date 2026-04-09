@@ -47,7 +47,7 @@ pub async fn handle_auth_command(
                 control_stream
                     .write_response(b"502 FTPS is disabled on this server\r\n", "FTP response")
                     .await;
-                return Ok(false);
+                return Ok(true);
             }
 
             let tls_type = tls_type.as_deref().unwrap_or("TLS");
@@ -311,6 +311,23 @@ pub async fn handle_auth_command(
                 return Ok(true);
             }
 
+            let max_attempts = {
+                let cfg = ctx.config.lock();
+                cfg.security.max_login_attempts
+            };
+            if max_attempts > 0 && state.login_attempts >= max_attempts {
+                control_stream
+                    .write_response(b"530 Too many login attempts\r\n", "FTP response")
+                    .await;
+                tracing::warn!(
+                    client_ip = %ctx.client_ip,
+                    action = "LOGIN_REJECTED",
+                    protocol = "FTP",
+                    "Too many login attempts from {}", ctx.client_ip
+                );
+                return Ok(false);
+            }
+
             if let Some(ref username) = state.current_user {
                 if username == "anonymous" {
                     if *ctx.allow_anonymous {
@@ -420,6 +437,7 @@ pub async fn handle_auth_command(
                         }
                         Ok(false) => {
                             ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
+                            state.login_attempts += 1;
 
                             tracing::warn!(
                                 client_ip = %ctx.client_ip,
@@ -428,6 +446,7 @@ pub async fn handle_auth_command(
                                 protocol = "FTP",
                                 "Authentication failed for user {}", username
                             );
+                            state.current_user = None;
                             control_stream
                                 .write_response(
                                     b"530 Not logged in, user cannot be authenticated\r\n",
@@ -437,6 +456,7 @@ pub async fn handle_auth_command(
                         }
                         Err(e) => {
                             ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
+                            state.login_attempts += 1;
 
                             tracing::error!(
                                 client_ip = %ctx.client_ip,
@@ -444,6 +464,7 @@ pub async fn handle_auth_command(
                                 action = "AUTH_ERROR",
                                 "Authentication error for user {}: {}", username, e
                             );
+                            state.current_user = None;
                             control_stream
                                 .write_response(b"530 Not logged in\r\n", "FTP response")
                                 .await;

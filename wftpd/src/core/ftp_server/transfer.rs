@@ -12,12 +12,33 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use super::passive::PassiveManager;
+use super::tls::AsyncTlsTcpStream;
 use crate::core::rate_limiter::RateLimiter;
 
-// 动态缓冲区大小：根据传输场景自动调整
 const DEFAULT_BUFFER_SIZE: usize = 128 * 1024;
 const MAX_ENTRIES_PER_BATCH: usize = 2000;
-const MAX_LISTING_SIZE: usize = 4 * 1024 * 1024; // 128KB 默认值
+const MAX_LISTING_SIZE: usize = 4 * 1024 * 1024;
+
+pub enum DataStream {
+    Plain(TcpStream),
+    Tls(Box<AsyncTlsTcpStream>),
+}
+
+impl DataStream {
+    pub async fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            DataStream::Plain(s) => s.read(buf).await,
+            DataStream::Tls(s) => s.read(buf).await,
+        }
+    }
+
+    pub async fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        match self {
+            DataStream::Plain(s) => s.write_all(buf).await,
+            DataStream::Tls(s) => s.write_all(buf).await,
+        }
+    }
+}
 
 pub async fn get_data_connection(
     passive_mode: bool,
@@ -25,22 +46,25 @@ pub async fn get_data_connection(
     data_addr: &Option<String>,
     remote_ip: &str,
     passive_manager: &mut PassiveManager,
-) -> Result<TcpStream> {
+    data_protection: bool,
+    tls_acceptor: Option<&tokio_rustls::TlsAcceptor>,
+) -> Result<DataStream> {
     let port = match data_port {
         Some(p) => p,
         None => anyhow::bail!("No data port specified"),
     };
 
     tracing::debug!(
-        "get_data_connection: passive_mode={}, port={}, remote_ip={}",
+        "get_data_connection: passive_mode={}, port={}, remote_ip={}, data_protection={}",
         passive_mode,
         port,
-        remote_ip
+        remote_ip,
+        data_protection
     );
 
-    if passive_mode {
+    let tcp_stream = if passive_mode {
         match passive_manager.accept_with_validation(port).await {
-            Ok(stream) => Ok(stream),
+            Ok(stream) => stream,
             Err(e) => {
                 tracing::error!("Failed to accept validated passive connection: {}", e);
                 anyhow::bail!("Failed to accept passive connection: {}", e);
@@ -53,12 +77,10 @@ pub async fn get_data_connection(
             .map_err(|e| anyhow::anyhow!("Invalid address {}: {}", addr, e))?
             .next()
             .ok_or_else(|| anyhow::anyhow!("Could not resolve address: {}", addr))?;
-        let stream =
-            tokio::time::timeout(Duration::from_secs(30), TcpStream::connect(&socket_addr))
-                .await
-                .map_err(|_| anyhow::anyhow!("Connection timeout"))?
-                .map_err(|e| anyhow::anyhow!("Failed to connect: {}", e))?;
-        Ok(stream)
+        tokio::time::timeout(Duration::from_secs(30), TcpStream::connect(&socket_addr))
+            .await
+            .map_err(|_| anyhow::anyhow!("Connection timeout"))?
+            .map_err(|e| anyhow::anyhow!("Failed to connect: {}", e))?
     } else {
         let addr = format!("{}:{}", remote_ip, port);
         tracing::debug!("Active mode (fallback): connecting to {}", addr);
@@ -67,17 +89,32 @@ pub async fn get_data_connection(
             .map_err(|e| anyhow::anyhow!("Invalid address {}: {}", addr, e))?
             .next()
             .ok_or_else(|| anyhow::anyhow!("Could not resolve address: {}", addr))?;
-        let stream =
-            tokio::time::timeout(Duration::from_secs(30), TcpStream::connect(&socket_addr))
-                .await
-                .map_err(|_| anyhow::anyhow!("Connection timeout"))?
-                .map_err(|e| anyhow::anyhow!("Failed to connect: {}", e))?;
-        Ok(stream)
+        tokio::time::timeout(Duration::from_secs(30), TcpStream::connect(&socket_addr))
+            .await
+            .map_err(|_| anyhow::anyhow!("Connection timeout"))?
+            .map_err(|e| anyhow::anyhow!("Failed to connect: {}", e))?
+    };
+
+    if data_protection {
+        let acceptor = tls_acceptor
+            .ok_or_else(|| anyhow::anyhow!("TLS acceptor not available for data connection"))?;
+        match acceptor.accept(tcp_stream).await {
+            Ok(tls_stream) => {
+                tracing::debug!("Data connection upgraded to TLS");
+                Ok(DataStream::Tls(Box::new(tls_stream)))
+            }
+            Err(e) => {
+                tracing::error!("Data channel TLS handshake failed: {}", e);
+                anyhow::bail!("Data channel TLS handshake failed: {}", e);
+            }
+        }
+    } else {
+        Ok(DataStream::Plain(tcp_stream))
     }
 }
 
 pub async fn receive_file(
-    data_stream: &mut TcpStream,
+    data_stream: &mut DataStream,
     file_path: &Path,
     offset: u64,
     abort: Arc<AtomicBool>,
@@ -180,7 +217,7 @@ pub async fn receive_file(
 }
 
 pub async fn receive_file_append(
-    data_stream: &mut TcpStream,
+    data_stream: &mut DataStream,
     file_path: &Path,
     abort: Arc<AtomicBool>,
     is_ascii: bool,
@@ -234,7 +271,7 @@ pub async fn receive_file_append(
 }
 
 pub async fn receive_file_with_limits(
-    data_stream: &mut TcpStream,
+    data_stream: &mut DataStream,
     file_path: &Path,
     offset: u64,
     abort: Arc<AtomicBool>,
@@ -342,7 +379,7 @@ pub async fn receive_file_with_limits(
 }
 
 pub async fn send_file_with_limits(
-    data_stream: &mut TcpStream,
+    data_stream: &mut DataStream,
     file_path: &Path,
     offset: u64,
     abort: Arc<AtomicBool>,
@@ -395,9 +432,8 @@ pub async fn send_file_with_limits(
     Ok(())
 }
 
-/// 优化的目录列表发送（批量缓冲 + 内存限制）
 pub async fn send_directory_listing(
-    data_stream: &mut TcpStream,
+    data_stream: &mut DataStream,
     dir_path: &Path,
     username: &str,
     is_nlst: bool,
@@ -439,7 +475,6 @@ pub async fn send_directory_listing(
 
             entry_count += 1;
 
-            // 分批发送，避免内存峰值
             if entries_data.len() >= MAX_LISTING_SIZE {
                 data_stream.write_all(&entries_data).await?;
                 entries_data.clear();
@@ -447,7 +482,6 @@ pub async fn send_directory_listing(
         }
     }
 
-    // 发送剩余数据
     if !entries_data.is_empty() {
         data_stream.write_all(&entries_data).await?;
     }
@@ -456,7 +490,7 @@ pub async fn send_directory_listing(
 }
 
 pub async fn send_mlsd_listing(
-    data_stream: &mut TcpStream,
+    data_stream: &mut DataStream,
     dir_path: &Path,
     owner: &str,
 ) -> Result<()> {
@@ -538,20 +572,12 @@ pub fn build_mlst_facts(metadata: &std::fs::Metadata, owner: &str) -> String {
     format!("{};", facts.join(";"))
 }
 
-/// 优化的 LF 到 CRLF 转换（上传时）
-/// 使用预分配和迭代器优化
 fn convert_lf_to_crlf(data: &[u8]) -> Vec<u8> {
-    // 先扫描需要添加的\r数量，精确分配内存
     let lf_count = data.iter().filter(|&&b| b == b'\n').count();
-
-    // 预分配足够空间（假设每个\n 前都需要添加\r）
     let mut result = Vec::with_capacity(data.len() + lf_count);
-
-    // 使用迭代器处理，避免索引边界检查
     let mut prev_was_cr = false;
     for &byte in data {
         if byte == b'\n' {
-            // 如果前一个不是\r，则添加\r
             if !prev_was_cr {
                 result.push(b'\r');
             }
@@ -562,36 +588,28 @@ fn convert_lf_to_crlf(data: &[u8]) -> Vec<u8> {
             prev_was_cr = byte == b'\r';
         }
     }
-
     result
 }
 
-/// 优化的 CRLF 到 LF 转换（下载时）
-/// 使用预分配和迭代器优化
 fn convert_crlf_to_lf(data: &[u8]) -> Vec<u8> {
-    // 先扫描需要移除的\r数量
     let crlf_count = data
         .windows(2)
         .filter(|window| window[0] == b'\r' && window[1] == b'\n')
         .count();
 
-    // 预分配空间（移除所有 CRLF 中的\r）
     let mut result = Vec::with_capacity(data.len() - crlf_count);
-
-    // 使用迭代器处理
     let mut iter = data.iter().peekable();
     while let Some(&byte) = iter.next() {
         if byte == b'\r' {
-            // 如果是\r且下一个是\n，跳过\r直接添加\n
             if iter.peek() == Some(&&b'\n') {
                 result.push(b'\n');
-                iter.next(); // 消耗\n
+                iter.next();
+            } else {
+                result.push(b'\r');
             }
-            // 否则忽略孤立的\r
         } else {
             result.push(byte);
         }
     }
-
     result
 }

@@ -39,15 +39,7 @@ pub async fn handle_basic_command(
         }
 
         FEAT => {
-            let hide_version = {
-                let cfg = ctx.config.lock();
-                cfg.ftp.hide_version_info
-            };
-            let mut features = if hide_version {
-                "211-Features:\r\n SIZE\r\n MDTM\r\n REST STREAM\r\n PASV\r\n EPSV\r\n EPRT\r\n MLST\r\n MLSD\r\n MODE S\r\n STRU F\r\n TVFS\r\n".to_string()
-            } else {
-                "211-Features:\r\n SIZE\r\n MDTM\r\n REST STREAM\r\n PASV\r\n EPSV\r\n EPRT\r\n PORT\r\n MLST\r\n MLSD\r\n MODE S\r\n STRU F\r\n UTF8\r\n TVFS\r\n".to_string()
-            };
+            let mut features = "211-Features:\r\n SIZE\r\n MDTM\r\n REST STREAM\r\n PASV\r\n EPSV\r\n EPRT\r\n PORT\r\n MLST\r\n MLSD\r\n MODE S\r\n STRU F\r\n UTF8\r\n TVFS\r\n".to_string();
             if ctx.tls_config.is_tls_available() {
                 features.push_str(" AUTH TLS\r\n PBSZ\r\n PROT\r\n");
                 features.push_str(" MIC\r\n CONF\r\n ENC\r\n");
@@ -73,6 +65,15 @@ pub async fn handle_basic_command(
                         control_stream
                             .write_response(
                                 b"200 OPTS UTF8 command successful - UTF8 encoding on\r\n",
+                                "FTP response",
+                            )
+                            .await;
+                    }
+                    "MLST" => {
+                        let facts = "Type*;Size*;Modify*;UNIX.owner*;UNIX.group*;";
+                        control_stream
+                            .write_response(
+                                format!("250 MLST OPTS {}\r\n", facts).as_bytes(),
                                 "FTP response",
                             )
                             .await;
@@ -311,7 +312,7 @@ pub async fn handle_basic_command(
 
             state.file_structure = FileStructure::File;
             state.transfer_mode_type = TransferModeType::Stream;
-            state.transfer_mode = state.encoding.clone();
+            state.transfer_mode = "binary".to_string();
 
             state.tls_enabled = tls_was_enabled;
             state.data_protection = tls_config_preserved;

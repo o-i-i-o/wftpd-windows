@@ -73,6 +73,17 @@ impl ControlStream {
         }
         Ok(())
     }
+
+    pub fn local_ip(&self) -> Option<std::net::IpAddr> {
+        match self {
+            ControlStream::Plain(Some(stream)) => stream.local_addr().ok().map(|a| a.ip()),
+            ControlStream::Plain(None) => None,
+            ControlStream::Tls(stream) => {
+                let (inner, _) = stream.get_ref();
+                inner.local_addr().ok().map(|a| a.ip())
+            }
+        }
+    }
 }
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -80,6 +91,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub struct SessionState {
     pub current_user: Option<String>,
     pub authenticated: bool,
+    pub login_attempts: u32,
     pub cwd: String,
     pub home_dir: String,
     pub transfer_mode: String,
@@ -111,6 +123,7 @@ impl SessionState {
         SessionState {
             current_user: None,
             authenticated: false,
+            login_attempts: 0,
             cwd: String::new(),
             home_dir: String::new(),
             transfer_mode: "binary".to_string(),

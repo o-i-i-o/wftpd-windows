@@ -286,10 +286,17 @@ pub struct SecurityConfig {
     // 符号链接安全配置
     #[serde(default = "default_allow_symlinks")]
     pub allow_symlinks: bool,
+    // 每会话最大登录尝试次数
+    #[serde(default = "default_max_login_attempts")]
+    pub max_login_attempts: u32,
 }
 
 fn default_allow_symlinks() -> bool {
-    false // 默认禁用符号链接以提高安全性
+    false
+}
+
+fn default_max_login_attempts() -> u32 {
+    5
 }
 
 fn default_fail2ban_enabled() -> bool {
@@ -400,6 +407,7 @@ impl Default for Config {
                 fail2ban_threshold: 5,
                 fail2ban_ban_time: 3600,
                 allow_symlinks: false,
+                max_login_attempts: 5,
             },
             logging: LoggingConfig {
                 log_dir,
