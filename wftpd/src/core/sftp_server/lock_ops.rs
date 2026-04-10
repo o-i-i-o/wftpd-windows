@@ -1,6 +1,6 @@
-//! SFTP 文件锁操作命令
+//! SFTP file lock operation commands
 //!
-//! 处理 lock、unlock 等文件锁操作命令 (SFTP v5+)
+//! Handles file lock operations like lock, unlock (SFTP v5+)
 
 use crate::core::sftp_server::{SftpFileHandle, SftpState};
 

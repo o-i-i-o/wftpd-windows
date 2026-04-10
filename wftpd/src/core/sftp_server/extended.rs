@@ -1,6 +1,6 @@
-//! SFTP 扩展命令处理
+//! SFTP extended command handler
 //!
-//! 处理 limits@openssh.com、statvfs@openssh.com、md5sum@ssh.com 等扩展命令
+//! Handles extended commands like limits@openssh.com, statvfs@openssh.com, md5sum@ssh.com
 
 use crate::core::sftp_server::SftpState;
 
@@ -336,7 +336,7 @@ impl SftpState {
                     0,
                     "SFTP",
                     true,
-                    "硬链接创建成功"
+                    "Hard link created successfully"
                 );
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }

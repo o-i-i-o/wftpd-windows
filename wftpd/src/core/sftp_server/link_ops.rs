@@ -1,6 +1,6 @@
-//! SFTP 链接操作命令
+//! SFTP link operation commands
 //!
-//! 处理 readlink、symlink 等符号链接操作命令
+//! Handles symbolic link operations like readlink, symlink
 
 use crate::core::path_utils::path_starts_with_ignore_case;
 use crate::core::sftp_server::SftpState;

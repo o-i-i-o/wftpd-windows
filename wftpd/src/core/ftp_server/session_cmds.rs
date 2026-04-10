@@ -1,6 +1,6 @@
-//! FTP 基础命令处理
+//! FTP basic command handler
 //!
-//! 处理 QUIT、NOOP、OPTS 等基础 FTP 命令
+//! Handles basic FTP commands like QUIT, NOOP, OPTS
 
 use super::commands::FtpCommand;
 use super::session_state::{ControlStream, FileStructure, SessionState, TransferModeType};

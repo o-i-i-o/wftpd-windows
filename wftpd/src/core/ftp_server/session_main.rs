@@ -1,6 +1,6 @@
-//! FTP 会话主处理流程
+//! FTP session main processing flow
 //!
-//! 处理 FTP 控制连接和命令分发的核心逻辑
+//! Core logic for handling FTP control connections and command dispatch
 
 use parking_lot::Mutex;
 use std::net::IpAddr;
@@ -226,7 +226,7 @@ async fn run_session(
                 }
             }
             Ok(Err(e)) => {
-                tracing::debug!("读取错误: {}", e);
+                tracing::debug!("Read error: {}", e);
                 break;
             }
             Err(_) => {

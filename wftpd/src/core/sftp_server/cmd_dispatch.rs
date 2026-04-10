@@ -1,6 +1,6 @@
-//! SFTP 命令分发器
+//! SFTP command dispatcher
 //!
-//! 实现 handle_sftp_packet 主分发器和 handle_init 初始化命令
+//! Implements handle_sftp_packet main dispatcher and handle_init initialization command
 
 use crate::core::sftp_server::SftpState;
 

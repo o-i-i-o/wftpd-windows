@@ -1,6 +1,6 @@
-//! SITE 命令处理
+//! SITE command handler
 //!
-//! 处理 FTP SITE 命令，支持自定义站点操作
+//! Handles FTP SITE commands, supports custom site operations
 
 use crate::core::path_utils::path_starts_with_ignore_case;
 use anyhow::Result;

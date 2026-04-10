@@ -1030,7 +1030,7 @@ pub async fn handle_store_command(
                         appended_size,
                         "FTP",
                         true,
-                        "文件追加成功"
+                        "File append successful"
                     );
                 } else {
                     control_stream

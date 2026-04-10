@@ -1,6 +1,6 @@
-//! 配置管理器
-//! IP 白名单/黑名单配置
-//! 负责加载、验证和管理服务器配置，支持热重载
+//! Configuration manager
+//! IP whitelist/blacklist configuration
+//! Responsible for loading, validating and managing server configuration, supports hot reload
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -231,7 +231,7 @@ fn default_masquerade_map() -> HashMap<String, String> {
 }
 
 fn default_upnp_enabled() -> bool {
-    false // 默认禁用，需要时手动启用
+    false // Disabled by default, enable manually when needed
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -300,7 +300,7 @@ fn default_max_login_attempts() -> u32 {
 }
 
 fn default_fail2ban_enabled() -> bool {
-    false // 默认禁用，需要时手动启用
+    false // Disabled by default, enable manually when needed
 }
 
 fn default_fail2ban_threshold() -> u32 {
@@ -308,7 +308,7 @@ fn default_fail2ban_threshold() -> u32 {
 }
 
 fn default_fail2ban_ban_time() -> u64 {
-    3600 // 默认封禁 1 小时
+    3600 // Default ban for 1 hour
 }
 
 fn default_max_connections() -> usize {
@@ -432,7 +432,7 @@ impl Config {
             return trimmed.to_string();
         }
 
-        // 检查是否是 IPv6 地址（包含多个 :）
+        // Check if it's an IPv6 address (contains multiple :)
         if trimmed.contains(':') && trimmed.matches(':').count() > 1 {
             // 这是 IPv6 地址，添加 []
             format!("[{}]", trimmed)
@@ -469,7 +469,7 @@ impl Config {
         if self.ftp.allow_anonymous {
             match &self.ftp.anonymous_home {
                 None => {
-                    warnings.push("匿名用户已启用，但未配置匿名用户主目录".to_string());
+                    warnings.push("Anonymous user is enabled but anonymous home directory is not configured".to_string());
                 }
                 Some(anon_home) => {
                     if let Err(e) = Self::validate_home_path(anon_home, "FTP匿名用户主目录")
@@ -512,7 +512,7 @@ impl Config {
                         }
                     }
                     Err(e) => {
-                        warnings.push(format!("无法访问日志目录 '{}': {}", log_dir, e));
+                        warnings.push(format!("Cannot access log directory '{}': {}", log_dir, e));
                     }
                 }
             }
@@ -524,13 +524,13 @@ impl Config {
     fn validate_home_path(path: &str, name: &str) -> Result<(), String> {
         let p = Path::new(path);
         if !p.exists() {
-            return Err(format!("{}不存在: {}", name, path));
+            return Err(format!("{} does not exist: {}", name, path));
         }
         if !p.is_dir() {
             return Err(format!("{}不是目录: {}", name, path));
         }
         if p.canonicalize().is_err() {
-            return Err(format!("{}路径无法规范化: {}", name, path));
+            return Err(format!("{} path cannot be canonicalized: {}", name, path));
         }
         Ok(())
     }
@@ -655,7 +655,7 @@ impl Config {
         );
     }
 
-    /// 验证配置的有效性
+    /// Validate configuration validity
     pub fn validate(&self) -> Result<(), String> {
         // 验证 FTP 端口
         if self.ftp.enabled && self.ftp.port == 0 {
@@ -667,7 +667,7 @@ impl Config {
             return Err("SFTP port cannot be 0".to_string());
         }
 
-        // 验证被动模式端口范围
+        // Validate passive mode port range
         if self.ftp.passive_ports.0 > self.ftp.passive_ports.1 {
             return Err(format!(
                 "Invalid passive port range: {} > {}",
@@ -702,7 +702,7 @@ impl Config {
             return Err("max_log_files must be greater than 0".to_string());
         }
 
-        // 验证 IP/CIDR 格式
+        // Validate IP/CIDR format
         for cidr in &self.security.allowed_ips {
             if !cidr.is_empty() && ip_matches_cidr("127.0.0.1", cidr).is_err() {
                 return Err(format!("Invalid allowed IP/CIDR format: {}", cidr));

@@ -82,7 +82,7 @@ pub struct SftpServer {
     running: Arc<Mutex<bool>>,
     shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     last_key_rotation: Arc<TokioMutex<Option<DateTime<Utc>>>>,
-    // 使用原子计数器跟踪每用户的活跃会话数，提高并发性能
+    // Use atomic counter to track active sessions per user for better concurrency
     active_sessions: Arc<Mutex<HashMap<String, Arc<AtomicU32>>>>,
 }
 
@@ -138,9 +138,9 @@ impl SftpServer {
 
         if !warnings.is_empty() {
             for warning in &warnings {
-                tracing::error!("配置验证失败: {}", warning);
+                tracing::error!("Config validation failed: {}", warning);
             }
-            return Err(anyhow::anyhow!("配置路径验证失败：{}", warnings.join("; ")));
+            return Err(anyhow::anyhow!("Config path validation failed: {}", warnings.join("; ")));
         }
 
         tracing::info!("SFTP server starting on {}:{}", bind_ip, sftp_port);
@@ -152,7 +152,7 @@ impl SftpServer {
 
         let host_key = Self::load_or_generate_host_key(&host_key_path).await?;
 
-        // 启用密码和公钥认证
+        // Enable password and public key authentication
         let mut methods = MethodSet::empty();
         methods.push(MethodKind::Password);
         methods.push(MethodKind::PublicKey);
@@ -208,7 +208,7 @@ impl SftpServer {
 
             // 仅在配置为 [::] 时启用 IPv6 双栈支持
             if domain == Domain::IPV6 {
-                socket.set_only_v6(false)?; // 允许 IPv4 映射到 IPv6
+                socket.set_only_v6(false)?; // Allow IPv4 mapped to IPv6
             }
 
             socket.set_reuse_address(true)?;
@@ -350,7 +350,7 @@ impl SftpServer {
         *self.running.lock()
     }
 
-    /// 增加用户活跃会话数（使用原子操作，无锁）
+    /// Increment user active session count (using atomic operations, lock-free)
     pub fn increment_session(&self, username: &str) {
         let mut sessions = self.active_sessions.lock();
         let counter = sessions
@@ -372,14 +372,14 @@ impl SftpServer {
                 // 如果计数归零，从 HashMap 中移除
                 // 使用 compare_exchange 确保只在计数确实为 0 时清理，避免竞态条件
                 if new_count == 0 {
-                    // 尝试将计数器从 0 交换为 0，成功说明没有其他线程修改
+                    // Try to exchange counter from 0 to 0, success means no other thread modified it
                     if counter
                         .compare_exchange(0, 0, Ordering::SeqCst, Ordering::SeqCst)
                         .is_ok()
                     {
-                        drop(sessions); // 释放锁后再移除
+                        drop(sessions); // Release lock before removal
                         let mut sessions_mut = self.active_sessions.lock();
-                        // 再次检查，防止在释放锁期间有新会话加入
+                        // Check again to prevent new sessions from joining during lock release
                         if let Some(c) = sessions_mut.get(username) {
                             let current = c.load(Ordering::SeqCst);
                             if current == 0 {
@@ -412,7 +412,7 @@ impl SftpServer {
         }
     }
 
-    /// 获取用户活跃会话数（原子读取）
+    /// Get user active session count (atomic read)
     pub fn get_session_count(&self, username: &str) -> u32 {
         let sessions = self.active_sessions.lock();
         sessions
@@ -425,7 +425,7 @@ impl SftpServer {
         let path = PathBuf::from(key_path);
 
         if !path.exists() {
-            tracing::info!("SFTP 主机密钥不存在，将生成新密钥：{}", path.display());
+            tracing::info!("SFTP host key does not exist, will generate new key: {}", path.display());
             return Ok(());
         }
 
@@ -474,7 +474,7 @@ impl SftpServer {
                 .map(|t| now.signed_duration_since(t).num_days())
                 .unwrap_or(0);
             tracing::debug!(
-                "SFTP 主机密钥无需轮换，当前年龄：{} 天，轮换周期：{} 天",
+                "SFTP host key rotation not needed, current age: {} days, rotation period: {} days",
                 age,
                 rotation_days
             );
@@ -513,7 +513,7 @@ impl SftpServer {
             return Ok(key);
         }
 
-        tracing::info!("SFTP 主机密钥不存在，正在生成新密钥: {}", path.display());
+        tracing::info!("SFTP host key does not exist, generating new key: {}", path.display());
 
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -524,13 +524,13 @@ impl SftpServer {
         let key = PrivateKey::random(&mut rng, keys::Algorithm::Ed25519)?;
         let openssh = key.to_openssh(keys::ssh_key::LineEnding::default())?;
         tokio::fs::write(&path, openssh.to_string()).await?;
-        tracing::info!("已生成 SFTP 主机私钥: {}", path.display());
+        tracing::info!("Generated SFTP host private key: {}", path.display());
 
         let pub_path = path.with_extension("pub");
         let public_key = key.public_key();
         let pub_openssh = public_key.to_openssh()?;
         tokio::fs::write(&pub_path, pub_openssh.to_string()).await?;
-        tracing::info!("已生成 SFTP 主机公钥: {}", pub_path.display());
+        tracing::info!("Generated SFTP host public key: {}", pub_path.display());
 
         Ok(key)
     }

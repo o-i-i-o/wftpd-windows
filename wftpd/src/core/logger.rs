@@ -190,7 +190,7 @@ impl<T: Clone> Clone for LogBuffer<T> {
     }
 }
 
-/// 系统日志 Layer
+/// System log layer
 pub struct SystemLogLayer {
     buffer: LogBuffer<LogEntry>,
 }
@@ -243,7 +243,7 @@ where
     }
 }
 
-/// 文件操作日志 Layer
+/// File operation log layer
 pub struct FileOpLogLayer {
     buffer: LogBuffer<LogEntry>,
 }
@@ -458,7 +458,7 @@ impl TracingLogger {
             .filename_prefix("file-ops")
             .filename_suffix("log")
             .build(&path)
-            .map_err(|e| format!("创建文件操作日志文件失败: {}", e))?;
+            .map_err(|e| format!("Failed to create file operation log file: {}", e))?;
 
         let (file_op_non_blocking, file_op_guard) =
             tracing_appender::non_blocking(file_op_appender);
@@ -668,7 +668,7 @@ macro_rules! file_op_log {
             file_size = $file_size,
             protocol = %$protocol,
             success = true,
-            "文件更新成功"
+            "File update successful"
         )
     };
     (download, $username:expr, $client_ip:expr, $file_path:expr, $file_size:expr, $protocol:expr) => {
@@ -694,7 +694,7 @@ macro_rules! file_op_log {
             file_size = 0u64,
             protocol = %$protocol,
             success = true,
-            "文件删除成功"
+            "File delete successful"
         )
     };
     (rename, $username:expr, $client_ip:expr, $old_path:expr, $new_path:expr, $protocol:expr) => {
@@ -720,7 +720,7 @@ macro_rules! file_op_log {
             file_size = 0u64,
             protocol = %$protocol,
             success = true,
-            "文件移动成功"
+            "File move successful"
         )
     };
     (mkdir, $username:expr, $client_ip:expr, $dir_path:expr, $protocol:expr) => {
@@ -759,7 +759,7 @@ macro_rules! file_op_log {
             file_size = 0u64,
             protocol = %$protocol,
             success = false,
-            "操作失败: {}",
+            "Operation failed: {}",
             $error
         )
     };

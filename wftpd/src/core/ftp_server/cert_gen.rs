@@ -8,11 +8,11 @@ use std::path::Path;
 use tracing::{info, warn};
 
 pub fn generate_self_signed_cert(cert_path: &str, key_path: &str) -> Result<()> {
-    info!("正在为 FTPS 生成自签名证书...");
+    info!("Generating self-signed certificate for FTPS...");
 
     let cert_dir = Path::new(cert_path)
         .parent()
-        .ok_or_else(|| anyhow::anyhow!("无效的证书路径"))?;
+        .ok_or_else(|| anyhow::anyhow!("Invalid certificate path"))?;
 
     fs::create_dir_all(cert_dir).context("创建证书目录失败")?;
 
@@ -39,8 +39,8 @@ pub fn generate_self_signed_cert(cert_path: &str, key_path: &str) -> Result<()> 
     let cert = params.self_signed(&key_pair)?;
 
     let key_pem = key_pair.serialize_pem();
-    fs::write(key_path, key_pem).context("保存私钥文件失败")?;
-    info!("私钥已保存到：{}", key_path);
+    fs::write(key_path, key_pem).context("Failed to save private key file")?;
+    info!("Private key saved to: {}", key_path);
 
     let cert_pem = cert.pem();
     fs::write(cert_path, cert_pem).context("保存证书文件失败")?;
@@ -55,7 +55,7 @@ pub fn ensure_cert_exists(cert_path: &str, key_path: &str) -> Result<bool> {
     let key_file = Path::new(key_path);
 
     if cert_file.exists() && key_file.exists() {
-        info!("FTPS 证书文件已存在");
+        info!("FTPS certificate file already exists");
         return Ok(false);
     }
 

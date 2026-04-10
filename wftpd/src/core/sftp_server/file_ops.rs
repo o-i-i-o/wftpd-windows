@@ -1,6 +1,6 @@
-//! SFTP 文件操作命令
+//! SFTP file operation commands
 //!
-//! 处理 open、close、read、write 等文件操作命令
+//! Handles file operations like open, close, read, write
 
 use crate::core::sftp_server::{
     MAX_HANDLES, SFTP_READ_BUFFER_SIZE, SFTP_WRITE_FLUSH_THRESHOLD, SSH_FXF_APPEND, SSH_FXF_CREAT,
@@ -154,7 +154,7 @@ impl SftpState {
                         tracing::debug!("sync_data on close {:?}: {}", path, e);
                     }
 
-                    // 文件会在 drop 时自动关闭，但显式关闭可以更早释放资源
+                    // File will be automatically closed on drop, but explicit close releases resources earlier
                     drop(file);
 
                     if locked {

@@ -1,6 +1,6 @@
-//! FTP 认证命令处理
+//! FTP authentication command handler
 //!
-//! 处理 USER、PASS、AUTH 等认证相关命令
+//! Handles authentication commands like USER, PASS, AUTH
 
 use anyhow::Result;
 use parking_lot::Mutex;

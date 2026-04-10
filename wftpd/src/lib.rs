@@ -1,6 +1,6 @@
-//! WFTPG - FTP/SFTP 服务器库
+//! WFTPG - FTP/SFTP Server Library
 //!
-//! 提供 FTP 和 SFTP 服务器的核心功能，包括配置管理、用户管理、服务器生命周期管理
+//! Provides core functionality for FTP and SFTP servers, including configuration management, user management, server lifecycle management
 
 pub mod core;
 
@@ -31,7 +31,7 @@ impl AppState {
         tracing::info!("Config path: {}", config_path.display());
         tracing::info!("Users path: {}", users_path.display());
 
-        // 先初始化基本日志系统，确保配置加载失败时也能记录日志
+        // Initialize basic logging system first to ensure logging even if config loading fails
         let default_log_dir = Config::get_default_log_dir();
         if let Err(e) = std::fs::create_dir_all(&default_log_dir) {
             eprintln!(
@@ -56,7 +56,7 @@ impl AppState {
             Ok(c) => {
                 tracing::info!("Configuration loaded successfully");
 
-                // 验证配置
+                // Validate configuration
                 if let Err(e) = c.validate() {
                     tracing::error!("Configuration validation failed: {}", e);
                     return Err(anyhow::anyhow!(

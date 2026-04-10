@@ -1,6 +1,6 @@
-//! FTP 服务器核心模块
+//! FTP server core module
 //!
-//! 提供 FTP 服务器的启动、监听和会话管理功能
+//! Provides FTP server startup, listening and session management functions
 
 mod cert_gen;
 mod commands;
@@ -116,14 +116,14 @@ impl FtpServer {
             return Err(anyhow::anyhow!("配置路径验证失败：{}", warnings.join("; ")));
         }
 
-        // 根据配置的绑定地址确定监听方式
+        // Determine listening method based on configured bind address
         let bind_addr = format!("{}:{}", bind_ip, ftp_port);
 
         tracing::info!("FTP server starting on {}", bind_addr);
 
         let listener = {
             use socket2::{Domain, Protocol, SockAddr, Socket, Type};
-            // 根据配置的地址类型选择 IPv4 或 IPv6
+            // Select IPv4 or IPv6 based on configured address type
             let domain = if bind_ip == "::" || (bind_ip.starts_with('[') && bind_ip.ends_with(']'))
             {
                 Domain::IPV6
@@ -133,9 +133,9 @@ impl FtpServer {
 
             let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
 
-            // 仅在配置为 [::] 时启用 IPv6 双栈支持
+            // Enable IPv6 dual-stack support only when configured as [::]
             if domain == Domain::IPV6 {
-                socket.set_only_v6(false)?; // 允许 IPv4 映射到 IPv6
+                socket.set_only_v6(false)?; // Allow IPv4 mapped to IPv6
             }
 
             socket.set_reuse_address(true)?;
@@ -174,7 +174,7 @@ impl FtpServer {
         let upnp_init = Arc::clone(&upnp_spawn);
         tokio::spawn(async move {
             if let Err(e) = upnp_init.initialize().await {
-                tracing::warn!("UPnP 初始化失败: {}", e);
+                tracing::warn!("UPnP initialization failed: {}", e);
             }
         });
 
@@ -228,7 +228,7 @@ impl FtpServer {
                                 let client_ip = peer_addr.ip().to_string();
                                 let config_arc = Arc::clone(&config_spawn);
 
-                                // 优化的并发控制：在单个锁保护下完成所有检查
+                                // Optimized concurrency control: complete all checks under single lock protection
                                 let checks_result = {
                                     let cfg = config_arc.lock();
                                     let ip_allowed = cfg.is_ip_allowed(&client_ip);
@@ -242,7 +242,7 @@ impl FtpServer {
 
                                 let (ip_allowed, connection_allowed) = checks_result;
 
-                                // 检查 IP 是否被封禁 (Fail2Ban) - 独立检查，不使用锁
+                                // Check if IP is banned (Fail2Ban) - independent check, no lock used
                                 if fail2ban_spawn.is_banned(&client_ip).await {
                                     tracing::warn!(
                                         "Connection rejected from {}: IP is banned by Fail2Ban",
@@ -311,7 +311,7 @@ impl FtpServer {
                                         tracing::debug!("FTP session error: {}", e);
                                     }
 
-                                    // 连接结束时注销
+                                    // Unregister when connection ends
                                     {
                                         let cfg = config_arc.lock();
                                         cfg.unregister_connection(&client_ip_clone);

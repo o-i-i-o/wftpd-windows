@@ -1,6 +1,6 @@
-//! FTP TLS 配置和加密连接
+//! FTP TLS configuration and encrypted connections
 //!
-//! 处理 FTP over TLS (FTPS) 的加密连接和证书配置
+//! Handles encrypted connections and certificate configuration for FTP over TLS (FTPS)
 
 use anyhow::Result;
 use rustls::ServerConfig;
@@ -25,11 +25,11 @@ impl TlsConfig {
     pub fn new(cert_path: Option<&str>, key_path: Option<&str>, _require_ssl: bool) -> Self {
         match (cert_path, key_path) {
             (Some(cert), Some(key)) => {
-                // 检查并自动生成证书
+                // Check and auto-generate certificate
                 match cert_gen::ensure_cert_exists(cert, key) {
-                    Ok(true) => tracing::info!("已为 FTPS 生成自签名证书"),
-                    Ok(false) => tracing::info!("使用现有的 FTPS 证书"),
-                    Err(e) => tracing::warn!("检查证书失败：{}", e),
+                    Ok(true) => tracing::info!("Generated self-signed certificate for FTPS"),
+                    Ok(false) => tracing::info!("Using existing FTPS certificate"),
+                    Err(e) => tracing::warn!("Certificate check failed: {}", e),
                 }
 
                 match load_tls_acceptor(cert, key) {

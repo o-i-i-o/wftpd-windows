@@ -1,6 +1,6 @@
-//! SFTP 目录操作命令
+//! SFTP directory operation commands
 //!
-//! 处理 opendir、readdir、mkdir、rmdir、realpath、rename、remove 等目录操作命令
+//! Handles directory operations like opendir, readdir, mkdir, rmdir, realpath, rename, remove
 
 use crate::core::path_utils::path_starts_with_ignore_case;
 use crate::core::sftp_server::{DirEntry, MAX_HANDLES, SftpFileHandle, SftpState};

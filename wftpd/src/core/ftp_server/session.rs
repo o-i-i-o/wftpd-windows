@@ -1,6 +1,6 @@
-//! FTP 会话模块重新导出
+//! FTP session module re-export
 //!
-//! 重新导出各子模块的公共接口
+//! Re-exports public interfaces from submodules
 pub use super::session_cmds::{handle_basic_command, handle_help_command, handle_stat_command};
 pub use super::session_dirs::{generate_unique_filename, handle_directory_command};
 pub use super::session_ip::{

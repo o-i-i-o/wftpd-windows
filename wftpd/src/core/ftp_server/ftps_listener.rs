@@ -73,7 +73,7 @@ pub async fn start_ftps_implicit_server(
                     Ok((socket, peer_addr)) => {
                         let client_ip = peer_addr.ip().to_string();
 
-                        // 检查 IP 是否被封禁 (Fail2Ban)
+                        // Check if IP is banned (Fail2Ban)
                         if fail2ban_manager.is_banned(&client_ip).await {
                             tracing::warn!(
                                 "FTPS Connection rejected from {}: IP is banned by Fail2Ban",
@@ -82,7 +82,7 @@ pub async fn start_ftps_implicit_server(
                             continue;
                         }
 
-                        // 检查 IP 黑白名单
+                        // Check IP whitelist/blacklist
                         let ip_allowed = {
                             let cfg = config.lock();
                             cfg.is_ip_allowed(&client_ip)
@@ -147,7 +147,7 @@ pub async fn start_ftps_implicit_server(
                                 tracing::debug!("FTPS session error: {}", e);
                             }
 
-                            // 连接结束时注销
+                            // Unregister when connection ends
                             {
                                 let cfg = config_for_cleanup.lock();
                                 cfg.unregister_connection(&client_ip_clone);

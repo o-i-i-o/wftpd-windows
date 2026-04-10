@@ -1,6 +1,6 @@
-//! FTP 会话状态管理
+//! FTP session state management
 //!
-//! 定义和控制 FTP 会话的连接状态、传输模式和文件结构
+//! Defines and controls FTP session connection state, transfer mode and file structure
 
 use std::path::PathBuf;
 use std::sync::Arc;

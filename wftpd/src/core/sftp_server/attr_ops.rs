@@ -1,6 +1,6 @@
-//! SFTP 文件属性操作命令
+//! SFTP file attribute operation commands
 //!
-//! 处理 stat、lstat、fstat、setstat、fsetstat 等文件属性操作命令
+//! Handles file attribute operations like stat, lstat, fstat, setstat, fsetstat
 
 use crate::core::sftp_server::{SftpFileHandle, SftpState};
 use std::path::PathBuf;
