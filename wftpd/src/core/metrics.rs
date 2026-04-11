@@ -9,7 +9,7 @@ use prometheus::{
 use std::time::Instant;
 
 lazy_static! {
-    // 连接相关指标
+    // Connection-related metrics
     pub static ref CONNECTIONS_TOTAL: Gauge = register_gauge!(
         "wftpg_connections_total",
         "Total number of connections"
@@ -25,7 +25,7 @@ lazy_static! {
         "Number of rejected connections (IP limits)"
     ).unwrap();
 
-    // FTP 特定指标
+    // FTP-specific metrics
     pub static ref FTP_COMMANDS_TOTAL: Counter = register_counter!(
         "wftpg_ftp_commands_total",
         "Total number of FTP commands processed"
@@ -41,7 +41,7 @@ lazy_static! {
         "Total bytes downloaded via FTP"
     ).unwrap();
 
-    // SFTP 特定指标
+    // SFTP-specific metrics
     pub static ref SFTP_COMMANDS_TOTAL: Counter = register_counter!(
         "wftpg_sftp_commands_total",
         "Total number of SFTP commands processed"
@@ -57,7 +57,7 @@ lazy_static! {
         "Total bytes downloaded via SFTP"
     ).unwrap();
 
-    // 认证指标
+    // Authentication metrics
     pub static ref AUTH_SUCCESS_TOTAL: Counter = register_counter!(
         "wftpg_auth_success_total",
         "Total successful authentications"
@@ -68,7 +68,7 @@ lazy_static! {
         "Total failed authentications"
     ).unwrap();
 
-    // 性能指标
+    // Performance metrics
     pub static ref COMMAND_DURATION: HistogramVec = register_histogram_vec!(
         "wftpg_command_duration_seconds",
         "Command processing duration in seconds",
@@ -83,7 +83,7 @@ lazy_static! {
         vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 300.0, 600.0]
     ).unwrap();
 
-    // 错误指标
+    // Error metrics
     pub static ref ERRORS_TOTAL: Counter = register_counter!(
         "wftpg_errors_total",
         "Total number of errors"
@@ -177,7 +177,7 @@ pub fn record_download_bytes(protocol: &str, bytes: u64) {
 
 /// Record error
 pub fn record_error(_error_type: &str, _protocol: &str) {
-    // 简化版本，不使用标签
+    // Simplified version, no labels used
     ERRORS_TOTAL.inc();
 }
 
@@ -201,16 +201,16 @@ mod tests {
 
     #[test]
     fn test_metrics_recording() {
-        // 测试连接指标
+        // Test connection metrics
         CONNECTIONS_ACTIVE.set(5.0);
         assert_eq!(CONNECTIONS_ACTIVE.get(), 5.0);
 
-        // 测试认证指标
+        // Test authentication metrics
         let before = AUTH_SUCCESS_TOTAL.get();
         record_auth_success();
         assert_eq!(AUTH_SUCCESS_TOTAL.get(), before + 1.0);
 
-        // 测试错误指标（ERRORS_TOTAL 不带标签）
+        // Test error metrics (ERRORS_TOTAL without labels)
         let before = ERRORS_TOTAL.get();
         record_error("test", "FTP");
         assert_eq!(ERRORS_TOTAL.get(), before + 1.0);
@@ -220,7 +220,7 @@ mod tests {
     fn test_command_timer() {
         {
             let _timer = CommandTimer::new("FTP", "RETR");
-            // 模拟一些工作
+            // Simulate some work
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         // Timer automatically records on drop

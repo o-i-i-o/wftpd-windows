@@ -564,7 +564,7 @@ pub fn resolve_directory_path(
 
     let resolved = resolve_path_internal(cwd, &home_canon, path)?;
 
-    // 目录操作严格禁止符号链接
+    // Directory operations strictly prohibit symlinks
     match canonicalize_and_validate(&resolved, &home_canon, &input_desc, false) {
         Ok(canon) => {
             if !canon.is_dir() {
@@ -578,7 +578,7 @@ pub fn resolve_directory_path(
             Ok(canon)
         }
         Err(PathResolveError::CanonicalizeFailed) => {
-            // 路径不存在，直接返回错误，不进行回退
+            // Path does not exist, return error directly without fallback
             tracing::warn!(
                 "resolve_directory_path: Directory does not exist - resolved: {:?}, input: {:?}",
                 resolved,
@@ -618,11 +618,11 @@ pub fn safe_resolve_path_no_symlink(
 
     let resolved = resolve_path_internal(cwd, &home_canon, path)?;
 
-    // 严格禁止符号链接
+    // Strictly prohibit symlinks
     match canonicalize_and_validate(&resolved, &home_canon, &input_desc, false) {
         Ok(canon) => Ok(canon),
         Err(PathResolveError::CanonicalizeFailed) => {
-            // 路径不存在，直接返回错误，不进行回退
+            // Path does not exist, return error directly without fallback
             tracing::warn!(
                 "safe_resolve_path_no_symlink: Path does not exist - resolved: {:?}, input: {:?}",
                 resolved,
@@ -656,7 +656,7 @@ pub fn validate_existing_path(path: &Path, home_canon: &Path) -> Result<PathBuf,
     Ok(canon)
 }
 
-/// 验证符号链接链，确保所有符号链接目标都在主目录内
+/// Validate symlink chain, ensuring all symlink targets are within the home directory
 fn validate_symlink_chain(
     path: &Path,
     home_canon: &Path,
@@ -677,11 +677,11 @@ fn validate_symlink_chain(
             Component::Normal(name) => {
                 current.push(name);
 
-                // 检查当前路径是否是符号链接
+                // Check if current path is a symlink
                 if let Ok(metadata) = current.symlink_metadata()
                     && metadata.file_type().is_symlink()
                 {
-                    // 读取符号链接目标
+                    // Read symlink target
                     let link_target = match std::fs::read_link(&current) {
                         Ok(target) => target,
                         Err(e) => {
@@ -695,7 +695,7 @@ fn validate_symlink_chain(
                         }
                     };
 
-                    // 解析符号链接目标
+                    // Resolve symlink target
                     let resolved_target = if link_target.is_absolute() {
                         link_target.clone()
                     } else {
@@ -703,17 +703,17 @@ fn validate_symlink_chain(
                         parent.join(&link_target)
                     };
 
-                    // 规范化符号链接目标
+                    // Canonicalize symlink target
                     let canon_target = match resolved_target.canonicalize() {
                         Ok(canon) => canon,
                         Err(_) => {
-                            // 目标不存在，使用安全路径构建
+                            // Target does not exist, use safe path construction
                             let parent = current.parent().unwrap_or(Path::new("/"));
                             build_safe_path(home_canon, &parent.join(&link_target), input_desc)?
                         }
                     };
 
-                    // 验证符号链接目标是否在主目录内
+                    // Validate symlink target is within home directory
                     if !path_starts_with_ignore_case(&canon_target, home_canon) {
                         tracing::warn!(
                             "validate_symlink_chain: Symlink target outside home - link: {:?}, target: {:?}, home: {:?}, input: {:?}",
@@ -731,9 +731,9 @@ fn validate_symlink_chain(
                         canon_target
                     );
 
-                    // 继续验证符号链接目标内部的组件
+                    // Continue validating components inside symlink target
                     if components.peek().is_some() {
-                        // 还有后续组件，需要继续验证
+                        // More components to follow, continue validation
                         current = canon_target;
                     }
                 }
@@ -741,7 +741,7 @@ fn validate_symlink_chain(
         }
     }
 
-    // 最终验证完整路径
+    // Final validation of complete path
     let final_path = match path.canonicalize() {
         Ok(canon) => canon,
         Err(_) => current,

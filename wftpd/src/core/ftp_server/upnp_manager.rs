@@ -1,6 +1,6 @@
-//! UPnP/IGD 端口映射管理
+//! UPnP/IGD port mapping management
 //!
-//! 自动在 NAT 网关上注册端口映射，增强 FTP 被动模式的 NAT 穿透能力
+//! Automatically registers port mappings on NAT gateways to enhance FTP passive mode NAT traversal
 
 use anyhow::Result;
 use igd_next::{Gateway, PortMappingProtocol, search_gateway};
@@ -23,18 +23,18 @@ impl UpnpManager {
 
     pub async fn initialize(&self) -> Result<bool> {
         if !self.enabled {
-            info!("UPnP/IGD 端口映射已禁用");
+            info!("UPnP/IGD port mapping is disabled");
             return Ok(false);
         }
 
         match search_gateway(Default::default()) {
             Ok(gateway) => {
-                info!("发现 UPnP/IGD 网关");
+                info!("UPnP/IGD gateway discovered");
                 *self.gateway.write().await = Some(gateway);
                 Ok(true)
             }
             Err(e) => {
-                warn!("未发现 UPnP/IGD 网关，将使用普通 NAT 模式：{}", e);
+                warn!("UPnP/IGD gateway not found, will use normal NAT mode: {}", e);
                 Ok(false)
             }
         }
@@ -61,7 +61,7 @@ impl UpnpManager {
                 ) {
                     Ok(external_port) => {
                         info!(
-                            "UPnP 端口映射成功：外部端口 {} -> 内部 {}:{}",
+                            "UPnP port mapping successful: external port {} -> internal {}:{}",
                             external_port,
                             internal_addr.ip(),
                             internal_addr.port()
@@ -69,7 +69,7 @@ impl UpnpManager {
                         Ok(external_port)
                     }
                     Err(_) => {
-                        warn!("UPnP 端口映射失败，使用内部端口 {}", internal_addr.port());
+                        warn!("UPnP port mapping failed, using internal port {}", internal_addr.port());
                         Ok(internal_addr.port())
                     }
                 }
@@ -91,10 +91,10 @@ impl UpnpManager {
         if let Some(gateway) = &*gateway_guard {
             match gateway.remove_port(protocol, external_port) {
                 Ok(()) => {
-                    info!("删除 UPnP 端口映射：{}", external_port);
+                    info!("UPnP port mapping removed: {}", external_port);
                 }
                 Err(e) => {
-                    warn!("删除 UPnP 端口映射失败：{}", e);
+                    warn!("Failed to remove UPnP port mapping: {}", e);
                 }
             }
         }
@@ -110,11 +110,11 @@ impl UpnpManager {
         match &*gateway_guard {
             Some(gateway) => match gateway.get_external_ip() {
                 Ok(ip) => {
-                    info!("获取外部 IP: {}", ip);
+                    info!("External IP obtained: {}", ip);
                     Some(ip.to_string())
                 }
                 Err(e) => {
-                    warn!("获取外部 IP 失败：{}", e);
+                    warn!("Failed to get external IP: {}", e);
                     None
                 }
             },
@@ -132,7 +132,7 @@ impl UpnpManager {
                 .add_port_mapping(internal_addr, 3600, &format!("port-{}", external_port))
                 .await
             {
-                warn!("UPnP 端口映射续期失败 (端口 {}): {}", external_port, e);
+                warn!("UPnP port mapping renewal failed (port {}): {}", external_port, e);
             }
         }
         Ok(())

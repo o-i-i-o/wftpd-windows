@@ -657,12 +657,12 @@ impl Config {
 
     /// Validate configuration validity
     pub fn validate(&self) -> Result<(), String> {
-        // 验证 FTP 端口
+        // Validate FTP port
         if self.ftp.enabled && self.ftp.port == 0 {
             return Err("FTP port cannot be 0".to_string());
         }
 
-        // 验证 SFTP 端口
+        // Validate SFTP port
         if self.sftp.enabled && self.sftp.port == 0 {
             return Err("SFTP port cannot be 0".to_string());
         }
@@ -675,7 +675,7 @@ impl Config {
             ));
         }
 
-        // 验证连接限制
+        // Validate connection limits
         if self.security.max_connections == 0 {
             return Err("max_connections must be greater than 0".to_string());
         }
@@ -684,7 +684,7 @@ impl Config {
             return Err("max_connections_per_ip must be greater than 0".to_string());
         }
 
-        // 验证 Fail2Ban 配置
+        // Validate Fail2Ban configuration
         if self.security.fail2ban_enabled && self.security.fail2ban_threshold == 0 {
             return Err("fail2ban_threshold must be greater than 0 when enabled".to_string());
         }
@@ -693,7 +693,7 @@ impl Config {
             return Err("fail2ban_ban_time must be greater than 0 when enabled".to_string());
         }
 
-        // 验证日志配置
+        // Validate logging configuration
         if self.logging.max_log_size < 1024 * 1024 {
             return Err("max_log_size must be at least 1MB".to_string());
         }

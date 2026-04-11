@@ -214,7 +214,7 @@ impl PassiveManager {
         if self.listeners.remove(&port).is_some() {
             tracing::debug!("Passive listener on port {} removed", port);
 
-            // 尝试移除 UPnP 端口映射
+            // Attempt to remove UPnP port mapping
             if let Some(upnp) = &self.upnp_manager {
                 let upnp_clone = Arc::clone(upnp);
                 tokio::spawn(async move {
