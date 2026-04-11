@@ -118,7 +118,7 @@ pub struct LogEntry {
     pub fields: LogFields,
 }
 
-/// 日志字段结构
+/// Log fields structure
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct LogFields {
     #[serde(default)]

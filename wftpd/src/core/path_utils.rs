@@ -1,6 +1,6 @@
-//! 路径工具函数
+//! Path utility functions
 //!
-//! 提供安全的路径解析、逻辑chroot 隔离和路径规范化功能
+//! Provides safe path resolution, logical chroot isolation, and path normalization
 
 use std::path::{Component, Path, PathBuf};
 
@@ -22,15 +22,15 @@ pub enum PathResolveError {
 impl std::fmt::Display for PathResolveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PathResolveError::PathEscape => write!(f, "路径越界访问"),
-            PathResolveError::NotADirectory => write!(f, "路径不是目录"),
-            PathResolveError::NotFound => write!(f, "路径不存在"),
-            PathResolveError::PathTooDeep => write!(f, "路径深度超过最大限制"),
-            PathResolveError::HomeDirectoryNotFound => write!(f, "主目录不存在"),
-            PathResolveError::CanonicalizeFailed => write!(f, "路径规范化失败"),
-            PathResolveError::InvalidPath => write!(f, "无效路径"),
-            PathResolveError::SymlinkNotAllowed => write!(f, "不允许符号链接"),
-            PathResolveError::PathNotUnderHome => write!(f, "路径不在主目录下"),
+            PathResolveError::PathEscape => write!(f, "Path escape detected"),
+            PathResolveError::NotADirectory => write!(f, "Path is not a directory"),
+            PathResolveError::NotFound => write!(f, "Path not found"),
+            PathResolveError::PathTooDeep => write!(f, "Path depth exceeds maximum limit"),
+            PathResolveError::HomeDirectoryNotFound => write!(f, "Home directory not found"),
+            PathResolveError::CanonicalizeFailed => write!(f, "Path canonicalization failed"),
+            PathResolveError::InvalidPath => write!(f, "Invalid path"),
+            PathResolveError::SymlinkNotAllowed => write!(f, "Symlinks not allowed"),
+            PathResolveError::PathNotUnderHome => write!(f, "Path not under home directory"),
         }
     }
 }
@@ -348,7 +348,7 @@ fn canonicalize_and_validate(
 ) -> Result<PathBuf, PathResolveError> {
     match path.canonicalize() {
         Ok(canon) => {
-            // 严格检查规范化后的路径是否在主目录内
+            // Strictly check if canonicalized path is within home directory
             if !path_starts_with_ignore_case(&canon, home_canon) {
                 tracing::warn!(
                     "SECURITY: Path escape detected - canonicalized: {:?}, home: {:?}, input: {:?}",
@@ -359,9 +359,9 @@ fn canonicalize_and_validate(
                 return Err(PathResolveError::PathEscape);
             }
 
-            // 如果禁用符号链接，检查路径中是否有符号链接组件
+            // If symlinks are disabled, check if path contains symlink components
             if !allow_symlink {
-                // 检查原始路径本身是否是符号链接
+                // Check if original path itself is a symlink
                 if let Ok(metadata) = path.symlink_metadata()
                     && metadata.file_type().is_symlink()
                 {
@@ -373,7 +373,7 @@ fn canonicalize_and_validate(
                     return Err(PathResolveError::SymlinkNotAllowed);
                 }
 
-                // 检查路径的每个组件是否包含符号链接
+                // Check if each component of path contains symlinks
                 check_path_components_for_symlinks(path, home_canon, input_desc)?;
             }
 
@@ -391,14 +391,14 @@ fn canonicalize_and_validate(
     }
 }
 
-/// 检查路径的所有组件是否包含符号链接
+/// Check if all path components contain symlinks
 fn check_path_components_for_symlinks(
     _path: &Path,
     _home_canon: &Path,
     input_desc: &str,
 ) -> Result<(), PathResolveError> {
-    // 注意：这个函数目前作为占位符，实际检查在 canonicalize_and_validate 中进行
-    // 未来可以在这里实现更细粒度的组件检查
+    // Note: This function is currently a placeholder, actual check is done in canonicalize_and_validate
+    // Future: implement more granular component checking here
     tracing::debug!(
         "check_path_components_for_symlinks called for: {}",
         input_desc
@@ -426,15 +426,15 @@ pub fn safe_resolve_path(
 
     let resolved = resolve_path_internal(cwd, &home_canon, path)?;
 
-    // 根据配置决定是否允许符号链接
+    // Decide whether to allow symlinks based on config
     match canonicalize_and_validate(&resolved, &home_canon, &input_desc, allow_symlinks) {
         Ok(canon) => Ok(canon),
         Err(PathResolveError::SymlinkNotAllowed) if allow_symlinks => {
-            // 允许符号链接时，验证符号链接目标是否在主目录内
+            // When symlinks are allowed, validate that symlink target is within home directory
             validate_symlink_chain(&resolved, &home_canon, &input_desc)
         }
         Err(PathResolveError::CanonicalizeFailed) => {
-            // 路径不存在，验证父目录是否存在且安全，然后返回解析后的路径
+            // Path doesn't exist, validate parent directory exists and is safe, then return resolved path
             tracing::debug!(
                 "safe_resolve_path: Path does not exist, validating parent directory - resolved: {:?}, input: {:?}",
                 resolved,
@@ -446,13 +446,13 @@ pub fn safe_resolve_path(
     }
 }
 
-/// 验证父目录是否存在且安全，然后构建完整路径
+/// Validate parent directory exists and is safe, then build complete path
 fn validate_parent_and_build_path(
     path: &Path,
     home_canon: &Path,
     input_desc: &str,
 ) -> Result<PathBuf, PathResolveError> {
-    // 获取父目录
+    // Get parent directory
     let parent = path.parent().ok_or_else(|| {
         tracing::warn!(
             "validate_parent: Path has no parent - path: {:?}, input: {:?}",
@@ -462,7 +462,7 @@ fn validate_parent_and_build_path(
         PathResolveError::InvalidPath
     })?;
 
-    // 如果父目录就是主目录本身，直接返回
+    // If parent is home directory itself, return directly
     if paths_equal_ignore_case(parent, home_canon) {
         if !path_starts_with_ignore_case(path, home_canon) {
             tracing::warn!(
@@ -476,10 +476,10 @@ fn validate_parent_and_build_path(
         return Ok(path.to_path_buf());
     }
 
-    // 验证父目录是否存在且安全
+    // Validate parent directory exists and is safe
     match parent.canonicalize() {
         Ok(canon_parent) => {
-            // 验证父目录是否在家目录下
+            // Validate parent directory is under home directory
             if !path_starts_with_ignore_case(&canon_parent, home_canon) {
                 tracing::warn!(
                     "SECURITY: Parent directory outside home - parent: {:?}, home: {:?}, input: {:?}",
@@ -490,7 +490,7 @@ fn validate_parent_and_build_path(
                 return Err(PathResolveError::PathEscape);
             }
 
-            // 验证父目录是否是符号链接（禁止）
+            // Validate parent directory is not a symlink (forbidden)
             if let Ok(metadata) = parent.symlink_metadata()
                 && metadata.file_type().is_symlink()
             {
@@ -502,7 +502,7 @@ fn validate_parent_and_build_path(
                 return Err(PathResolveError::SymlinkNotAllowed);
             }
 
-            // 构建完整路径：使用规范化的父目录 + 文件名
+            // Build complete path: use canonicalized parent + filename
             let file_name = path.file_name().ok_or_else(|| {
                 tracing::warn!(
                     "validate_parent: Path has no file name - path: {:?}, input: {:?}",
@@ -514,7 +514,7 @@ fn validate_parent_and_build_path(
 
             let final_path = canon_parent.join(file_name);
 
-            // 最终验证路径是否在家目录下
+            // Final validation: path is under home directory
             if !path_starts_with_ignore_case(&final_path, home_canon) {
                 tracing::warn!(
                     "SECURITY: Final path outside home - final: {:?}, home: {:?}, input: {:?}",

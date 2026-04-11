@@ -1,6 +1,6 @@
-//! Core module for WFTPG - FTP/SFTP 服务器核心模块
+//! Core module for WFTPG - FTP/SFTP server core module
 //!
-//! 提供 FTP 服务器、SFTP 服务器、用户管理、配置管理、日志、安全防护等核心功能
+//! Provides core functionality: FTP server, SFTP server, user management, config management, logging, security protection, etc.
 
 pub mod config;
 pub mod fail2ban;

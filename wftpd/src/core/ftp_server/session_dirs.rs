@@ -1,6 +1,6 @@
-//! FTP 目录命令处理
+//! FTP directory command handling
 //!
-//! 处理 CWD、CDUP、PWD、MKD、RMD 等目录操作命令
+//! Handles CWD, CDUP, PWD, MKD, RMD and other directory operation commands
 
 use crate::core::path_utils::{path_starts_with_ignore_case, to_ftp_path};
 use std::path::PathBuf;
@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use super::commands::FtpCommand;
 use super::session_state::{ControlStream, SessionState};
 
-/// 生成随机 u16 值
+/// Generate random u16 value
 fn random_u16() -> u16 {
     let mut buf = [0u8; 2];
     getrandom::fill(&mut buf).expect("Failed to generate random bytes");

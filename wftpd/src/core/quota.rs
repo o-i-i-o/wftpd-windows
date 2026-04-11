@@ -1,6 +1,6 @@
-//! 用户配额管理器
+//! User quota manager
 //!
-//! 跟踪用户上传和下载的字节数，支持基于文件大小的配额限制
+//! Tracks user upload and download bytes, supports file size-based quota limits
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -65,7 +65,7 @@ impl QuotaManager {
         Ok(())
     }
 
-    /// 仅在数据被修改时才刷盘（用于定时调用或显式保存）
+    /// Flush to disk only when data is modified (for periodic calls or explicit save)
     pub async fn flush_if_dirty(&self) -> Result<()> {
         if self.dirty.load(Ordering::Acquire) {
             self.save_data().await
@@ -74,7 +74,7 @@ impl QuotaManager {
         }
     }
 
-    /// 强制立即刷盘（忽略脏标记）
+    /// Force immediate flush (ignore dirty flag)
     pub async fn force_flush(&self) -> Result<()> {
         self.save_data().await
     }

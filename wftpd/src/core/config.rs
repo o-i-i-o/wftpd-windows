@@ -261,7 +261,7 @@ fn default_max_sessions_per_user() -> u32 {
 }
 
 fn default_key_rotation_days() -> u32 {
-    0 // 默认不自动轮换，设置为 0 表示禁用
+    0 // No auto-rotation by default, set to 0 to disable
 }
 
 fn default_log_level() -> String {
@@ -276,17 +276,17 @@ pub struct SecurityConfig {
     pub max_connections_per_ip: usize,
     pub allowed_ips: Vec<String>,
     pub denied_ips: Vec<String>,
-    // Fail2Ban 集成配置
+    // Fail2Ban integration config
     #[serde(default = "default_fail2ban_enabled")]
     pub fail2ban_enabled: bool,
     #[serde(default = "default_fail2ban_threshold")]
     pub fail2ban_threshold: u32,
     #[serde(default = "default_fail2ban_ban_time")]
     pub fail2ban_ban_time: u64,
-    // 符号链接安全配置
+    // Symlink security config
     #[serde(default = "default_allow_symlinks")]
     pub allow_symlinks: bool,
-    // 每会话最大登录尝试次数
+    // Max login attempts per session
     #[serde(default = "default_max_login_attempts")]
     pub max_login_attempts: u32,
 }
@@ -304,7 +304,7 @@ fn default_fail2ban_enabled() -> bool {
 }
 
 fn default_fail2ban_threshold() -> u32 {
-    5 // 5 次失败后封禁
+    5 // Ban after 5 failures
 }
 
 fn default_fail2ban_ban_time() -> u64 {
@@ -420,24 +420,24 @@ impl Default for Config {
 }
 
 impl Config {
-    /// 规范化绑定 IP 地址
-    /// - 如果输入的是纯 IPv6 地址（不含 []），自动添加 []
-    /// - 如果已经是 [::] 或其他格式，保持不变
-    /// - IPv4 地址保持不变
+    /// Normalize bind IP address
+    /// - If input is pure IPv6 address (without []), automatically add []
+    /// - If already [::] or other format, keep unchanged
+    /// - IPv4 address remains unchanged
     fn normalize_bind_ip(ip: &str) -> String {
         let trimmed = ip.trim();
 
-        // 如果已经包含 []，直接返回
+        // If already contains [], return directly
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
             return trimmed.to_string();
         }
 
         // Check if it's an IPv6 address (contains multiple :)
         if trimmed.contains(':') && trimmed.matches(':').count() > 1 {
-            // 这是 IPv6 地址，添加 []
+            // This is an IPv6 address, add []
             format!("[{}]", trimmed)
         } else {
-            // IPv4 或特殊地址，保持不变
+            // IPv4 or special address, keep unchanged
             trimmed.to_string()
         }
     }
@@ -456,7 +456,7 @@ impl Config {
         let mut config: Config = toml::from_str(&content).context("Failed to parse config file")?;
         config.server = Arc::new(ServerConfig::new());
 
-        // 规范化绑定 IP 地址（自动为 IPv6 添加 []）
+        // Normalize bind IP address (automatically add [] for IPv6)
         config.ftp.bind_ip = Self::normalize_bind_ip(&config.ftp.bind_ip);
         config.sftp.bind_ip = Self::normalize_bind_ip(&config.sftp.bind_ip);
 
@@ -472,7 +472,7 @@ impl Config {
                     warnings.push("Anonymous user is enabled but anonymous home directory is not configured".to_string());
                 }
                 Some(anon_home) => {
-                    if let Err(e) = Self::validate_home_path(anon_home, "FTP匿名用户主目录")
+                    if let Err(e) = Self::validate_home_path(anon_home, "FTP anonymous user home directory")
                     {
                         warnings.push(e);
                     }
@@ -481,21 +481,21 @@ impl Config {
         }
 
         if self.ftp.ftps.enabled {
-            // 证书会自动生成，不需要检查是否存在
+            // Certificate will be auto-generated, no need to check if exists
             if let Some(cert_path) = &self.ftp.ftps.cert_path {
                 if cert_path.is_empty() {
-                    warnings.push("FTPS 已启用，但未配置证书路径".to_string());
+                    warnings.push("FTPS enabled but certificate path not configured".to_string());
                 }
             } else {
-                warnings.push("FTPS 已启用，但未配置证书路径".to_string());
+                warnings.push("FTPS enabled but certificate path not configured".to_string());
             }
 
             if let Some(key_path) = &self.ftp.ftps.key_path {
                 if key_path.is_empty() {
-                    warnings.push("FTPS 已启用，但未配置私钥路径".to_string());
+                    warnings.push("FTPS enabled but private key path not configured".to_string());
                 }
             } else {
-                warnings.push("FTPS 已启用，但未配置私钥路径".to_string());
+                warnings.push("FTPS enabled but private key path not configured".to_string());
             }
         }
 
@@ -503,12 +503,12 @@ impl Config {
             let log_dir = &self.logging.log_dir;
             let log_path = Path::new(log_dir);
             if !log_path.exists() {
-                warnings.push(format!("日志目录不存在: {}", log_dir));
+                warnings.push(format!("Log directory does not exist: {}", log_dir));
             } else {
                 match fs::metadata(log_path) {
                     Ok(m) => {
                         if m.permissions().readonly() {
-                            warnings.push(format!("日志目录不可写: {}", log_dir));
+                            warnings.push(format!("Log directory is not writable: {}", log_dir));
                         }
                     }
                     Err(e) => {
@@ -527,7 +527,7 @@ impl Config {
             return Err(format!("{} does not exist: {}", name, path));
         }
         if !p.is_dir() {
-            return Err(format!("{}不是目录: {}", name, path));
+            return Err(format!("{} is not a directory: {}", name, path));
         }
         if p.canonicalize().is_err() {
             return Err(format!("{} path cannot be canonicalized: {}", name, path));

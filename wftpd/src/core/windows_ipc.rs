@@ -1,6 +1,6 @@
-//! Windows IPC 服务器底层实现
+//! Windows IPC server low-level implementation
 //!
-//! 基于 Windows Named Pipe 实现进程间通信
+//! Implements inter-process communication based on Windows Named Pipe
 
 use anyhow::Result;
 use std::io::{Read, Write};
@@ -217,7 +217,7 @@ impl IpcStream {
                 if !result.as_bool() {
                     attempts += 1;
                     if attempts >= MAX_ATTEMPTS {
-                        anyhow::bail!("命名管道服务不可用，服务可能未启动，请等待几秒后重试");
+                        anyhow::bail!("Named pipe service unavailable, service may not be started, please wait a few seconds and retry");
                     }
                     std::thread::sleep(Duration::from_millis(200));
                     continue;

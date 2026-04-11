@@ -41,7 +41,7 @@ impl AppState {
             tracing::warn!("Failed to create default log directory: {}", e);
         }
 
-        // 使用默认配置初始化日志系统（稍后会用配置文件中的设置重新初始化）
+        // Initialize logging system with default config (will be reinitialized with config file settings later)
         match TracingLogger::init(&default_log_dir, 10 * 1024 * 1024, 10, "info") {
             Ok(logger) => logger,
             Err(e) => {
@@ -86,7 +86,7 @@ impl AppState {
             }
         };
 
-        // 使用配置文件中的日志设置重新初始化日志系统
+        // Reinitialize logging system with settings from config file
         let log_dir = config.logging.log_dir.clone();
         let log_level = config.logging.log_level.clone();
         let max_log_size = config.logging.max_log_size;

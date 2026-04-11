@@ -1,6 +1,6 @@
-//! FTP 命令定义
+//! FTP command definitions
 //!
-//! 定义 FTP 协议的所有命令枚举类型
+//! Defines all FTP protocol command enum types
 
 #![allow(clippy::upper_case_acronyms)]
 

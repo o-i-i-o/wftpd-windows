@@ -1,6 +1,6 @@
-//! Prometheus 监控指标导出
+//! Prometheus monitoring metrics export
 //!
-//! 提供 FTP/SFTP 服务器的连接数、传输速度等关键性能指标
+//! Provides key performance metrics for FTP/SFTP servers: connection count, transfer speed, etc.
 
 use lazy_static::lazy_static;
 use prometheus::{
@@ -90,7 +90,7 @@ lazy_static! {
     ).unwrap();
 }
 
-/// 命令执行时间观察器
+/// Command execution time observer
 pub struct CommandTimer {
     protocol: &'static str,
     command: &'static str,
@@ -116,7 +116,7 @@ impl Drop for CommandTimer {
     }
 }
 
-/// 文件传输时间观察器
+/// File transfer time observer
 pub struct TransferTimer {
     protocol: &'static str,
     operation: &'static str,
@@ -142,22 +142,22 @@ impl Drop for TransferTimer {
     }
 }
 
-/// 记录认证成功
+/// Record successful authentication
 pub fn record_auth_success() {
     AUTH_SUCCESS_TOTAL.inc();
 }
 
-/// 记录认证失败
+/// Record failed authentication
 pub fn record_auth_failure() {
     AUTH_FAILURE_TOTAL.inc();
 }
 
-/// 记录连接被拒绝
+/// Record rejected connection
 pub fn record_connection_rejected() {
     CONNECTIONS_REJECTED.inc();
 }
 
-/// 记录上传字节数
+/// Record upload bytes
 pub fn record_upload_bytes(protocol: &str, bytes: u64) {
     match protocol {
         "FTP" => FTP_UPLOAD_BYTES.inc_by(bytes as f64),
@@ -166,7 +166,7 @@ pub fn record_upload_bytes(protocol: &str, bytes: u64) {
     }
 }
 
-/// 记录下载字节数
+/// Record download bytes
 pub fn record_download_bytes(protocol: &str, bytes: u64) {
     match protocol {
         "FTP" => FTP_DOWNLOAD_BYTES.inc_by(bytes as f64),
@@ -175,13 +175,13 @@ pub fn record_download_bytes(protocol: &str, bytes: u64) {
     }
 }
 
-/// 记录错误
+/// Record error
 pub fn record_error(_error_type: &str, _protocol: &str) {
     // 简化版本，不使用标签
     ERRORS_TOTAL.inc();
 }
 
-/// 获取所有指标的文本格式（用于 Prometheus 抓取）
+/// Get all metrics in text format (for Prometheus scraping)
 pub fn gather_metrics() -> String {
     use prometheus::Encoder;
     let encoder = prometheus::TextEncoder::new();

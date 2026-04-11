@@ -1,6 +1,6 @@
-//! WFTPD - FTP/SFTP 服务器守护进程
+//! WFTPD - FTP/SFTP server daemon
 //!
-//! 作为 Windows 服务运行，管理 FTP 和 SFTP 服务，并通过命名管道接收 IPC 命令进行配置重载
+//! Runs as Windows service, manages FTP and SFTP services, and receives IPC commands via named pipe for config reload
 
 #![windows_subsystem = "windows"]
 extern crate windows_service;
@@ -25,18 +25,18 @@ use windows_service::{
 
 fn handle_reload(state: &AppState) -> ReloadResponse {
     let config_msg = match state.reload_config() {
-        Ok(()) => "配置已重新加载".to_string(),
-        Err(e) => format!("配置重新加载失败：{e}"),
+        Ok(()) => "Configuration reloaded".to_string(),
+        Err(e) => format!("Configuration reload failed: {e}"),
     };
 
     let users_msg = match state.reload_users() {
-        Ok(()) => "用户配置已重新加载".to_string(),
-        Err(e) => format!("用户配置重新加载失败：{e}"),
+        Ok(()) => "User configuration reloaded".to_string(),
+        Err(e) => format!("User configuration reload failed: {e}"),
     };
 
     let message = format!("{config_msg}; {users_msg}");
 
-    if config_msg.contains("失败") || users_msg.contains("失败") {
+    if config_msg.contains("failed") || users_msg.contains("failed") {
         ReloadResponse::error(&message)
     } else {
         ReloadResponse::ok()
@@ -46,7 +46,7 @@ fn handle_reload(state: &AppState) -> ReloadResponse {
 fn handle_command(state: &AppState, cmd: &ReloadCommand) -> ReloadResponse {
     match cmd.action.as_str() {
         "reload" => handle_reload(state),
-        _ => ReloadResponse::error("未知命令"),
+        _ => ReloadResponse::error("Unknown command"),
     }
 }
 
@@ -141,7 +141,7 @@ fn run_service() -> windows_service::Result<()> {
     Ok(())
 }
 
-/// 运行主循环（支持优雅关闭）
+/// Run main loop (with graceful shutdown support)
 fn run_main_loop_with_shutdown(
     state: &Arc<AppState>,
     ipc_server: &IpcServer,
@@ -155,23 +155,23 @@ fn run_main_loop_with_shutdown(
                     if let Ok(cmd) = connection.receive_command() {
                         let response = handle_command(&state_clone, &cmd);
                         if let Err(e) = connection.send_response(&response) {
-                            tracing::error!("发送 IPC 响应失败：{e}");
+                            tracing::error!("Failed to send IPC response: {e}");
                         }
                     } else {
-                        tracing::warn!("接收 IPC 命令失败");
+                        tracing::warn!("Failed to receive IPC command");
                     }
                 });
             }
             Ok(None) => {}
             Err(e) => {
-                tracing::error!("接受 IPC 连接失败：{e}");
+                tracing::error!("Failed to accept IPC connection: {e}");
             }
         }
     }
 }
 
 fn main() {
-    // 设置全局 panic 钩子，捕获未处理的 panic 并记录到日志
+    // Set global panic hook to capture unhandled panics and log them
     std::panic::set_hook(Box::new(|panic_info| {
         let location = if let Some(location) = panic_info.location() {
             format!(
@@ -192,7 +192,7 @@ fn main() {
             "Unknown panic".to_string()
         };
 
-        // 尝试写入日志文件
+        // Try to write to log file
         if let Ok(log_dir) = std::env::var("WFTPD_LOG_DIR") {
             let log_file = std::path::Path::new(&log_dir).join("panic.log");
             let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
@@ -213,7 +213,7 @@ fn main() {
             }
         }
 
-        // 也输出到 stderr
+        // Also output to stderr
         eprintln!("\n=== FATAL ERROR ===");
         eprintln!("Panic occurred at: {}", location);
         eprintln!("Message: {}", message);
@@ -223,7 +223,7 @@ fn main() {
 
     tracing::info!("WFTPD process starting...");
 
-    // 直接启动服务（不支持命令行安装/卸载）
+    // Start service directly (no command line install/uninstall support)
     if let Err(_e) = service_dispatcher::start(SERVICE_NAME, ffi_service_main) {
         tracing::info!("Service dispatcher failed, running as console application");
         run_console_application();
@@ -260,7 +260,7 @@ fn run_console_application() {
         Ok(()) => tracing::info!("Signal handler installed successfully"),
         Err(e) => {
             tracing::error!("Failed to set up signal handler: {}", e);
-            // 不退出，继续运行，只是没有信号处理
+            // Don't exit, continue running, just without signal handling
         }
     }
 
@@ -286,7 +286,7 @@ fn setup_signal_handler(state: &Arc<AppState>) -> anyhow::Result<()> {
         tracing::info!("Shutting down gracefully...");
         state_clone.stop_all();
 
-        // 等待活跃连接优雅关闭（最多等待 10 秒）
+        // Wait for active connections to close gracefully (max 10 seconds)
         let mut waited = 0u32;
         while waited < 100 {
             {
@@ -333,7 +333,7 @@ fn get_enabled_services(state: &Arc<AppState>) -> (bool, bool) {
         (cfg.ftp.enabled, cfg.sftp.enabled)
     } else {
         tracing::warn!("Failed to acquire config lock for service startup check, retrying...");
-        // 短暂等待后重试一次
+        // Brief wait then retry once
         std::thread::sleep(std::time::Duration::from_millis(50));
         match state.config.try_lock() {
             Some(cfg) => (cfg.ftp.enabled, cfg.sftp.enabled),
@@ -347,7 +347,7 @@ fn get_enabled_services(state: &Arc<AppState>) -> (bool, bool) {
     }
 }
 
-/// 运行主循环（不支持关闭）
+/// Run main loop (no shutdown support)
 fn run_main_loop(state: &Arc<AppState>, ipc_server: &IpcServer) {
     loop {
         match ipc_server.accept() {
@@ -357,15 +357,15 @@ fn run_main_loop(state: &Arc<AppState>, ipc_server: &IpcServer) {
                     if let Ok(cmd) = connection.receive_command() {
                         let response = handle_command(&state_clone, &cmd);
                         if let Err(e) = connection.send_response(&response) {
-                            tracing::error!("发送 IPC 响应失败：{e}");
+                            tracing::error!("Failed to send IPC response: {e}");
                         }
                     } else {
-                        tracing::warn!("接收 IPC 命令失败");
+                        tracing::warn!("Failed to receive IPC command");
                     }
                 });
             }
             Err(e) => {
-                tracing::error!("接受 IPC 连接失败：{e}");
+                tracing::error!("Failed to accept IPC connection: {e}");
             }
         }
     }

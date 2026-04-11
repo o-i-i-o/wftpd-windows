@@ -1,6 +1,6 @@
-//! 用户管理器
+//! User manager
 //!
-//! 管理用户账号、密码验证和权限配置，支持 Argon2 密码哈希
+//! Manages user accounts, password verification and permission config, supports Argon2 password hashing
 
 use anyhow::{Context, Result};
 use argon2::{
@@ -69,28 +69,28 @@ impl fmt::Display for Permissions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut perms = Vec::new();
         if self.can_read {
-            perms.push("读");
+            perms.push("read");
         }
         if self.can_write {
-            perms.push("写");
+            perms.push("write");
         }
         if self.can_delete {
-            perms.push("删");
+            perms.push("delete");
         }
         if self.can_list {
-            perms.push("列表");
+            perms.push("list");
         }
         if self.can_mkdir {
-            perms.push("建目录");
+            perms.push("mkdir");
         }
         if self.can_rmdir {
-            perms.push("删目录");
+            perms.push("rmdir");
         }
         if self.can_rename {
-            perms.push("重命名");
+            perms.push("rename");
         }
         if self.can_append {
-            perms.push("追加");
+            perms.push("append");
         }
         write!(f, "{}", perms.join(","))
     }
@@ -183,7 +183,7 @@ impl UserManager {
 
         let home_dir = home_dir.trim();
         if home_dir.is_empty() {
-            anyhow::bail!("用户主目录不能为空");
+            anyhow::bail!("User home directory cannot be empty");
         }
 
         Self::validate_and_prepare_home_dir(home_dir)?;
@@ -208,32 +208,32 @@ impl UserManager {
         let path = std::path::Path::new(home_dir);
 
         if home_dir.trim().is_empty() {
-            anyhow::bail!("用户主目录不能为空");
+            anyhow::bail!("User home directory cannot be empty");
         }
 
         if path.exists() {
             if !path.is_dir() {
-                anyhow::bail!("用户主目录不是有效目录: {}", home_dir);
+                anyhow::bail!("User home directory is not a valid directory: {}", home_dir);
             }
             match path.canonicalize() {
                 Ok(_) => Ok(()),
-                Err(e) => anyhow::bail!("用户主目录路径无效 '{}': {}", home_dir, e),
+                Err(e) => anyhow::bail!("Invalid user home directory path '{}': {}", home_dir, e),
             }
         } else {
             if let Some(parent) = path.parent() {
                 if parent.exists() || parent.to_string_lossy().is_empty() {
                     match std::fs::create_dir_all(path) {
                         Ok(_) => {
-                            tracing::info!("已创建用户主目录: {}", home_dir);
+                            tracing::info!("Created user home directory: {}", home_dir);
                             Ok(())
                         }
-                        Err(e) => anyhow::bail!("无法创建用户主目录 '{}': {}", home_dir, e),
+                        Err(e) => anyhow::bail!("Cannot create user home directory '{}': {}", home_dir, e),
                     }
                 } else {
-                    anyhow::bail!("用户主目录的父目录不存在: {}", parent.to_string_lossy());
+                    anyhow::bail!("Parent directory of user home directory does not exist: {}", parent.to_string_lossy());
                 }
             } else {
-                anyhow::bail!("用户主目录路径无效: {}", home_dir);
+                anyhow::bail!("Invalid user home directory path: {}", home_dir);
             }
         }
     }
@@ -263,7 +263,7 @@ impl UserManager {
 
         let home_dir = home_dir.trim();
         if home_dir.is_empty() {
-            anyhow::bail!("用户主目录不能为空");
+            anyhow::bail!("User home directory cannot be empty");
         }
 
         Self::validate_and_prepare_home_dir(home_dir)?;
@@ -351,22 +351,22 @@ impl UserManager {
         &self.users
     }
 
-    /// 返回所有用户的 Vec（clone），兼容旧代码
+    /// Return Vec of all users (clone), compatible with legacy code
     pub fn get_all_users(&self) -> Vec<User> {
         self.users.values().cloned().collect()
     }
 
-    /// 返回用户数量，无需 clone
+    /// Return user count, no clone needed
     pub fn user_count(&self) -> usize {
         self.users.len()
     }
 
-    /// 返回用户引用迭代器，避免不必要的 clone
+    /// Return user reference iterator, avoiding unnecessary clone
     pub fn iter_users(&self) -> impl Iterator<Item = &User> {
         self.users.values()
     }
 
-    /// 返回可变用户引用迭代器
+    /// Return mutable user reference iterator
     pub fn iter_users_mut(&mut self) -> impl Iterator<Item = &mut User> {
         self.users.values_mut()
     }

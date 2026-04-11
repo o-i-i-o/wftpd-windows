@@ -1,6 +1,6 @@
-//! 服务器管理器
+//! Server manager
 //!
-//! 管理 FTP 和 SFTP 服务器的生命周期，支持启动、停止和状态查询
+//! Manages FTP and SFTP server lifecycle, supports start, stop and status query
 
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -49,7 +49,7 @@ impl ServerManager {
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
     ) -> anyhow::Result<()> {
-        // 使用 CAS 操作防止并发启动竞态
+        // Use CAS operation to prevent concurrent start race condition
         if self
             .ftp_starting
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
@@ -111,7 +111,7 @@ impl ServerManager {
         config: Arc<Mutex<Config>>,
         user_manager: Arc<Mutex<UserManager>>,
     ) -> anyhow::Result<()> {
-        // 使用 CAS 操作防止并发启动竞态
+        // Use CAS operation to prevent concurrent start race condition
         if self
             .sftp_starting
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)

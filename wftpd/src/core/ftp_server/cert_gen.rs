@@ -43,10 +43,10 @@ pub fn generate_self_signed_cert(cert_path: &str, key_path: &str) -> Result<()> 
     info!("Private key saved to: {}", key_path);
 
     let cert_pem = cert.pem();
-    fs::write(cert_path, cert_pem).context("保存证书文件失败")?;
-    info!("证书已保存到：{}", cert_path);
+    fs::write(cert_path, cert_pem).context("Failed to save certificate file")?;
+    info!("Certificate saved to: {}", cert_path);
 
-    info!("FTPS 自签名证书生成成功");
+    info!("FTPS self-signed certificate generated successfully");
     Ok(())
 }
 
@@ -60,7 +60,7 @@ pub fn ensure_cert_exists(cert_path: &str, key_path: &str) -> Result<bool> {
     }
 
     if cert_file.exists() != key_file.exists() {
-        warn!("证书文件或私钥文件只有一个存在，将重新生成");
+        warn!("Only certificate or key file exists, will regenerate");
         if cert_file.exists() {
             let _ = fs::remove_file(cert_file);
         }

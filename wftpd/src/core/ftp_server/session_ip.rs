@@ -1,6 +1,6 @@
-//! FTP IP 和域名解析工具
+//! FTP IP and domain name resolution tools
 //!
-//! 提供 IP 地址解析、域名解析和 NAT 穿透支持
+//! Provides IP address resolution, domain name resolution, and NAT traversal support
 
 use std::collections::HashMap;
 use std::net::IpAddr;

@@ -1,6 +1,6 @@
-//! 传输速率限制器
+//! Transfer rate limiter
 //!
-//! 使用令牌桶算法实现用户上传/下载速度限制
+//! Implements user upload/download speed limiting using token bucket algorithm
 
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 const BUCKET_CAPACITY: u64 = 64 * 1024;
 const REFILL_INTERVAL_MS: u64 = 10;
 
-/// 高性能限流器：使用令牌桶算法 + 后台补充
+/// High-performance rate limiter: using token bucket algorithm + background refill
 pub struct RateLimiter {
     tokens: AtomicU64,
     last_refill: AtomicI64,
@@ -42,7 +42,7 @@ impl RateLimiter {
         self.bytes_per_second == u64::MAX
     }
 
-    /// 尝试补充 tokens（基于时间间隔）
+    /// Try to refill tokens (based on time interval)
     fn try_refill(&self) {
         if self.is_unlimited() {
             return;
@@ -69,7 +69,7 @@ impl RateLimiter {
         }
     }
 
-    /// 优化的 acquire：使用 fetch_sub 原子获取 + 后台补充
+    /// Optimized acquire: using fetch_sub atomic fetch + background refill
     pub async fn acquire(&self, bytes: usize) {
         if self.is_unlimited() {
             return;

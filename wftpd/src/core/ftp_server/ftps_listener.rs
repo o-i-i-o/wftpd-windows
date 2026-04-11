@@ -1,6 +1,6 @@
-//! FTPS 隐式 TLS 监听器
+//! FTPS implicit TLS listener
 //!
-//! 处理 FTPS (FTP over TLS) 隐式加密连接的监听器
+//! Listener for handling FTPS (FTP over TLS) implicit encrypted connections
 
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -96,7 +96,7 @@ pub async fn start_ftps_implicit_server(
                             continue;
                         }
 
-                        // 原子化检查+注册连接
+                        // Atomically check and register connection
                         let connection_allowed = {
                             let cfg = config.lock();
                             cfg.try_register_connection(&client_ip)

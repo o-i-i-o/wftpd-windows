@@ -1,6 +1,6 @@
-//! FTP 被动模式端口管理器
+//! FTP passive mode port manager
 //!
-//! 管理被动模式数据连接的端口分配和生命周期
+//! Manages port allocation and lifecycle for passive mode data connections
 
 use anyhow::Result;
 use std::collections::HashMap;
@@ -12,7 +12,7 @@ use tokio::net::TcpListener;
 use super::session_ip::{find_masq_ip, resolve_ip_for_pasv};
 use super::upnp_manager::UpnpManager;
 
-/// 获取随机 u32 值（使用 getrandom crate）
+/// Get random u32 value (using getrandom crate)
 fn getrandom_u32() -> u32 {
     let mut buf = [0u8; 4];
     getrandom::fill(&mut buf).expect("Failed to generate random bytes");
@@ -82,16 +82,16 @@ impl PassiveManager {
             bind_ip
         };
 
-        // 计算可用端口范围大小
+        // Calculate available port range size
         let range_size = (port_max - port_min + 1) as usize;
         if range_size == 0 {
             anyhow::bail!("Invalid port range: {}-{}", port_min, port_max);
         }
 
-        // 生成随机起始位置，避免顺序查找导致的竞争和可预测性
+        // Generate random start position to avoid race conditions and predictability from sequential search
         let start_offset = getrandom_u32() as usize % range_size;
 
-        // 最多尝试整个范围一次
+        // Try the entire range at most once
         for i in 0..range_size {
             let offset = (start_offset + i) % range_size;
             let port = port_min + offset as u16;
@@ -118,7 +118,7 @@ impl PassiveManager {
                         client_ip
                     );
 
-                    // 尝试添加 UPnP 端口映射（带错误处理）
+                    // Try to add UPnP port mapping (with error handling)
                     if let Some(upnp) = &self.upnp_manager {
                         let internal_addr = SocketAddrV4::new(
                             actual_bind_ip
@@ -233,7 +233,7 @@ impl PassiveManager {
         }
     }
 
-    /// 处理 PASV 命令
+    /// Handle PASV command
     pub async fn handle_pasv(&mut self, config: &PasvConfig) -> Result<(u16, String)> {
         let client_ip_addr: IpAddr = config
             .client_ip
@@ -288,7 +288,7 @@ impl PassiveManager {
         Ok((passive_port, response_ip))
     }
 
-    /// 处理 EPSV 命令
+    /// Handle EPSV command
     pub async fn handle_epsv(&mut self, config: &PasvConfig) -> Result<u16> {
         let passive_port = self
             .try_bind_port(
@@ -299,7 +299,7 @@ impl PassiveManager {
             )
             .await?;
 
-        // EPSV 不需要返回 IP，但我们可以记录日志用于调试
+        // EPSV doesn't need to return IP, but we can log for debugging
         let _response_ip = if let Some(override_ip) = &config.passive_ip_override {
             if !override_ip.is_empty() {
                 resolve_ip_for_pasv(
