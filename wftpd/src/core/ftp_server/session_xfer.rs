@@ -1,6 +1,6 @@
-//! FTP 文件传输命令处理
+//! FTP file transfer command handler
 //!
-//! 处理 RETR、STOR、LIST、NLST 等文件传输命令
+//! Handles RETR, STOR, LIST, NLST and other file transfer commands
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -50,7 +50,7 @@ pub async fn handle_transfer_command(
                     state.passive_mode = true;
                     state.data_port = Some(passive_port);
 
-                    // 验证响应 IP 地址格式
+                    // Validate response IP address format
                     let ip_parts: Vec<&str> = response_ip.split('.').collect();
                     if ip_parts.len() != 4 {
                         tracing::error!(

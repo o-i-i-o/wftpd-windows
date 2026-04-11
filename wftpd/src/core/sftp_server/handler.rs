@@ -1,6 +1,6 @@
-//! SFTP SSH 处理器
+//! SFTP SSH handler
 //!
-//! 实现 russh::server::Handler trait，处理 SSH 连接和 SFTP 会话
+//! Implements russh::server::Handler trait, handles SSH connections and SFTP sessions
 
 use parking_lot::Mutex;
 use russh::keys::PublicKey;
@@ -368,7 +368,7 @@ impl russh::server::Handler for SftpHandler {
             client_ip = %self.client_ip,
             action = "CHANNEL_OPEN_SESSION",
             channel_id = ?channel.id(),
-            "允许打开会话通道"
+            "Allow session channel open"
         );
 
         Ok(true)
@@ -503,7 +503,7 @@ impl russh::server::Handler for SftpHandler {
                 channel_id = ?channel,
                 expected_channel = ?self.sftp_channel,
                 reason = "channel_mismatch_or_not_initialized",
-                "收到非 SFTP 通道的数据或 SFTP 未初始化"
+                "Received data on non-SFTP channel or SFTP not initialized"
             );
             let _ = session.channel_failure(channel);
             return Ok(());
@@ -515,7 +515,7 @@ impl russh::server::Handler for SftpHandler {
                 action = "DATA_BEFORE_SFTP_INIT",
                 channel_id = ?channel,
                 reason = "sftp_state_not_initialized",
-                "SFTP 状态未初始化，可能是子系统请求失败"
+                "SFTP state not initialized, subsystem request may have failed"
             );
             let _ = session.channel_failure(channel);
             return Ok(());
@@ -559,7 +559,7 @@ impl russh::server::Handler for SftpHandler {
 
 impl Drop for SftpHandler {
     fn drop(&mut self) {
-        // 连接断开时减少会话计数
+        // Decrement session count when connection disconnects
         if let (Some(username), Some(server)) = (&self.auth.username, &self.sftp_server)
             && self.auth.authenticated
         {

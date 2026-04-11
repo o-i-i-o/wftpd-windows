@@ -118,7 +118,7 @@ impl SftpState {
                     0,
                     "SFTP",
                     true,
-                    "符号链接创建成功"
+                    "Symlink created successfully"
                 );
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }

@@ -1,6 +1,6 @@
-//! SFTP 服务器核心模块
+//! SFTP server core module
 //!
-//! 提供 SFTP 服务器的主结构、状态管理和数据包构建工具
+//! Provides main structure, state management and packet building tools for SFTP server
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -156,7 +156,7 @@ impl SftpServer {
         let mut methods = MethodSet::empty();
         methods.push(MethodKind::Password);
         methods.push(MethodKind::PublicKey);
-        // TODO: KeyboardInteractive 需要 russh 升级后实现
+        // TODO: KeyboardInteractive requires russh upgrade to implement
         // methods.push(MethodKind::KeyboardInteractive);
 
         let ssh_config = russh::server::Config {
@@ -191,12 +191,12 @@ impl SftpServer {
         let quota_manager_clone = Arc::clone(&self.quota_manager);
         let sftp_server_for_handler = self.clone();
 
-        // 根据配置的绑定地址确定监听方式
+        // Determine listening mode based on configured bind address
         let bind_addr = format!("{}:{}", bind_ip, sftp_port);
 
         let listener = {
             use socket2::{Domain, Protocol, SockAddr, Socket, Type};
-            // 根据配置的地址类型选择 IPv4 或 IPv6
+            // Select IPv4 or IPv6 based on configured address type
             let domain = if bind_ip == "::" || (bind_ip.starts_with('[') && bind_ip.ends_with(']'))
             {
                 Domain::IPV6
@@ -206,7 +206,7 @@ impl SftpServer {
 
             let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
 
-            // 仅在配置为 [::] 时启用 IPv6 双栈支持
+            // Enable IPv6 dual-stack support only when configured as [::]
             if domain == Domain::IPV6 {
                 socket.set_only_v6(false)?; // Allow IPv4 mapped to IPv6
             }
@@ -360,7 +360,7 @@ impl SftpServer {
         tracing::debug!("User {} session count: {}", username, new_count);
     }
 
-    /// 减少用户活跃会话数（使用原子操作，无锁）
+    /// Decrement user active session count (using atomic operations, lock-free)
     pub fn decrement_session(&self, username: &str) {
         let sessions = self.active_sessions.lock();
         if let Some(counter) = sessions.get(username) {
@@ -369,8 +369,8 @@ impl SftpServer {
                 let new_count = old_count - 1;
                 tracing::debug!("User {} session decremented to {}", username, new_count);
 
-                // 如果计数归零，从 HashMap 中移除
-                // 使用 compare_exchange 确保只在计数确实为 0 时清理，避免竞态条件
+                // If count reaches zero, remove from HashMap
+                // Use compare_exchange to ensure cleanup only when count is actually 0, avoiding race conditions
                 if new_count == 0 {
                     // Try to exchange counter from 0 to 0, success means no other thread modified it
                     if counter
@@ -453,22 +453,22 @@ impl SftpServer {
 
         if should_rotate {
             tracing::info!(
-                "SFTP 主机密钥已达到轮换期限 ({} 天)，正在生成新密钥...",
+                "SFTP host key has reached rotation period ({} days), generating new key...",
                 rotation_days
             );
 
             let backup_path = format!("{}.backup.{}", key_path, now.format("%Y%m%d_%H%M%S"));
             if let Err(e) = tokio::fs::copy(&path, &backup_path).await {
-                tracing::warn!("备份旧密钥失败：{}", e);
+                tracing::warn!("Failed to backup old key: {}", e);
             } else {
-                tracing::info!("已备份旧密钥到：{}", backup_path);
+                tracing::info!("Old key backed up to: {}", backup_path);
             }
 
             self.generate_new_host_key(&path).await?;
 
             *self.last_key_rotation.lock().await = Some(now);
 
-            tracing::info!("SFTP 主机密钥轮换完成");
+            tracing::info!("SFTP host key rotation completed");
         } else {
             let age = last_rotation
                 .map(|t| now.signed_duration_since(t).num_days())
@@ -492,13 +492,13 @@ impl SftpServer {
         let key = PrivateKey::random(&mut rng, keys::Algorithm::Ed25519)?;
         let openssh = key.to_openssh(keys::ssh_key::LineEnding::default())?;
         tokio::fs::write(path, openssh.to_string()).await?;
-        tracing::info!("已生成新的 SFTP 主机私钥：{}", path.display());
+        tracing::info!("Generated new SFTP host private key: {}", path.display());
 
         let pub_path = path.with_extension("pub");
         let public_key = key.public_key();
         let pub_openssh = public_key.to_openssh()?;
         tokio::fs::write(&pub_path, pub_openssh.to_string()).await?;
-        tracing::info!("已生成新的 SFTP 主机公钥：{}", pub_path.display());
+        tracing::info!("Generated new SFTP host public key: {}", pub_path.display());
 
         Ok(())
     }
@@ -509,7 +509,7 @@ impl SftpServer {
         if path.exists() {
             let key_data = tokio::fs::read_to_string(&path).await?;
             let key = PrivateKey::from_openssh(&key_data)?;
-            tracing::info!("已加载现有 SFTP 主机密钥: {}", path.display());
+            tracing::info!("Loaded existing SFTP host key: {}", path.display());
             return Ok(key);
         }
 
@@ -517,7 +517,7 @@ impl SftpServer {
 
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
-            tracing::info!("已创建 SFTP 密钥目录: {}", parent.display());
+            tracing::info!("Created SFTP key directory: {}", parent.display());
         }
 
         let mut rng = russh::keys::key::safe_rng();

@@ -1,6 +1,6 @@
-//! 全局日志系统
+//! Global logging system
 //!
-//! 基于 tracing 实现，支持日志级别控制和日志文件轮转
+//! Based on tracing, supports log level control and log file rotation
 
 use chrono::{DateTime, Local};
 use parking_lot::RwLock;
@@ -108,7 +108,7 @@ mod custom_datetime_format {
     }
 }
 
-/// 统一的日志条目结构
+/// Unified log entry structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
     #[serde(with = "custom_datetime_format")]
@@ -141,7 +141,7 @@ pub struct LogFields {
     pub success: Option<bool>,
 }
 
-/// 泛型日志缓冲区，替代 LogBuffer 和 FileOpBuffer
+/// Generic log buffer, replaces LogBuffer and FileOpBuffer
 pub struct LogBuffer<T> {
     buffer: Arc<RwLock<VecDeque<T>>>,
     max_size: usize,
@@ -448,7 +448,7 @@ impl TracingLogger {
             .filename_prefix("wftpg")
             .filename_suffix("log")
             .build(&path)
-            .map_err(|e| format!("创建日志文件失败: {}", e))?;
+            .map_err(|e| format!("Failed to create log file: {}", e))?;
 
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
@@ -513,7 +513,7 @@ impl TracingLogger {
             .with(console_layer);
 
         tracing::subscriber::set_global_default(subscriber)
-            .map_err(|e| format!("设置 tracing 日志失败: {}", e))?;
+            .map_err(|e| format!("Failed to set tracing logger: {}", e))?;
 
         let _ = GLOBAL_LOGGER.set(GlobalLogger {
             buffer: buffer.clone(),
@@ -655,7 +655,7 @@ macro_rules! file_op_log {
             file_size = $file_size,
             protocol = %$protocol,
             success = true,
-            "文件上传成功"
+            "File uploaded successfully"
         )
     };
     (update, $username:expr, $client_ip:expr, $file_path:expr, $file_size:expr, $protocol:expr) => {
@@ -681,7 +681,7 @@ macro_rules! file_op_log {
             file_size = $file_size,
             protocol = %$protocol,
             success = true,
-            "文件下载成功"
+            "File downloaded successfully"
         )
     };
     (delete, $username:expr, $client_ip:expr, $file_path:expr, $protocol:expr) => {
@@ -707,7 +707,7 @@ macro_rules! file_op_log {
             file_size = 0u64,
             protocol = %$protocol,
             success = true,
-            "文件重命名成功"
+            "File renamed successfully"
         )
     };
     (move, $username:expr, $client_ip:expr, $old_path:expr, $new_path:expr, $protocol:expr) => {
@@ -733,7 +733,7 @@ macro_rules! file_op_log {
             file_size = 0u64,
             protocol = %$protocol,
             success = true,
-            "目录创建成功"
+            "Directory created successfully"
         )
     };
     (rmdir, $username:expr, $client_ip:expr, $dir_path:expr, $protocol:expr) => {
@@ -746,7 +746,7 @@ macro_rules! file_op_log {
             file_size = 0u64,
             protocol = %$protocol,
             success = true,
-            "目录删除成功"
+            "Directory deleted successfully"
         )
     };
     (failed, $username:expr, $client_ip:expr, $operation:expr, $file_path:expr, $protocol:expr, $error:expr) => {

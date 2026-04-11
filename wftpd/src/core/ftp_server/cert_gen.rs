@@ -1,6 +1,6 @@
-//! FTPS 证书生成器
+//! FTPS certificate generator
 //!
-//! 使用 rcgen 生成自签名的 X.509 SSL/TLS 证书
+//! Generates self-signed X.509 SSL/TLS certificates using rcgen
 
 use anyhow::{Context, Result};
 use std::fs;
@@ -14,7 +14,7 @@ pub fn generate_self_signed_cert(cert_path: &str, key_path: &str) -> Result<()> 
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Invalid certificate path"))?;
 
-    fs::create_dir_all(cert_dir).context("创建证书目录失败")?;
+    fs::create_dir_all(cert_dir).context("Failed to create certificate directory")?;
 
     let mut params = rcgen::CertificateParams::default();
     params.distinguished_name = rcgen::DistinguishedName::new();

@@ -63,19 +63,19 @@ impl FtpServer {
 
         let quota_manager = QuotaManager::new(&get_program_data_path());
 
-        // 初始化 Fail2Ban 管理器
+        // Initialize Fail2Ban manager
         let fail2ban_config_inner = {
             let cfg = config.lock();
             Fail2BanConfig {
                 enabled: cfg.security.fail2ban_enabled,
                 threshold: cfg.security.fail2ban_threshold,
                 ban_time: cfg.security.fail2ban_ban_time,
-                find_time: 600, // 10 分钟检测窗口
+                find_time: 600, // 10 minutes detection window
             }
         };
         let fail2ban_manager = Arc::new(Fail2BanManager::new(fail2ban_config_inner));
 
-        // 初始化 UPnP 管理器
+        // Initialize UPnP manager
         let upnp_enabled = {
             let cfg = config.lock();
             cfg.ftp.upnp_enabled
@@ -111,9 +111,9 @@ impl FtpServer {
 
         if !warnings.is_empty() {
             for warning in &warnings {
-                tracing::error!("配置验证失败：{}", warning);
+                tracing::error!("Configuration validation failed: {}", warning);
             }
-            return Err(anyhow::anyhow!("配置路径验证失败：{}", warnings.join("; ")));
+            return Err(anyhow::anyhow!("Configuration path validation failed: {}", warnings.join("; ")));
         }
 
         // Determine listening method based on configured bind address
@@ -167,10 +167,10 @@ impl FtpServer {
         let upnp_spawn = Arc::clone(&self.upnp_manager);
         let running_clone = Arc::clone(&self.running);
 
-        // 启动 Fail2Ban 后台清理任务
+        // Start Fail2Ban background cleanup task
         Arc::clone(&fail2ban_spawn).start_cleanup_task();
 
-        // 初始化 UPnP 端口映射（在 runtime 上下文中）
+        // Initialize UPnP port mapping (in runtime context)
         let upnp_init = Arc::clone(&upnp_spawn);
         tokio::spawn(async move {
             if let Err(e) = upnp_init.initialize().await {

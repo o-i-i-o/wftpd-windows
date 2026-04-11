@@ -290,7 +290,7 @@ impl SftpState {
                     size,
                     "SFTP",
                     true,
-                    "文件复制成功"
+                    "File copied successfully"
                 );
                 Ok(self.build_status_packet(id, 0, "OK", ""))
             }
