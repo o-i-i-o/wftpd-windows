@@ -25,7 +25,7 @@ fn validate_ip_cidr(input: &str) -> Vec<ValidationError> {
         if !is_valid_ip_or_cidr(trimmed) {
             errors.push(ValidationError {
                 field: i18n::t_fmt("security.line_n", &[&(line_num + 1).to_string()]),
-                message: i18n::t_fmt("security.invalid_ip_cidr", &[trimmed]),
+                message: i18n::t_fmt("security.invalid_ip_cidr", &[&trimmed.to_string()]),
             });
         }
     }
@@ -373,7 +373,10 @@ impl SecurityTab {
                 }
                 Err(e) => {
                     tracing::error!("Save failed: {}", e);
-                    SaveResult::Error(i18n::t_fmt("security.config_save_failed", &[&e.to_string()]))
+                    SaveResult::Error(i18n::t_fmt(
+                        "security.config_save_failed",
+                        &[&e.to_string()],
+                    ))
                 }
             };
 
@@ -412,11 +415,20 @@ impl SecurityTab {
             Some(t) => {
                 let elapsed = t.elapsed();
                 if elapsed.as_secs() < 60 {
-                    i18n::t_fmt("security.saved_n_seconds_ago", &[&elapsed.as_secs().to_string()])
+                    i18n::t_fmt(
+                        "security.saved_n_seconds_ago",
+                        &[&elapsed.as_secs().to_string()],
+                    )
                 } else if elapsed.as_secs() < 3600 {
-                    i18n::t_fmt("security.saved_n_minutes_ago", &[&(elapsed.as_secs() / 60).to_string()])
+                    i18n::t_fmt(
+                        "security.saved_n_minutes_ago",
+                        &[&(elapsed.as_secs() / 60).to_string()],
+                    )
                 } else {
-                    i18n::t_fmt("security.saved_n_hours_ago", &[&(elapsed.as_secs() / 3600).to_string()])
+                    i18n::t_fmt(
+                        "security.saved_n_hours_ago",
+                        &[&(elapsed.as_secs() / 3600).to_string()],
+                    )
                 }
             }
             None => i18n::t("security.not_saved"),
@@ -429,16 +441,17 @@ impl SecurityTab {
         ui.horizontal(|ui| {
             styles::page_header(ui, "🔒", &i18n::t("security.title"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let save_text = i18n::t("security.save_config");
                 let save_btn = if self.is_saving {
                     egui::Button::new(
-                        RichText::new(&i18n::t("security.saving"))
+                        RichText::new(i18n::t("security.saving"))
                             .color(egui::Color32::GRAY)
                             .size(styles::FONT_SIZE_MD),
                     )
                     .fill(styles::BG_SECONDARY)
                     .corner_radius(egui::CornerRadius::same(6))
                 } else {
-                    styles::primary_button(&i18n::t("security.save_config"))
+                    styles::primary_button(&save_text)
                 };
 
                 if ui.add(save_btn).clicked() && !self.is_saving {
@@ -465,23 +478,28 @@ impl SecurityTab {
             let label_width = (available_width * 0.2).clamp(100.0, 160.0);
 
             ui.label(
-                RichText::new(&i18n::t("security.fail2ban_protection"))
+                RichText::new(i18n::t("security.fail2ban_protection"))
                     .size(styles::FONT_SIZE_MD)
                     .color(styles::TEXT_SECONDARY_COLOR)
                     .strong(),
             );
             ui.label(
-                RichText::new(&i18n::t("security.fail2ban_desc"))
+                RichText::new(i18n::t("security.fail2ban_desc"))
                     .size(styles::FONT_SIZE_SM)
                     .color(styles::TEXT_MUTED_COLOR),
             );
 
             ui.add_space(styles::SPACING_XS);
 
-            styles::form_row(ui, &i18n::t("security.enable_fail2ban"), label_width, |ui| {
-                ui.checkbox(&mut self.fail2ban_enabled, "")
-                    .on_hover_text(&i18n::t("security.enable_fail2ban_hint"));
-            });
+            styles::form_row(
+                ui,
+                &i18n::t("security.enable_fail2ban"),
+                label_width,
+                |ui| {
+                    ui.checkbox(&mut self.fail2ban_enabled, "")
+                        .on_hover_text(i18n::t("security.enable_fail2ban_hint"));
+                },
+            );
 
             if self.fail2ban_enabled {
                 styles::form_row_with_suffix(
@@ -503,12 +521,14 @@ impl SecurityTab {
                         if response.response.lost_focus() {
                             if let Ok(v) = self.fail2ban_threshold_buf.parse::<u32>() {
                                 if v == 0 {
-                                    self.fail2ban_threshold_error = Some(i18n::t("security.must_greater_0"));
+                                    self.fail2ban_threshold_error =
+                                        Some(i18n::t("security.must_greater_0"));
                                 } else {
                                     self.fail2ban_threshold_error = None;
                                 }
                             } else {
-                                self.fail2ban_threshold_error = Some(i18n::t("security.enter_valid_number"));
+                                self.fail2ban_threshold_error =
+                                    Some(i18n::t("security.enter_valid_number"));
                             }
                         }
                     },
@@ -545,12 +565,14 @@ impl SecurityTab {
                         if response.response.lost_focus() {
                             if let Ok(v) = self.fail2ban_ban_time_buf.parse::<u64>() {
                                 if v == 0 {
-                                    self.fail2ban_ban_time_error = Some(i18n::t("security.must_greater_0"));
+                                    self.fail2ban_ban_time_error =
+                                        Some(i18n::t("security.must_greater_0"));
                                 } else {
                                     self.fail2ban_ban_time_error = None;
                                 }
                             } else {
-                                self.fail2ban_ban_time_error = Some(i18n::t("security.enter_valid_number"));
+                                self.fail2ban_ban_time_error =
+                                    Some(i18n::t("security.enter_valid_number"));
                             }
                         }
                     },
@@ -571,30 +593,37 @@ impl SecurityTab {
                 ui.add_space(styles::SPACING_MD);
             }
 
-            styles::form_row(ui, &i18n::t("security.max_connections"), label_width, |ui| {
-                let response = styles::input_frame().show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.max_connections_buf)
-                            .desired_width(100.0)
-                            .font(egui::FontId::new(
-                                styles::FONT_SIZE_MD,
-                                egui::FontFamily::Proportional,
-                            )),
-                    )
-                });
+            styles::form_row(
+                ui,
+                &i18n::t("security.max_connections"),
+                label_width,
+                |ui| {
+                    let response = styles::input_frame().show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.max_connections_buf)
+                                .desired_width(100.0)
+                                .font(egui::FontId::new(
+                                    styles::FONT_SIZE_MD,
+                                    egui::FontFamily::Proportional,
+                                )),
+                        )
+                    });
 
-                if response.response.lost_focus() {
-                    if let Ok(v) = self.max_connections_buf.parse::<usize>() {
-                        if v == 0 {
-                            self.max_connections_error = Some(i18n::t("security.must_greater_0"));
+                    if response.response.lost_focus() {
+                        if let Ok(v) = self.max_connections_buf.parse::<usize>() {
+                            if v == 0 {
+                                self.max_connections_error =
+                                    Some(i18n::t("security.must_greater_0"));
+                            } else {
+                                self.max_connections_error = None;
+                            }
                         } else {
-                            self.max_connections_error = None;
+                            self.max_connections_error =
+                                Some(i18n::t("security.enter_valid_number"));
                         }
-                    } else {
-                        self.max_connections_error = Some(i18n::t("security.enter_valid_number"));
                     }
-                }
-            });
+                },
+            );
 
             if let Some(err) = &self.max_connections_error {
                 ui.horizontal(|ui| {
@@ -607,30 +636,37 @@ impl SecurityTab {
                 });
             }
 
-            styles::form_row(ui, &i18n::t("security.max_connections_per_ip"), label_width, |ui| {
-                let response = styles::input_frame().show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.max_connections_per_ip_buf)
-                            .desired_width(100.0)
-                            .font(egui::FontId::new(
-                                styles::FONT_SIZE_MD,
-                                egui::FontFamily::Proportional,
-                            )),
-                    )
-                });
+            styles::form_row(
+                ui,
+                &i18n::t("security.max_connections_per_ip"),
+                label_width,
+                |ui| {
+                    let response = styles::input_frame().show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.max_connections_per_ip_buf)
+                                .desired_width(100.0)
+                                .font(egui::FontId::new(
+                                    styles::FONT_SIZE_MD,
+                                    egui::FontFamily::Proportional,
+                                )),
+                        )
+                    });
 
-                if response.response.lost_focus() {
-                    if let Ok(v) = self.max_connections_per_ip_buf.parse::<usize>() {
-                        if v == 0 {
-                            self.max_connections_per_ip_error = Some(i18n::t("security.must_greater_0"));
+                    if response.response.lost_focus() {
+                        if let Ok(v) = self.max_connections_per_ip_buf.parse::<usize>() {
+                            if v == 0 {
+                                self.max_connections_per_ip_error =
+                                    Some(i18n::t("security.must_greater_0"));
+                            } else {
+                                self.max_connections_per_ip_error = None;
+                            }
                         } else {
-                            self.max_connections_per_ip_error = None;
+                            self.max_connections_per_ip_error =
+                                Some(i18n::t("security.enter_valid_number"));
                         }
-                    } else {
-                        self.max_connections_per_ip_error = Some(i18n::t("security.enter_valid_number"));
                     }
-                }
-            });
+                },
+            );
 
             if let Some(err) = &self.max_connections_per_ip_error {
                 ui.horizontal(|ui| {
@@ -646,13 +682,13 @@ impl SecurityTab {
             ui.add_space(styles::SPACING_MD);
 
             ui.label(
-                RichText::new(&i18n::t("security.symlink_security"))
+                RichText::new(i18n::t("security.symlink_security"))
                     .size(styles::FONT_SIZE_MD)
                     .color(styles::TEXT_SECONDARY_COLOR)
                     .strong(),
             );
             ui.label(
-                RichText::new(&i18n::t("security.symlink_security_desc"))
+                RichText::new(i18n::t("security.symlink_security_desc"))
                     .size(styles::FONT_SIZE_SM)
                     .color(styles::TEXT_MUTED_COLOR),
             );
@@ -661,14 +697,14 @@ impl SecurityTab {
 
             styles::form_row(ui, &i18n::t("security.allow_symlinks"), label_width, |ui| {
                 ui.checkbox(&mut self.allow_symlinks, "")
-                    .on_hover_text(&i18n::t("security.allow_symlinks_hint"));
+                    .on_hover_text(i18n::t("security.allow_symlinks_hint"));
             });
 
             if !self.allow_symlinks {
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
                     ui.label(
-                        RichText::new(&i18n::t("security.symlink_disabled_secure"))
+                        RichText::new(i18n::t("security.symlink_disabled_secure"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::SUCCESS_COLOR),
                     );
@@ -677,7 +713,7 @@ impl SecurityTab {
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
                     ui.label(
-                        RichText::new(&i18n::t("security.symlink_enabled_warning"))
+                        RichText::new(i18n::t("security.symlink_enabled_warning"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::WARNING_COLOR),
                     );
@@ -692,12 +728,12 @@ impl SecurityTab {
             Self::section_header(ui, "🌐", &i18n::t("security.ip_access_control"));
 
             ui.label(
-                RichText::new(&i18n::t("security.allowed_ips"))
+                RichText::new(i18n::t("security.allowed_ips"))
                     .size(styles::FONT_SIZE_MD)
                     .color(styles::TEXT_SECONDARY_COLOR),
             );
             ui.label(
-                RichText::new(&i18n::t("security.allowed_ips_hint"))
+                RichText::new(i18n::t("security.allowed_ips_hint"))
                     .size(styles::FONT_SIZE_SM)
                     .color(styles::TEXT_MUTED_COLOR),
             );
@@ -728,12 +764,12 @@ impl SecurityTab {
             ui.add_space(styles::SPACING_MD);
 
             ui.label(
-                RichText::new(&i18n::t("security.denied_ips"))
+                RichText::new(i18n::t("security.denied_ips"))
                     .size(styles::FONT_SIZE_MD)
                     .color(styles::TEXT_SECONDARY_COLOR),
             );
             ui.label(
-                RichText::new(&i18n::t("security.denied_ips_hint"))
+                RichText::new(i18n::t("security.denied_ips_hint"))
                     .size(styles::FONT_SIZE_SM)
                     .color(styles::TEXT_MUTED_COLOR),
             );
@@ -764,7 +800,7 @@ impl SecurityTab {
             if !self.validation_errors.is_empty() {
                 ui.add_space(styles::SPACING_SM);
                 ui.label(
-                    RichText::new(&i18n::t("security.ip_validation_error"))
+                    RichText::new(i18n::t("security.ip_validation_error"))
                         .size(styles::FONT_SIZE_SM)
                         .color(styles::DANGER_COLOR)
                         .strong(),

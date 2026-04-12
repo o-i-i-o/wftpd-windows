@@ -469,10 +469,14 @@ impl Config {
         if self.ftp.allow_anonymous {
             match &self.ftp.anonymous_home {
                 None => {
-                    warnings.push("Anonymous user is enabled but anonymous home directory is not configured".to_string());
+                    warnings.push(
+                        "Anonymous user is enabled but anonymous home directory is not configured"
+                            .to_string(),
+                    );
                 }
                 Some(anon_home) => {
-                    if let Err(e) = Self::validate_home_path(anon_home, "FTP anonymous user home directory")
+                    if let Err(e) =
+                        Self::validate_home_path(anon_home, "FTP anonymous user home directory")
                     {
                         warnings.push(e);
                     }

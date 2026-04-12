@@ -125,7 +125,10 @@ impl ServerTab {
         let validation_errors = Self::validate_config(&config);
         if !validation_errors.is_empty() {
             self.status_message = Some((
-                i18n::t_fmt("server.config_validation_failed", &[&validation_errors.join("\n")]),
+                i18n::t_fmt(
+                    "server.config_validation_failed",
+                    &[&validation_errors.join("\n")],
+                ),
                 false,
             ));
             self.is_saving = false;
@@ -154,7 +157,10 @@ impl ServerTab {
                                 if response.success {
                                     Ok(i18n::t("server.config_saved"))
                                 } else {
-                                    Ok(i18n::t_fmt("server.config_saved_reload_failed", &[&response.message]))
+                                    Ok(i18n::t_fmt(
+                                        "server.config_saved_reload_failed",
+                                        &[&response.message],
+                                    ))
                                 }
                             }
                             Err(e) => Ok(i18n::t_fmt("server.config_saved_notify_failed", &[&e])),
@@ -273,6 +279,7 @@ impl ServerTab {
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let save_text = i18n::t("server.save_config");
                     let save_btn = if is_saving {
                         egui::Button::new(
                             RichText::new(i18n::t("server.saving"))
@@ -282,7 +289,7 @@ impl ServerTab {
                         .fill(styles::BG_SECONDARY)
                         .corner_radius(egui::CornerRadius::same(6))
                     } else {
-                        styles::primary_button(&i18n::t("server.save_config"))
+                        styles::primary_button(&save_text)
                     };
 
                     if ui.add(save_btn).clicked() && !is_saving {
@@ -441,8 +448,9 @@ impl ServerTab {
                                     )),
                             );
                         });
-                        if ui.button(&i18n::t("server.browse")).clicked()
-                            && let Some(path) = Self::pick_folder(&i18n::t("server.select_anonymous_dir"))
+                        if ui.button(i18n::t("server.browse")).clicked()
+                            && let Some(path) =
+                                Self::pick_folder(&i18n::t("server.select_anonymous_dir"))
                         {
                             anon_home = path.to_string_lossy().to_string();
                         }
@@ -470,56 +478,61 @@ impl ServerTab {
                     }
                 }
 
-                styles::form_row(ui, &i18n::t("server.passive_port_range"), label_width, |ui| {
-                    let mut min_str = config.ftp.passive_ports.0.to_string();
-                    let mut max_str = config.ftp.passive_ports.1.to_string();
+                styles::form_row(
+                    ui,
+                    &i18n::t("server.passive_port_range"),
+                    label_width,
+                    |ui| {
+                        let mut min_str = config.ftp.passive_ports.0.to_string();
+                        let mut max_str = config.ftp.passive_ports.1.to_string();
 
-                    ui.label(
-                        RichText::new(i18n::t("server.from"))
-                            .size(styles::FONT_SIZE_MD)
-                            .color(styles::TEXT_MUTED_COLOR),
-                    );
-                    styles::input_frame().show(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut min_str)
-                                .desired_width(60.0)
-                                .font(egui::FontId::new(
-                                    styles::FONT_SIZE_MD,
-                                    egui::FontFamily::Proportional,
-                                )),
-                        );
-                    });
-                    if let Ok(p) = min_str.parse::<u16>() {
-                        config.ftp.passive_ports.0 = p;
-                    }
-
-                    ui.label(
-                        RichText::new(i18n::t("server.to"))
-                            .size(styles::FONT_SIZE_MD)
-                            .color(styles::TEXT_MUTED_COLOR),
-                    );
-                    styles::input_frame().show(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut max_str)
-                                .desired_width(60.0)
-                                .font(egui::FontId::new(
-                                    styles::FONT_SIZE_MD,
-                                    egui::FontFamily::Proportional,
-                                )),
-                        );
-                    });
-                    if let Ok(p) = max_str.parse::<u16>() {
-                        config.ftp.passive_ports.1 = p;
-                    }
-
-                    if config.ftp.passive_ports.0 > config.ftp.passive_ports.1 {
                         ui.label(
-                            RichText::new("⚠ start port > end port")
-                                .color(styles::DANGER_COLOR)
-                                .size(styles::FONT_SIZE_SM),
+                            RichText::new(i18n::t("server.from"))
+                                .size(styles::FONT_SIZE_MD)
+                                .color(styles::TEXT_MUTED_COLOR),
                         );
-                    }
-                });
+                        styles::input_frame().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut min_str)
+                                    .desired_width(60.0)
+                                    .font(egui::FontId::new(
+                                        styles::FONT_SIZE_MD,
+                                        egui::FontFamily::Proportional,
+                                    )),
+                            );
+                        });
+                        if let Ok(p) = min_str.parse::<u16>() {
+                            config.ftp.passive_ports.0 = p;
+                        }
+
+                        ui.label(
+                            RichText::new(i18n::t("server.to"))
+                                .size(styles::FONT_SIZE_MD)
+                                .color(styles::TEXT_MUTED_COLOR),
+                        );
+                        styles::input_frame().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut max_str)
+                                    .desired_width(60.0)
+                                    .font(egui::FontId::new(
+                                        styles::FONT_SIZE_MD,
+                                        egui::FontFamily::Proportional,
+                                    )),
+                            );
+                        });
+                        if let Ok(p) = max_str.parse::<u16>() {
+                            config.ftp.passive_ports.1 = p;
+                        }
+
+                        if config.ftp.passive_ports.0 > config.ftp.passive_ports.1 {
+                            ui.label(
+                                RichText::new("⚠ start port > end port")
+                                    .color(styles::DANGER_COLOR)
+                                    .size(styles::FONT_SIZE_SM),
+                            );
+                        }
+                    },
+                );
 
                 styles::form_row_with_suffix(
                     ui,
@@ -568,19 +581,24 @@ impl ServerTab {
                 ui.add_space(styles::SPACING_SM);
 
                 let mut passive_ip = config.ftp.passive_ip_override.clone().unwrap_or_default();
-                styles::form_row(ui, &i18n::t("server.passive_ip_override"), label_width, |ui| {
-                    styles::input_frame().show(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut passive_ip)
-                                .desired_width(ui.available_width())
-                                .hint_text("例如: 203.0.113.50")
-                                .font(egui::FontId::new(
-                                    styles::FONT_SIZE_MD,
-                                    egui::FontFamily::Proportional,
-                                )),
-                        );
-                    });
-                });
+                styles::form_row(
+                    ui,
+                    &i18n::t("server.passive_ip_override"),
+                    label_width,
+                    |ui| {
+                        styles::input_frame().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut passive_ip)
+                                    .desired_width(ui.available_width())
+                                    .hint_text("例如: 203.0.113.50")
+                                    .font(egui::FontId::new(
+                                        styles::FONT_SIZE_MD,
+                                        egui::FontFamily::Proportional,
+                                    )),
+                            );
+                        });
+                    },
+                );
                 config.ftp.passive_ip_override = if passive_ip.trim().is_empty() {
                     None
                 } else {
@@ -598,19 +616,24 @@ impl ServerTab {
                 });
 
                 let mut masq_addr = config.ftp.masquerade_address.clone().unwrap_or_default();
-                styles::form_row(ui, &i18n::t("server.masquerade_address"), label_width, |ui| {
-                    styles::input_frame().show(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut masq_addr)
-                                .desired_width(ui.available_width())
-                                .hint_text("例如: ftp.example.com")
-                                .font(egui::FontId::new(
-                                    styles::FONT_SIZE_MD,
-                                    egui::FontFamily::Proportional,
-                                )),
-                        );
-                    });
-                });
+                styles::form_row(
+                    ui,
+                    &i18n::t("server.masquerade_address"),
+                    label_width,
+                    |ui| {
+                        styles::input_frame().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut masq_addr)
+                                    .desired_width(ui.available_width())
+                                    .hint_text("例如: ftp.example.com")
+                                    .font(egui::FontId::new(
+                                        styles::FONT_SIZE_MD,
+                                        egui::FontFamily::Proportional,
+                                    )),
+                            );
+                        });
+                    },
+                );
                 config.ftp.masquerade_address = if masq_addr.trim().is_empty() {
                     None
                 } else {
@@ -795,8 +818,10 @@ impl ServerTab {
                         )
                         .fill(styles::PRIMARY_COLOR)
                     } else {
-                        egui::Button::new(RichText::new(i18n::t("server.add_mapping")).size(styles::FONT_SIZE_SM))
-                            .fill(styles::BG_SECONDARY)
+                        egui::Button::new(
+                            RichText::new(i18n::t("server.add_mapping")).size(styles::FONT_SIZE_SM),
+                        )
+                        .fill(styles::BG_SECONDARY)
                     };
 
                     if ui.add(add_button).clicked() && can_add {
@@ -924,9 +949,14 @@ impl ServerTab {
 
                 ui.add_space(styles::SPACING_SM);
 
-                styles::form_row(ui, &i18n::t("server.hide_version_info"), label_width, |ui| {
-                    ui.checkbox(&mut config.ftp.hide_version_info, "");
-                });
+                styles::form_row(
+                    ui,
+                    &i18n::t("server.hide_version_info"),
+                    label_width,
+                    |ui| {
+                        ui.checkbox(&mut config.ftp.hide_version_info, "");
+                    },
+                );
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
                     ui.label(
@@ -991,22 +1021,27 @@ impl ServerTab {
                     });
 
                     if config.ftp.ftps.implicit_ssl {
-                        styles::form_row(ui, &i18n::t("server.implicit_ssl_port"), label_width, |ui| {
-                            let mut port_str = config.ftp.ftps.implicit_ssl_port.to_string();
-                            styles::input_frame().show(ui, |ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut port_str)
-                                        .desired_width(80.0)
-                                        .font(egui::FontId::new(
-                                            styles::FONT_SIZE_MD,
-                                            egui::FontFamily::Proportional,
-                                        )),
-                                );
-                            });
-                            if let Ok(p) = port_str.parse::<u16>() {
-                                config.ftp.ftps.implicit_ssl_port = p;
-                            }
-                        });
+                        styles::form_row(
+                            ui,
+                            &i18n::t("server.implicit_ssl_port"),
+                            label_width,
+                            |ui| {
+                                let mut port_str = config.ftp.ftps.implicit_ssl_port.to_string();
+                                styles::input_frame().show(ui, |ui| {
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut port_str)
+                                            .desired_width(80.0)
+                                            .font(egui::FontId::new(
+                                                styles::FONT_SIZE_MD,
+                                                egui::FontFamily::Proportional,
+                                            )),
+                                    );
+                                });
+                                if let Ok(p) = port_str.parse::<u16>() {
+                                    config.ftp.ftps.implicit_ssl_port = p;
+                                }
+                            },
+                        );
                     }
 
                     ui.add_space(styles::SPACING_SM);
@@ -1023,8 +1058,9 @@ impl ServerTab {
                                     )),
                             );
                         });
-                        if ui.button(&i18n::t("server.browse")).clicked()
-                            && let Some(path) = Self::pick_cert_file(&i18n::t("server.select_cert_file"))
+                        if ui.button(i18n::t("server.browse")).clicked()
+                            && let Some(path) =
+                                Self::pick_cert_file(&i18n::t("server.select_cert_file"))
                         {
                             cert_path = path.to_string_lossy().to_string();
                         }
@@ -1077,8 +1113,9 @@ impl ServerTab {
                                     )),
                             );
                         });
-                        if ui.button(&i18n::t("server.browse")).clicked()
-                            && let Some(path) = Self::pick_key_file(&i18n::t("server.select_key_file"))
+                        if ui.button(i18n::t("server.browse")).clicked()
+                            && let Some(path) =
+                                Self::pick_key_file(&i18n::t("server.select_key_file"))
                         {
                             key_path = path.to_string_lossy().to_string();
                         }
@@ -1182,7 +1219,7 @@ impl ServerTab {
                                 )),
                         );
                     });
-                    if ui.button(&i18n::t("server.browse")).clicked()
+                    if ui.button(i18n::t("server.browse")).clicked()
                         && let Some(path) = Self::pick_file(&i18n::t("server.select_host_key_file"))
                     {
                         host_key_path = path.to_string_lossy().to_string();
@@ -1195,7 +1232,10 @@ impl ServerTab {
                 let host_key_status = if host_key_exists {
                     (i18n::t("server.file_exists"), styles::SUCCESS_COLOR)
                 } else {
-                    (i18n::t("server.host_key_auto_gen"), styles::TEXT_MUTED_COLOR)
+                    (
+                        i18n::t("server.host_key_auto_gen"),
+                        styles::TEXT_MUTED_COLOR,
+                    )
                 };
 
                 ui.horizontal(|ui| {
@@ -1208,22 +1248,27 @@ impl ServerTab {
                     );
                 });
 
-                styles::form_row(ui, &i18n::t("server.max_auth_attempts"), label_width, |ui| {
-                    let mut val_str = config.sftp.max_auth_attempts.to_string();
-                    styles::input_frame().show(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut val_str)
-                                .desired_width(80.0)
-                                .font(egui::FontId::new(
-                                    styles::FONT_SIZE_MD,
-                                    egui::FontFamily::Proportional,
-                                )),
-                        );
-                    });
-                    if let Ok(v) = val_str.parse::<u32>() {
-                        config.sftp.max_auth_attempts = v;
-                    }
-                });
+                styles::form_row(
+                    ui,
+                    &i18n::t("server.max_auth_attempts"),
+                    label_width,
+                    |ui| {
+                        let mut val_str = config.sftp.max_auth_attempts.to_string();
+                        styles::input_frame().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut val_str)
+                                    .desired_width(80.0)
+                                    .font(egui::FontId::new(
+                                        styles::FONT_SIZE_MD,
+                                        egui::FontFamily::Proportional,
+                                    )),
+                            );
+                        });
+                        if let Ok(v) = val_str.parse::<u32>() {
+                            config.sftp.max_auth_attempts = v;
+                        }
+                    },
+                );
 
                 styles::form_row_with_suffix(
                     ui,
@@ -1271,22 +1316,27 @@ impl ServerTab {
                 );
                 ui.add_space(styles::SPACING_SM);
 
-                styles::form_row(ui, &i18n::t("server.max_sessions_per_user"), label_width, |ui| {
-                    let mut val_str = config.sftp.max_sessions_per_user.to_string();
-                    styles::input_frame().show(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut val_str)
-                                .desired_width(80.0)
-                                .font(egui::FontId::new(
-                                    styles::FONT_SIZE_MD,
-                                    egui::FontFamily::Proportional,
-                                )),
-                        );
-                    });
-                    if let Ok(v) = val_str.parse::<u32>() {
-                        config.sftp.max_sessions_per_user = v;
-                    }
-                });
+                styles::form_row(
+                    ui,
+                    &i18n::t("server.max_sessions_per_user"),
+                    label_width,
+                    |ui| {
+                        let mut val_str = config.sftp.max_sessions_per_user.to_string();
+                        styles::input_frame().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut val_str)
+                                    .desired_width(80.0)
+                                    .font(egui::FontId::new(
+                                        styles::FONT_SIZE_MD,
+                                        egui::FontFamily::Proportional,
+                                    )),
+                            );
+                        });
+                        if let Ok(v) = val_str.parse::<u32>() {
+                            config.sftp.max_sessions_per_user = v;
+                        }
+                    },
+                );
 
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
@@ -1320,7 +1370,7 @@ impl ServerTab {
                                 )),
                         );
                     });
-                    if ui.button(&i18n::t("server.browse")).clicked()
+                    if ui.button(i18n::t("server.browse")).clicked()
                         && let Some(path) = Self::pick_folder(&i18n::t("server.select_log_dir"))
                     {
                         log_dir = path.to_string_lossy().to_string();

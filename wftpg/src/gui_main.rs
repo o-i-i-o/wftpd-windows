@@ -17,6 +17,7 @@ use wftpg::gui_egui::{
 
 #[cfg(windows)]
 mod admin {
+    use wftpg::core::i18n;
     use windows::Win32::UI::Shell::IsUserAnAdmin;
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::core::PCWSTR;
@@ -239,10 +240,7 @@ impl WftpgApp {
     fn check_init_result(&mut self, ctx: &egui::Context) {
         if self.init_start_time.elapsed() >= Duration::from_secs(INIT_TIMEOUT_SECS) {
             self.init_receiver = None;
-            self.init_error = Some(i18n::t_fmt(
-                "app.init_timeout",
-                &[&INIT_TIMEOUT_SECS],
-            ));
+            self.init_error = Some(i18n::t_fmt("app.init_timeout", &[&INIT_TIMEOUT_SECS]));
             self.init_state = InitState::Error;
             tracing::error!("{}", i18n::t("app.init_timeout_log"));
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
@@ -284,10 +282,8 @@ impl WftpgApp {
         {
             self.service_install_receiver = None;
             self.service_install_start_time = None;
-            self.service_install_status = ServiceInstallStatus::Failed(i18n::t_fmt(
-                "service.operation_timeout",
-                &[],
-            ));
+            self.service_install_status =
+                ServiceInstallStatus::Failed(i18n::t_fmt("service.operation_timeout", &[]));
             return;
         }
 
@@ -528,7 +524,10 @@ impl App for WftpgApp {
                                 );
                             }
                             ui.add_space(styles::SPACING_LG);
-                            if ui.add(styles::primary_button(&i18n::t("app.exit"))).clicked() {
+                            if ui
+                                .add(styles::primary_button(&i18n::t("app.exit")))
+                                .clicked()
+                            {
                                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                             }
                         });
@@ -724,14 +723,12 @@ fn create_default_icon() -> IconData {
 
 fn load_gui_language() -> i18n::Language {
     let path = wftpg::core::config::get_program_data_path().join("gui_config.json");
-    if path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(lang_code) = obj.get("language").and_then(|v| v.as_str()) {
-                    return i18n::Language::from_code(lang_code);
-                }
-            }
-        }
+    if path.exists()
+        && let Ok(content) = std::fs::read_to_string(&path)
+        && let Ok(obj) = serde_json::from_str::<serde_json::Value>(&content)
+        && let Some(lang_code) = obj.get("language").and_then(|v| v.as_str())
+    {
+        return i18n::Language::from_code(lang_code);
     }
     i18n::Language::Zh
 }

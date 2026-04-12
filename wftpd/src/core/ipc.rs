@@ -58,7 +58,9 @@ fn read_message<R: Read>(reader: &mut R) -> Result<Vec<u8>> {
     }
 
     let mut buffer = vec![0u8; len];
-    reader.read_exact(&mut buffer).context("Failed to read message content")?;
+    reader
+        .read_exact(&mut buffer)
+        .context("Failed to read message content")?;
 
     Ok(buffer)
 }
@@ -68,7 +70,9 @@ fn write_message<W: Write>(writer: &mut W, data: &[u8]) -> Result<()> {
     writer
         .write_all(&len.to_be_bytes())
         .context("Failed to write message length")?;
-    writer.write_all(data).context("Failed to write message content")?;
+    writer
+        .write_all(data)
+        .context("Failed to write message content")?;
     writer.flush().context("Failed to flush message buffer")?;
     Ok(())
 }
@@ -119,7 +123,10 @@ impl IpcServer {
 
     /// Accept client connection (blocking)
     pub fn accept(&self) -> Result<IpcConnection> {
-        let stream = self.inner.accept().context("Failed to accept IPC connection")?;
+        let stream = self
+            .inner
+            .accept()
+            .context("Failed to accept IPC connection")?;
         Ok(IpcConnection::new(stream))
     }
 
@@ -147,13 +154,15 @@ impl IpcClient {
         let mut reader = BufReader::new(&stream);
         let buffer = read_message(&mut reader).context("Failed to read response")?;
 
-        let response: ReloadResponse = serde_json::from_slice(&buffer).context("Failed to parse response")?;
+        let response: ReloadResponse =
+            serde_json::from_slice(&buffer).context("Failed to parse response")?;
         Ok(response)
     }
 
     /// Notify backend to reload configuration
     pub fn notify_reload() -> Result<ReloadResponse> {
-        Self::send_command_internal(ReloadCommand::reload()).context("Failed to notify reload configuration")
+        Self::send_command_internal(ReloadCommand::reload())
+            .context("Failed to notify reload configuration")
     }
 
     /// Check if backend service is running

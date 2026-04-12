@@ -140,7 +140,10 @@ impl SftpServer {
             for warning in &warnings {
                 tracing::error!("Config validation failed: {}", warning);
             }
-            return Err(anyhow::anyhow!("Config path validation failed: {}", warnings.join("; ")));
+            return Err(anyhow::anyhow!(
+                "Config path validation failed: {}",
+                warnings.join("; ")
+            ));
         }
 
         tracing::info!("SFTP server starting on {}:{}", bind_ip, sftp_port);
@@ -425,7 +428,10 @@ impl SftpServer {
         let path = PathBuf::from(key_path);
 
         if !path.exists() {
-            tracing::info!("SFTP host key does not exist, will generate new key: {}", path.display());
+            tracing::info!(
+                "SFTP host key does not exist, will generate new key: {}",
+                path.display()
+            );
             return Ok(());
         }
 
@@ -513,7 +519,10 @@ impl SftpServer {
             return Ok(key);
         }
 
-        tracing::info!("SFTP host key does not exist, generating new key: {}", path.display());
+        tracing::info!(
+            "SFTP host key does not exist, generating new key: {}",
+            path.display()
+        );
 
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;

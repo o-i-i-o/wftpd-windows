@@ -34,7 +34,10 @@ impl UpnpManager {
                 Ok(true)
             }
             Err(e) => {
-                warn!("UPnP/IGD gateway not found, will use normal NAT mode: {}", e);
+                warn!(
+                    "UPnP/IGD gateway not found, will use normal NAT mode: {}",
+                    e
+                );
                 Ok(false)
             }
         }
@@ -69,7 +72,10 @@ impl UpnpManager {
                         Ok(external_port)
                     }
                     Err(_) => {
-                        warn!("UPnP port mapping failed, using internal port {}", internal_addr.port());
+                        warn!(
+                            "UPnP port mapping failed, using internal port {}",
+                            internal_addr.port()
+                        );
                         Ok(internal_addr.port())
                     }
                 }
@@ -132,7 +138,10 @@ impl UpnpManager {
                 .add_port_mapping(internal_addr, 3600, &format!("port-{}", external_port))
                 .await
             {
-                warn!("UPnP port mapping renewal failed (port {}): {}", external_port, e);
+                warn!(
+                    "UPnP port mapping renewal failed (port {}): {}",
+                    external_port, e
+                );
             }
         }
         Ok(())

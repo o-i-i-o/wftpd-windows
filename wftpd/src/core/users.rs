@@ -227,10 +227,15 @@ impl UserManager {
                             tracing::info!("Created user home directory: {}", home_dir);
                             Ok(())
                         }
-                        Err(e) => anyhow::bail!("Cannot create user home directory '{}': {}", home_dir, e),
+                        Err(e) => {
+                            anyhow::bail!("Cannot create user home directory '{}': {}", home_dir, e)
+                        }
                     }
                 } else {
-                    anyhow::bail!("Parent directory of user home directory does not exist: {}", parent.to_string_lossy());
+                    anyhow::bail!(
+                        "Parent directory of user home directory does not exist: {}",
+                        parent.to_string_lossy()
+                    );
                 }
             } else {
                 anyhow::bail!("Invalid user home directory path: {}", home_dir);

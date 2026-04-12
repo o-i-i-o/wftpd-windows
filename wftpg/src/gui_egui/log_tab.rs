@@ -325,9 +325,15 @@ impl LogTab {
                 if elapsed < Duration::from_secs(60) {
                     i18n::t_fmt("log.n_seconds_ago", &[&elapsed.as_secs().to_string()])
                 } else if elapsed < Duration::from_secs(3600) {
-                    i18n::t_fmt("log.n_minutes_ago", &[&(elapsed.as_secs() / 60).to_string()])
+                    i18n::t_fmt(
+                        "log.n_minutes_ago",
+                        &[&(elapsed.as_secs() / 60).to_string()],
+                    )
                 } else {
-                    i18n::t_fmt("log.n_hours_ago", &[&(elapsed.as_secs() / 3600).to_string()])
+                    i18n::t_fmt(
+                        "log.n_hours_ago",
+                        &[&(elapsed.as_secs() / 3600).to_string()],
+                    )
                 }
             }
             None => i18n::t("log.not_refreshed"),
@@ -346,16 +352,17 @@ impl LogTab {
         }
 
         ui.horizontal(|ui| {
+            let refresh_text = i18n::t("log.refresh");
             let refresh_btn = if self.loading {
                 egui::Button::new(
-                    RichText::new(&i18n::t("log.refreshing"))
+                    RichText::new(i18n::t("log.refreshing"))
                         .color(egui::Color32::GRAY)
                         .size(styles::FONT_SIZE_MD),
                 )
                 .fill(styles::BG_SECONDARY)
                 .corner_radius(egui::CornerRadius::same(6))
             } else {
-                styles::small_button(&i18n::t("log.refresh"))
+                styles::small_button(&refresh_text)
             };
 
             if ui.add(refresh_btn).clicked() && !self.loading {
@@ -366,7 +373,10 @@ impl LogTab {
                 let status_text = if self.loading {
                     i18n::t_fmt("log.loading", &[&self.logs.len().to_string()])
                 } else {
-                    i18n::t_fmt("log.total_count", &[&self.logs.len().to_string(), &self.format_last_refresh()])
+                    i18n::t_fmt(
+                        "log.total_count",
+                        &[&self.logs.len().to_string(), &self.format_last_refresh()],
+                    )
                 };
                 ui.label(
                     RichText::new(status_text)
@@ -390,7 +400,7 @@ impl LogTab {
                     ui.spinner();
                     ui.add_space(styles::SPACING_MD);
                     ui.label(
-                        RichText::new(&i18n::t("log.loading_log"))
+                        RichText::new(i18n::t("log.loading_log"))
                             .size(styles::FONT_SIZE_MD)
                             .color(styles::TEXT_SECONDARY_COLOR),
                     );
@@ -399,7 +409,12 @@ impl LogTab {
             }
 
             if self.logs.is_empty() {
-                styles::empty_state(ui, "📭", &i18n::t("log.no_logs"), &i18n::t("log.no_logs_hint"));
+                styles::empty_state(
+                    ui,
+                    "📭",
+                    &i18n::t("log.no_logs"),
+                    &i18n::t("log.no_logs_hint"),
+                );
                 return;
             }
 
@@ -433,7 +448,7 @@ impl LogTab {
                                     ),
                                     |ui| {
                                         ui.label(
-                                            RichText::new(&i18n::t("log.col_time"))
+                                            RichText::new(i18n::t("log.col_time"))
                                                 .strong()
                                                 .color(styles::TEXT_PRIMARY_COLOR),
                                         );
@@ -447,7 +462,7 @@ impl LogTab {
                                     ),
                                     |ui| {
                                         ui.label(
-                                            RichText::new(&i18n::t("log.col_level"))
+                                            RichText::new(i18n::t("log.col_level"))
                                                 .strong()
                                                 .color(styles::TEXT_PRIMARY_COLOR),
                                         );
@@ -461,7 +476,7 @@ impl LogTab {
                                     ),
                                     |ui| {
                                         ui.label(
-                                            RichText::new(&i18n::t("log.col_protocol"))
+                                            RichText::new(i18n::t("log.col_protocol"))
                                                 .strong()
                                                 .color(styles::TEXT_PRIMARY_COLOR),
                                         );
@@ -475,7 +490,7 @@ impl LogTab {
                                     ),
                                     |ui| {
                                         ui.label(
-                                            RichText::new(&i18n::t("log.col_client"))
+                                            RichText::new(i18n::t("log.col_client"))
                                                 .strong()
                                                 .color(styles::TEXT_PRIMARY_COLOR),
                                         );
@@ -484,7 +499,7 @@ impl LogTab {
                             });
                             header.col(|ui| {
                                 ui.label(
-                                    RichText::new(&i18n::t("log.col_message"))
+                                    RichText::new(i18n::t("log.col_message"))
                                         .strong()
                                         .color(styles::TEXT_PRIMARY_COLOR),
                                 );
@@ -614,13 +629,16 @@ impl LogTab {
 
             ui.add_space(styles::SPACING_SM);
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.scroll_to_bottom, &i18n::t("log.auto_scroll"));
+                ui.checkbox(&mut self.scroll_to_bottom, i18n::t("log.auto_scroll"));
 
                 if self.new_logs_count > 0 && !self.user_at_bottom {
                     let btn = egui::Button::new(
-                        RichText::new(i18n::t_fmt("log.new_logs", &[&self.new_logs_count.to_string()]))
-                            .color(Color32::WHITE)
-                            .size(styles::FONT_SIZE_SM),
+                        RichText::new(i18n::t_fmt(
+                            "log.new_logs",
+                            &[&self.new_logs_count.to_string()],
+                        ))
+                        .color(Color32::WHITE)
+                        .size(styles::FONT_SIZE_SM),
                     )
                     .fill(styles::INFO_COLOR)
                     .corner_radius(egui::CornerRadius::same(4));

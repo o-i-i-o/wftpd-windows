@@ -280,9 +280,15 @@ impl FileLogTab {
                 if elapsed < Duration::from_secs(60) {
                     i18n::t_fmt("file_log.n_seconds_ago", &[&elapsed.as_secs().to_string()])
                 } else if elapsed < Duration::from_secs(3600) {
-                    i18n::t_fmt("file_log.n_minutes_ago", &[&(elapsed.as_secs() / 60).to_string()])
+                    i18n::t_fmt(
+                        "file_log.n_minutes_ago",
+                        &[&(elapsed.as_secs() / 60).to_string()],
+                    )
                 } else {
-                    i18n::t_fmt("file_log.n_hours_ago", &[&(elapsed.as_secs() / 3600).to_string()])
+                    i18n::t_fmt(
+                        "file_log.n_hours_ago",
+                        &[&(elapsed.as_secs() / 3600).to_string()],
+                    )
                 }
             }
             None => i18n::t("file_log.not_refreshed"),
@@ -314,6 +320,7 @@ impl FileLogTab {
         }
 
         ui.horizontal(|ui| {
+            let refresh_text = i18n::t("file_log.refresh");
             let refresh_btn = if self.loading {
                 egui::Button::new(
                     RichText::new(i18n::t("file_log.refreshing"))
@@ -323,7 +330,7 @@ impl FileLogTab {
                 .fill(styles::BG_SECONDARY)
                 .corner_radius(egui::CornerRadius::same(6))
             } else {
-                styles::small_button(&i18n::t("file_log.refresh"))
+                styles::small_button(&refresh_text)
             };
 
             if ui.add(refresh_btn).clicked() && !self.loading {
@@ -573,10 +580,13 @@ impl FileLogTab {
                                         };
                                         let status_icon = if success { "√" } else { "×" };
                                         ui.label(
-                                            RichText::new(format!("{} {}", status_icon, translated_op))
-                                                .size(styles::FONT_SIZE_MD)
-                                                .strong()
-                                                .color(op_color),
+                                            RichText::new(format!(
+                                                "{} {}",
+                                                status_icon, translated_op
+                                            ))
+                                            .size(styles::FONT_SIZE_MD)
+                                            .strong()
+                                            .color(op_color),
                                         );
                                     },
                                 );

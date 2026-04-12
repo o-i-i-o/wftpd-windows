@@ -118,7 +118,9 @@ impl ServiceTab {
                 manager.install_service()
             })) {
                 Ok(Ok(_)) => OperationResult::Success(i18n::t("service.install_success")),
-                Ok(Err(e)) => OperationResult::Error(i18n::t_fmt("service.install_failed", &[&e.to_string()])),
+                Ok(Err(e)) => {
+                    OperationResult::Error(i18n::t_fmt("service.install_failed", &[&e.to_string()]))
+                }
                 Err(_) => OperationResult::Error(i18n::t("service.install_unknown_error")),
             };
             let _ = tx.send(result);
@@ -140,7 +142,9 @@ impl ServiceTab {
                 manager.start_service()
             })) {
                 Ok(Ok(_)) => OperationResult::Success(i18n::t("service.start_success")),
-                Ok(Err(e)) => OperationResult::Error(i18n::t_fmt("service.start_failed", &[&e.to_string()])),
+                Ok(Err(e)) => {
+                    OperationResult::Error(i18n::t_fmt("service.start_failed", &[&e.to_string()]))
+                }
                 Err(_) => OperationResult::Error(i18n::t("service.start_unknown_error")),
             };
             let _ = tx.send(result);
@@ -162,7 +166,9 @@ impl ServiceTab {
                 manager.stop_service()
             })) {
                 Ok(Ok(_)) => OperationResult::Success(i18n::t("service.stop_success")),
-                Ok(Err(e)) => OperationResult::Error(i18n::t_fmt("service.stop_failed", &[&e.to_string()])),
+                Ok(Err(e)) => {
+                    OperationResult::Error(i18n::t_fmt("service.stop_failed", &[&e.to_string()]))
+                }
                 Err(_) => OperationResult::Error(i18n::t("service.stop_unknown_error")),
             };
             let _ = tx.send(result);
@@ -184,7 +190,9 @@ impl ServiceTab {
                 manager.restart_service()
             })) {
                 Ok(Ok(_)) => OperationResult::Success(i18n::t("service.restart_success")),
-                Ok(Err(e)) => OperationResult::Error(i18n::t_fmt("service.restart_failed", &[&e.to_string()])),
+                Ok(Err(e)) => {
+                    OperationResult::Error(i18n::t_fmt("service.restart_failed", &[&e.to_string()]))
+                }
                 Err(_) => OperationResult::Error(i18n::t("service.restart_unknown_error")),
             };
             let _ = tx.send(result);
@@ -206,7 +214,10 @@ impl ServiceTab {
                 manager.uninstall_service()
             })) {
                 Ok(Ok(_)) => OperationResult::Success(i18n::t("service.uninstall_success")),
-                Ok(Err(e)) => OperationResult::Error(i18n::t_fmt("service.uninstall_failed", &[&e.to_string()])),
+                Ok(Err(e)) => OperationResult::Error(i18n::t_fmt(
+                    "service.uninstall_failed",
+                    &[&e.to_string()],
+                )),
                 Err(_) => OperationResult::Error(i18n::t("service.uninstall_unknown_error")),
             };
             let _ = tx.send(result);
@@ -247,7 +258,7 @@ impl ServiceTab {
                 .min_col_width(label_width)
                 .show(ui, |ui| {
                     ui.label(
-                        RichText::new(&i18n::t("service.service_name"))
+                        RichText::new(i18n::t("service.service_name"))
                             .size(styles::FONT_SIZE_MD)
                             .color(styles::TEXT_LABEL_COLOR),
                     );
@@ -260,7 +271,7 @@ impl ServiceTab {
                     ui.end_row();
 
                     ui.label(
-                        RichText::new(&i18n::t("service.display_name"))
+                        RichText::new(i18n::t("service.display_name"))
                             .size(styles::FONT_SIZE_MD)
                             .color(styles::TEXT_LABEL_COLOR),
                     );
@@ -273,7 +284,7 @@ impl ServiceTab {
                     ui.end_row();
 
                     ui.label(
-                        RichText::new(&i18n::t("service.install_status"))
+                        RichText::new(i18n::t("service.install_status"))
                             .size(styles::FONT_SIZE_MD)
                             .color(styles::TEXT_LABEL_COLOR),
                     );
@@ -291,7 +302,7 @@ impl ServiceTab {
                     ui.end_row();
 
                     ui.label(
-                        RichText::new(&i18n::t("service.run_status"))
+                        RichText::new(i18n::t("service.run_status"))
                             .size(styles::FONT_SIZE_MD)
                             .color(styles::TEXT_LABEL_COLOR),
                     );
@@ -319,7 +330,7 @@ impl ServiceTab {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
 
-                if ui.button(&i18n::t("service.refresh_status")).clicked() {
+                if ui.button(i18n::t("service.refresh_status")).clicked() {
                     self.refresh_status();
                 }
 
@@ -406,7 +417,7 @@ impl ServiceTab {
 
                     if self.confirming_uninstall {
                         ui.label(
-                            RichText::new(&i18n::t("service.confirm_uninstall"))
+                            RichText::new(i18n::t("service.confirm_uninstall"))
                                 .size(styles::FONT_SIZE_MD)
                                 .color(styles::DANGER_DARK),
                         );
@@ -414,7 +425,7 @@ impl ServiceTab {
                         let can_operate = self.operation_state == OperationState::Idle;
 
                         let yes_btn = egui::Button::new(
-                            RichText::new(&i18n::t("service.confirm"))
+                            RichText::new(i18n::t("service.confirm"))
                                 .color(Color32::WHITE)
                                 .size(styles::FONT_SIZE_MD),
                         )
@@ -426,7 +437,7 @@ impl ServiceTab {
                             self.confirming_uninstall = false;
                             self.uninstall_service_async(ui.ctx());
                         }
-                        if ui.button(&i18n::t("service.cancel")).clicked() {
+                        if ui.button(i18n::t("service.cancel")).clicked() {
                             self.confirming_uninstall = false;
                         }
                     } else {

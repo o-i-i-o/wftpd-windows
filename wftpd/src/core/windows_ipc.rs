@@ -217,7 +217,9 @@ impl IpcStream {
                 if !result.as_bool() {
                     attempts += 1;
                     if attempts >= MAX_ATTEMPTS {
-                        anyhow::bail!("Named pipe service unavailable, service may not be started, please wait a few seconds and retry");
+                        anyhow::bail!(
+                            "Named pipe service unavailable, service may not be started, please wait a few seconds and retry"
+                        );
                     }
                     std::thread::sleep(Duration::from_millis(200));
                     continue;

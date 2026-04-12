@@ -113,7 +113,10 @@ impl FtpServer {
             for warning in &warnings {
                 tracing::error!("Configuration validation failed: {}", warning);
             }
-            return Err(anyhow::anyhow!("Configuration path validation failed: {}", warnings.join("; ")));
+            return Err(anyhow::anyhow!(
+                "Configuration path validation failed: {}",
+                warnings.join("; ")
+            ));
         }
 
         // Determine listening method based on configured bind address

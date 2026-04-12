@@ -150,7 +150,9 @@ impl SftpState {
                     if let Err(e) = file.flush().await {
                         tracing::warn!("Failed to flush file on close {:?}: {}", path, e);
                     }
-                    if written_bytes > 0 && let Err(e) = file.sync_data().await {
+                    if written_bytes > 0
+                        && let Err(e) = file.sync_data().await
+                    {
                         tracing::debug!("sync_data on close {:?}: {}", path, e);
                     }
 

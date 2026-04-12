@@ -61,20 +61,50 @@ impl AboutTab {
                 ui.add_space(styles::SPACING_MD);
 
                 let licenses = [
-                    ("egui", "0.34.0", "MIT OR Apache-2.0", "Immediate mode GUI framework"),
-                    ("eframe", "0.34.0", "MIT OR Apache-2.0", "egui application framework"),
-                    ("egui_extras", "0.34.0", "MIT OR Apache-2.0", "egui extra components"),
+                    (
+                        "egui",
+                        "0.34.0",
+                        "MIT OR Apache-2.0",
+                        "Immediate mode GUI framework",
+                    ),
+                    (
+                        "eframe",
+                        "0.34.0",
+                        "MIT OR Apache-2.0",
+                        "egui application framework",
+                    ),
+                    (
+                        "egui_extras",
+                        "0.34.0",
+                        "MIT OR Apache-2.0",
+                        "egui extra components",
+                    ),
                     ("rfd", "0.17.2", "MIT", "Native file dialog"),
                     ("tokio", "1.x", "MIT", "Async runtime"),
-                    ("serde", "1.x", "MIT OR Apache-2.0", "Serialization framework"),
+                    (
+                        "serde",
+                        "1.x",
+                        "MIT OR Apache-2.0",
+                        "Serialization framework",
+                    ),
                     ("chrono", "0.4", "MIT OR Apache-2.0", "Date time handling"),
                     ("anyhow", "1.x", "MIT OR Apache-2.0", "Error handling"),
                     ("russh", "0.58.1", "Apache-2.0", "SSH/SFTP server library"),
                     ("rsa", "0.9", "MIT OR Apache-2.0", "RSA encryption"),
                     ("argon2", "0.5.3", "MIT OR Apache-2.0", "Password hashing"),
-                    ("windows", "0.62", "MIT OR Apache-2.0", "Windows API bindings"),
+                    (
+                        "windows",
+                        "0.62",
+                        "MIT OR Apache-2.0",
+                        "Windows API bindings",
+                    ),
                     ("tracing", "0.1", "MIT", "Structured logging"),
-                    ("parking_lot", "0.12", "MIT OR Apache-2.0", "High-performance sync primitives"),
+                    (
+                        "parking_lot",
+                        "0.12",
+                        "MIT OR Apache-2.0",
+                        "High-performance sync primitives",
+                    ),
                 ];
 
                 egui::ScrollArea::vertical()
@@ -118,7 +148,10 @@ impl AboutTab {
                 ui.add_space(styles::SPACING_SM);
 
                 ui.vertical_centered(|ui| {
-                    if ui.add(styles::primary_button(&i18n::t("app.close"))).clicked() {
+                    if ui
+                        .add(styles::primary_button(&i18n::t("app.close")))
+                        .clicked()
+                    {
                         self.show_licenses_modal = false;
                     }
                 });
@@ -149,9 +182,12 @@ impl AboutTab {
                 );
                 ui.add_space(styles::SPACING_SM);
                 ui.label(
-                    RichText::new(i18n::t_fmt("about.version", &[env!("CARGO_PKG_VERSION")]))
-                        .size(styles::FONT_SIZE_MD)
-                        .color(styles::TEXT_SECONDARY_COLOR),
+                    RichText::new(i18n::t_fmt(
+                        "about.version",
+                        &[&env!("CARGO_PKG_VERSION").to_string()],
+                    ))
+                    .size(styles::FONT_SIZE_MD)
+                    .color(styles::TEXT_SECONDARY_COLOR),
                 );
                 ui.label(
                     RichText::new(i18n::t("about.description"))

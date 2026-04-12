@@ -63,7 +63,8 @@ impl UserTab {
             }
             Err(e) => {
                 tracing::error!("Failed to save user config: {}", e);
-                self.status_message = Some((i18n::t_fmt("users.save_failed", &[&e.to_string()]), false));
+                self.status_message =
+                    Some((i18n::t_fmt("users.save_failed", &[&e.to_string()]), false));
             }
         }
     }
@@ -108,7 +109,7 @@ impl UserTab {
 
     fn pick_home_directory(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .set_title(&i18n::t("users.select_home_dir"))
+            .set_title(i18n::t("users.select_home_dir"))
             .pick_folder()
         {
             self.form_home_dir = path.to_string_lossy().to_string();
@@ -132,14 +133,13 @@ impl UserTab {
                     .rect_filled(screen, 0.0, Color32::from_black_alpha(140));
             });
 
-        // 使用引用避免不必要的 clone
         let is_add = matches!(&self.modal, ModalMode::AddUser);
         let is_confirm = matches!(&self.modal, ModalMode::ConfirmDelete(_));
         let title = match &self.modal {
-            ModalMode::AddUser => &i18n::t("users.add_modal_title"),
-            ModalMode::EditUser(_) => &i18n::t("users.edit_modal_title"),
-            ModalMode::ConfirmDelete(_) => &i18n::t("users.confirm_delete_title"),
-            ModalMode::None => "",
+            ModalMode::AddUser => i18n::t("users.add_modal_title"),
+            ModalMode::EditUser(_) => i18n::t("users.edit_modal_title"),
+            ModalMode::ConfirmDelete(_) => i18n::t("users.confirm_delete_title"),
+            ModalMode::None => String::new(),
         };
         let mw: f32 = if is_confirm {
             320.0
@@ -151,7 +151,7 @@ impl UserTab {
         let mut do_submit = false;
         let mut delete_target: Option<String> = None;
 
-        egui::Window::new(title)
+        egui::Window::new(&title)
             .pivot(egui::Align2::CENTER_CENTER)
             .fixed_pos(center)
             .fixed_size([mw, 0.0])
@@ -176,11 +176,14 @@ impl UserTab {
                         });
                         ui.horizontal(|ui| {
                             let w = (mw - 32.0) / 2.0;
-                            if ui.add_sized([w, 32.0], egui::Button::new(&i18n::t("users.cancel"))).clicked() {
+                            if ui
+                                .add_sized([w, 32.0], egui::Button::new(i18n::t("users.cancel")))
+                                .clicked()
+                            {
                                 close_modal = true;
                             }
                             let del = egui::Button::new(
-                                RichText::new(&i18n::t("users.confirm_delete"))
+                                RichText::new(i18n::t("users.confirm_delete"))
                                     .color(Color32::WHITE)
                                     .size(styles::FONT_SIZE_MD),
                             )
@@ -196,6 +199,22 @@ impl UserTab {
                     let label_width = 80.0;
                     let input_width = mw - label_width - 80.0;
 
+                    let password_label = if is_add {
+                        i18n::t("users.password_label")
+                    } else {
+                        i18n::t("users.new_password_label")
+                    };
+                    let password_hint = if is_add {
+                        i18n::t("users.enter_password")
+                    } else {
+                        i18n::t("users.leave_empty_no_change")
+                    };
+                    let ok_button_text = if is_add {
+                        i18n::t("users.add")
+                    } else {
+                        i18n::t("users.save")
+                    };
+
                     Frame::new()
                         .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
                         .inner_margin(egui::Margin {
@@ -210,7 +229,7 @@ impl UserTab {
                                 ui.add_sized(
                                     [label_width, 24.0],
                                     egui::Label::new(
-                                        RichText::new(&i18n::t("users.username_label"))
+                                        RichText::new(i18n::t("users.username_label"))
                                             .size(styles::FONT_SIZE_MD)
                                             .color(styles::TEXT_SECONDARY_COLOR),
                                     ),
@@ -220,7 +239,7 @@ impl UserTab {
                                         ui.add(
                                             egui::TextEdit::singleline(&mut self.form_username)
                                                 .desired_width(input_width)
-                                                .hint_text(&i18n::t("users.enter_username"))
+                                                .hint_text(i18n::t("users.enter_username"))
                                                 .font(egui::FontId::new(
                                                     styles::FONT_SIZE_MD,
                                                     egui::FontFamily::Proportional,
@@ -241,13 +260,9 @@ impl UserTab {
                                 ui.add_sized(
                                     [label_width, 24.0],
                                     egui::Label::new(
-                                        RichText::new(if is_add {
-                                            &i18n::t("users.password_label")
-                                        } else {
-                                            &i18n::t("users.new_password_label")
-                                        })
-                                        .size(styles::FONT_SIZE_MD)
-                                        .color(styles::TEXT_SECONDARY_COLOR),
+                                        RichText::new(&password_label)
+                                            .size(styles::FONT_SIZE_MD)
+                                            .color(styles::TEXT_SECONDARY_COLOR),
                                     ),
                                 );
                                 styles::input_frame().show(ui, |ui| {
@@ -255,11 +270,7 @@ impl UserTab {
                                         egui::TextEdit::singleline(&mut self.form_password)
                                             .password(true)
                                             .desired_width(input_width)
-                                            .hint_text(if is_add {
-                                                &i18n::t("users.enter_password")
-                                            } else {
-                                                &i18n::t("users.leave_empty_no_change")
-                                            })
+                                            .hint_text(&password_hint)
                                             .font(egui::FontId::new(
                                                 styles::FONT_SIZE_MD,
                                                 egui::FontFamily::Proportional,
@@ -272,7 +283,7 @@ impl UserTab {
                                 ui.add_sized(
                                     [label_width, 24.0],
                                     egui::Label::new(
-                                        RichText::new(&i18n::t("users.confirm_password_label"))
+                                        RichText::new(i18n::t("users.confirm_password_label"))
                                             .size(styles::FONT_SIZE_MD)
                                             .color(styles::TEXT_SECONDARY_COLOR),
                                     ),
@@ -282,7 +293,7 @@ impl UserTab {
                                         egui::TextEdit::singleline(&mut self.form_confirm_password)
                                             .password(true)
                                             .desired_width(input_width)
-                                            .hint_text(&i18n::t("users.enter_password_again"))
+                                            .hint_text(i18n::t("users.enter_password_again"))
                                             .font(egui::FontId::new(
                                                 styles::FONT_SIZE_MD,
                                                 egui::FontFamily::Proportional,
@@ -295,7 +306,7 @@ impl UserTab {
                                 ui.add_sized(
                                     [label_width, 24.0],
                                     egui::Label::new(
-                                        RichText::new(&i18n::t("users.home_dir_label"))
+                                        RichText::new(i18n::t("users.home_dir_label"))
                                             .size(styles::FONT_SIZE_MD)
                                             .color(styles::TEXT_SECONDARY_COLOR),
                                     ),
@@ -304,14 +315,14 @@ impl UserTab {
                                     ui.add(
                                         egui::TextEdit::singleline(&mut self.form_home_dir)
                                             .desired_width(ui.available_width() - 80.0)
-                                            .hint_text(&i18n::t("users.home_dir_example"))
+                                            .hint_text(i18n::t("users.home_dir_example"))
                                             .font(egui::FontId::new(
                                                 styles::FONT_SIZE_MD,
                                                 egui::FontFamily::Proportional,
                                             )),
                                     );
                                 });
-                                if ui.button(&i18n::t("server.browse")).clicked() {
+                                if ui.button(i18n::t("server.browse")).clicked() {
                                     self.pick_home_directory();
                                 }
                             });
@@ -320,25 +331,49 @@ impl UserTab {
                                 ui.add_sized(
                                     [label_width, 24.0],
                                     egui::Label::new(
-                                        RichText::new(&i18n::t("users.permissions_label"))
+                                        RichText::new(i18n::t("users.permissions_label"))
                                             .size(styles::FONT_SIZE_MD)
                                             .color(styles::TEXT_SECONDARY_COLOR),
                                     ),
                                 );
-                                ui.checkbox(&mut self.form_is_admin, &i18n::t("users.grant_admin"));
+                                ui.checkbox(&mut self.form_is_admin, i18n::t("users.grant_admin"));
                             });
 
                             ui.add_space(styles::SPACING_XS);
 
                             ui.horizontal_wrapped(|ui| {
-                                ui.checkbox(&mut self.form_permissions.can_read, &i18n::t("users.perm_read"));
-                                ui.checkbox(&mut self.form_permissions.can_write, &i18n::t("users.perm_write"));
-                                ui.checkbox(&mut self.form_permissions.can_delete, &i18n::t("users.perm_delete"));
-                                ui.checkbox(&mut self.form_permissions.can_list, &i18n::t("users.perm_list"));
-                                ui.checkbox(&mut self.form_permissions.can_mkdir, &i18n::t("users.perm_mkdir"));
-                                ui.checkbox(&mut self.form_permissions.can_rmdir, &i18n::t("users.perm_rmdir"));
-                                ui.checkbox(&mut self.form_permissions.can_rename, &i18n::t("users.perm_rename"));
-                                ui.checkbox(&mut self.form_permissions.can_append, &i18n::t("users.perm_append"));
+                                ui.checkbox(
+                                    &mut self.form_permissions.can_read,
+                                    i18n::t("users.perm_read"),
+                                );
+                                ui.checkbox(
+                                    &mut self.form_permissions.can_write,
+                                    i18n::t("users.perm_write"),
+                                );
+                                ui.checkbox(
+                                    &mut self.form_permissions.can_delete,
+                                    i18n::t("users.perm_delete"),
+                                );
+                                ui.checkbox(
+                                    &mut self.form_permissions.can_list,
+                                    i18n::t("users.perm_list"),
+                                );
+                                ui.checkbox(
+                                    &mut self.form_permissions.can_mkdir,
+                                    i18n::t("users.perm_mkdir"),
+                                );
+                                ui.checkbox(
+                                    &mut self.form_permissions.can_rmdir,
+                                    i18n::t("users.perm_rmdir"),
+                                );
+                                ui.checkbox(
+                                    &mut self.form_permissions.can_rename,
+                                    i18n::t("users.perm_rename"),
+                                );
+                                ui.checkbox(
+                                    &mut self.form_permissions.can_append,
+                                    i18n::t("users.perm_append"),
+                                );
                             });
                         });
 
@@ -355,11 +390,14 @@ impl UserTab {
                     ui.add_space(styles::SPACING_XS);
                     ui.horizontal(|ui| {
                         let w = (mw - 32.0) / 2.0;
-                        if ui.add_sized([w, 30.0], egui::Button::new(&i18n::t("users.cancel"))).clicked() {
+                        if ui
+                            .add_sized([w, 30.0], egui::Button::new(i18n::t("users.cancel")))
+                            .clicked()
+                        {
                             close_modal = true;
                         }
                         let ok = egui::Button::new(
-                            RichText::new(if is_add { &i18n::t("users.add") } else { &i18n::t("users.save") })
+                            RichText::new(&ok_button_text)
                                 .color(Color32::WHITE)
                                 .size(styles::FONT_SIZE_MD),
                         )
@@ -393,8 +431,10 @@ impl UserTab {
                             }
                             Err(e) => {
                                 tracing::warn!("User {} permission update failed: {}", username, e);
-                                self.status_message =
-                                    Some((i18n::t_fmt("users.user_added_perm_failed", &[&e.to_string()]), false));
+                                self.status_message = Some((
+                                    i18n::t_fmt("users.user_added_perm_failed", &[&e.to_string()]),
+                                    false,
+                                ));
                             }
                         }
                         self.save();
@@ -417,8 +457,11 @@ impl UserTab {
                         tracing::info!("User {} home dir updated", uname);
                     }
                     Err(e) => {
-                        tracing::warn!("User {} home dir update failed: {}", uname, e);
-                        error_messages.push(i18n::t_fmt("users.home_dir_update_failed", &[&e.to_string()]));
+                        tracing::error!("User {} home dir update failed: {}", uname, e);
+                        error_messages.push(i18n::t_fmt(
+                            "users.home_dir_update_failed",
+                            &[&e.to_string()],
+                        ));
                         has_error = true;
                     }
                 }
@@ -432,8 +475,11 @@ impl UserTab {
                             tracing::info!("User {} password updated", uname);
                         }
                         Err(e) => {
-                            tracing::warn!("User {} password update failed: {}", uname, e);
-                            error_messages.push(i18n::t_fmt("users.password_update_failed", &[&e.to_string()]));
+                            tracing::error!("User {} password update failed: {}", uname, e);
+                            error_messages.push(i18n::t_fmt(
+                                "users.password_update_failed",
+                                &[&e.to_string()],
+                            ));
                             has_error = true;
                         }
                     }
@@ -447,8 +493,9 @@ impl UserTab {
                         tracing::info!("User {} permissions updated", uname);
                     }
                     Err(e) => {
-                        tracing::warn!("User {} permission update failed: {}", uname, e);
-                        error_messages.push(i18n::t_fmt("users.perm_update_failed", &[&e.to_string()]));
+                        tracing::error!("User {} permissions update failed: {}", uname, e);
+                        error_messages
+                            .push(i18n::t_fmt("users.perm_update_failed", &[&e.to_string()]));
                         has_error = true;
                     }
                 }
@@ -458,19 +505,23 @@ impl UserTab {
                         tracing::info!("User {} admin status updated", uname);
                     }
                     Err(e) => {
-                        tracing::warn!("User {} admin status update failed: {}", uname, e);
-                        error_messages.push(i18n::t_fmt("users.admin_status_update_failed", &[&e.to_string()]));
+                        tracing::error!("User {} admin status update failed: {}", uname, e);
+                        error_messages.push(i18n::t_fmt(
+                            "users.admin_status_update_failed",
+                            &[&e.to_string()],
+                        ));
                         has_error = true;
                     }
                 }
 
                 if has_error {
                     self.status_message = Some((
-                        i18n::t_fmt("users.partial_update_failed", &[&error_messages.join("; ")]),
+                        i18n::t_fmt("users.partial_update_failed", &[&error_messages.join(", ")]),
                         false,
                     ));
+                } else {
+                    self.save();
                 }
-                self.save();
                 self.modal = ModalMode::None;
             }
         }
@@ -482,16 +533,14 @@ impl UserTab {
                     self.save();
                 }
                 Err(e) => {
-                    tracing::error!("Delete user {} failed: {}", name, e);
-                    self.status_message = Some((i18n::t_fmt("users.delete_failed", &[&e.to_string()]), false));
+                    tracing::error!("Failed to delete user {}: {}", name, e);
                 }
             }
-            close_modal = true;
+            self.modal = ModalMode::None;
         }
 
         if close_modal {
             self.modal = ModalMode::None;
-            self.form_error = None;
         }
     }
 
@@ -500,230 +549,285 @@ impl UserTab {
 
         self.show_modal(&ctx);
 
-        ui.horizontal(|ui| {
-            styles::page_header(ui, "👥", &i18n::t("users.title"));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if let Some((msg, ok)) = &self.status_message {
-                    styles::status_message(ui, msg, *ok);
-                }
-            });
-        });
+        styles::page_header(ui, "👥", &i18n::t("users.title"));
 
         ui.horizontal(|ui| {
-            let add_btn = egui::Button::new(
-                RichText::new(&i18n::t("users.add_user"))
-                    .color(Color32::WHITE)
-                    .size(styles::FONT_SIZE_MD),
-            )
-            .fill(styles::PRIMARY_COLOR)
-            .corner_radius(egui::CornerRadius::same(6));
-            if ui.add(add_btn).clicked() {
+            if ui
+                .add(styles::primary_button(&i18n::t("users.add_user")))
+                .clicked()
+            {
                 self.open_add_modal();
             }
-            ui.add_space(styles::SPACING_SM);
-            if ui.button(&i18n::t("log.refresh")).clicked() {
-                match UserManager::load(&Config::get_users_path()) {
-                    Ok(um) => {
-                        self.user_manager = um;
-                        tracing::info!("User list refreshed");
-                        self.status_message = Some((i18n::t("users.user_list_refreshed"), true));
-                    }
-                    Err(e) => {
-                        tracing::error!("Refresh user list failed: {}", e);
-                        self.status_message = Some((i18n::t_fmt("users.refresh_failed", &[&e.to_string()]), false));
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(i18n::t("log.refresh")).clicked() {
+                    match UserManager::load(&Config::get_users_path()) {
+                        Ok(um) => {
+                            self.user_manager = um;
+                            self.status_message =
+                                Some((i18n::t("users.user_list_refreshed"), true));
+                        }
+                        Err(e) => {
+                            self.status_message = Some((
+                                i18n::t_fmt("users.refresh_failed", &[&e.to_string()]),
+                                false,
+                            ));
+                        }
                     }
                 }
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let count = self.user_manager.user_count();
-                ui.label(
-                    RichText::new(i18n::t_fmt("users.total_users", &[&count.to_string()]))
-                        .size(styles::FONT_SIZE_MD)
-                        .color(styles::TEXT_MUTED_COLOR),
-                );
+
+                if let Some((msg, success)) = &self.status_message {
+                    styles::status_message(ui, msg, *success);
+                }
             });
         });
 
         ui.add_space(styles::SPACING_MD);
 
-        let users: Vec<&User> = self.user_manager.iter_users().collect();
-        let mut to_toggle: Option<(String, bool)> = None;
+        let users = self.user_manager.get_users();
+        if users.is_empty() {
+            styles::empty_state(
+                ui,
+                "👥",
+                &i18n::t("users.no_users"),
+                &i18n::t("users.no_users_hint"),
+            );
+            return;
+        }
+
+        ui.label(
+            RichText::new(i18n::t_fmt(
+                "users.total_users",
+                &[&users.len().to_string()],
+            ))
+            .size(styles::FONT_SIZE_MD)
+            .color(styles::TEXT_MUTED_COLOR),
+        );
+        ui.add_space(styles::SPACING_SM);
+
         let mut to_edit: Option<User> = None;
+        let mut to_toggle: Option<(String, bool)> = None;
         let mut to_delete_confirm: Option<String> = None;
 
-        if users.is_empty() {
-            styles::empty_state(ui, "📭", &i18n::t("users.no_users"), &i18n::t("users.no_users_hint"));
-        } else {
-            styles::card_frame().show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
+        styles::card_frame().show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
 
-                let available_width = ui.available_width();
+            let available_width = ui.available_width();
+            let table = TableBuilder::new(ui)
+                .striped(true)
+                .resizable(true)
+                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                .column(styles::table_column_percent(available_width, 0.15, 100.0))
+                .column(styles::table_column_percent(available_width, 0.35, 200.0))
+                .column(styles::table_column_percent(available_width, 0.15, 100.0))
+                .column(styles::table_column_percent(available_width, 0.10, 80.0))
+                .column(styles::table_column_remainder(180.0))
+                .min_scrolled_height(0.0)
+                .sense(egui::Sense::hover());
 
-                let table = TableBuilder::new(ui)
-                    .striped(true)
-                    .resizable(true)
-                    .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                    .column(styles::table_column_percent(available_width, 0.15, 100.0))
-                    .column(styles::table_column_percent(available_width, 0.30, 180.0))
-                    .column(styles::table_column_percent(available_width, 0.12, 80.0))
-                    .column(styles::table_column_percent(available_width, 0.10, 70.0))
-                    .column(styles::table_column_remainder(150.0))
-                    .min_scrolled_height(0.0)
-                    .sense(egui::Sense::hover());
-
-                table
-                    .header(styles::FONT_SIZE_MD, |mut header| {
-                        header.col(|ui| {
-                            ui.label(
-                                RichText::new(&i18n::t("users.username"))
-                                    .strong()
-                                    .color(styles::TEXT_PRIMARY_COLOR),
-                            );
-                        });
-                        header.col(|ui| {
-                            ui.label(
-                                RichText::new(&i18n::t("users.home_dir"))
-                                    .strong()
-                                    .color(styles::TEXT_PRIMARY_COLOR),
-                            );
-                        });
-                        header.col(|ui| {
-                            ui.label(
-                                RichText::new(&i18n::t("users.permissions"))
-                                    .strong()
-                                    .color(styles::TEXT_PRIMARY_COLOR),
-                            );
-                        });
-                        header.col(|ui| {
-                            ui.label(
-                                RichText::new(&i18n::t("users.status"))
-                                    .strong()
-                                    .color(styles::TEXT_PRIMARY_COLOR),
-                            );
-                        });
-                        header.col(|ui| {
-                            ui.label(
-                                RichText::new(&i18n::t("users.actions"))
-                                    .strong()
-                                    .color(styles::TEXT_PRIMARY_COLOR),
-                            );
-                        });
-                    })
-                    .body(|mut body| {
-                        for &user in &users {
-                            body.row(styles::FONT_SIZE_MD, |mut row| {
-                                row.col(|ui| {
-                                    ui.label(
-                                        RichText::new(&user.username)
-                                            .size(styles::FONT_SIZE_MD)
-                                            .strong()
-                                            .color(styles::TEXT_PRIMARY_COLOR),
-                                    );
-                                });
-                                row.col(|ui| {
-                                    ui.label(
-                                        RichText::new(&user.home_dir)
-                                            .size(styles::FONT_SIZE_MD)
-                                            .color(styles::TEXT_SECONDARY_COLOR),
-                                    );
-                                });
-                                row.col(|ui| {
-                                    let admin_rt = if user.is_admin {
-                                        RichText::new(&i18n::t("users.admin"))
-                                            .size(styles::FONT_SIZE_MD)
-                                            .color(styles::PRIMARY_COLOR)
-                                    } else {
-                                        RichText::new(&i18n::t("users.normal"))
-                                            .size(styles::FONT_SIZE_MD)
-                                            .color(styles::TEXT_LABEL_COLOR)
-                                    };
-                                    ui.label(admin_rt);
-                                });
-                                row.col(|ui| {
-                                    let st_col = if user.enabled {
-                                        styles::SUCCESS_DARK
-                                    } else {
-                                        styles::DANGER_DARK
-                                    };
-                                    let st_icon = if user.enabled { "●" } else { "○" };
-                                    ui.label(
-                                        RichText::new(format!("{} {}", st_icon, i18n::t("users.enabled")))
-                                            .size(styles::FONT_SIZE_MD)
-                                            .color(st_col),
-                                    );
-                                });
-                                row.col(|ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.spacing_mut().item_spacing.x = 6.0;
-
-                                        let edit_btn = egui::Button::new(
-                                            RichText::new(&i18n::t("users.edit")).size(styles::FONT_SIZE_MD),
-                                        )
-                                        .fill(styles::BG_SECONDARY)
-                                        .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
-                                        .corner_radius(egui::CornerRadius::same(4));
-                                        if ui.add(edit_btn).clicked() {
-                                            to_edit = Some(user.clone());
-                                        }
-
-                                        let toggle_btn = egui::Button::new(
-                                            RichText::new(if user.enabled {
-                                                &i18n::t("users.disable")
-                                            } else {
-                                                &i18n::t("users.enable")
-                                            })
-                                            .size(styles::FONT_SIZE_MD),
-                                        )
-                                        .fill(if user.enabled {
-                                            styles::DANGER_LIGHT
-                                        } else {
-                                            styles::SUCCESS_LIGHT
-                                        })
-                                        .stroke(egui::Stroke::new(
-                                            1.0,
-                                            if user.enabled {
-                                                styles::DANGER_COLOR
-                                            } else {
-                                                styles::SUCCESS_COLOR
-                                            },
-                                        ))
-                                        .corner_radius(egui::CornerRadius::same(4));
-                                        if ui.add(toggle_btn).clicked() {
-                                            to_toggle =
-                                                Some((user.username.clone(), !user.enabled));
-                                        }
-
-                                        let del = egui::Button::new(
-                                            RichText::new(&i18n::t("users.delete"))
-                                                .size(styles::FONT_SIZE_MD)
-                                                .color(Color32::WHITE),
-                                        )
-                                        .fill(styles::DANGER_DARK)
-                                        .corner_radius(egui::CornerRadius::same(4));
-                                        if ui.add(del).clicked() {
-                                            to_delete_confirm = Some(user.username.clone());
-                                        }
-                                    });
-                                });
-                            });
-                            body.row(2.0, |mut row| {
-                                let col_count = 5;
-                                for _ in 0..col_count {
-                                    row.col(|ui| {
-                                        let rect = ui.available_rect_before_wrap();
-                                        let painter = ui.painter();
-                                        painter.hline(
-                                            rect.left()..=rect.right(),
-                                            rect.center().y,
-                                            egui::Stroke::new(1.0, styles::BORDER_COLOR),
-                                        );
-                                    });
-                                }
-                            });
-                        }
+            table
+                .header(styles::FONT_SIZE_MD, |mut header| {
+                    header.col(|ui| {
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                ui.label(
+                                    RichText::new(i18n::t("users.username"))
+                                        .strong()
+                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                );
+                            },
+                        );
                     });
-            });
-        }
+                    header.col(|ui| {
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                ui.label(
+                                    RichText::new(i18n::t("users.home_dir"))
+                                        .strong()
+                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                );
+                            },
+                        );
+                    });
+                    header.col(|ui| {
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                ui.label(
+                                    RichText::new(i18n::t("users.permissions"))
+                                        .strong()
+                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                );
+                            },
+                        );
+                    });
+                    header.col(|ui| {
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                ui.label(
+                                    RichText::new(i18n::t("users.status"))
+                                        .strong()
+                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                );
+                            },
+                        );
+                    });
+                    header.col(|ui| {
+                        ui.label(
+                            RichText::new(i18n::t("users.actions"))
+                                .strong()
+                                .color(styles::TEXT_PRIMARY_COLOR),
+                        );
+                    });
+                })
+                .body(|mut body| {
+                    for user in users.values() {
+                        body.row(styles::FONT_SIZE_MD, |mut row| {
+                            row.col(|ui| {
+                                ui.with_layout(
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
+                                    |ui| {
+                                        ui.label(
+                                            RichText::new(&user.username)
+                                                .size(styles::FONT_SIZE_MD)
+                                                .strong()
+                                                .color(styles::TEXT_PRIMARY_COLOR),
+                                        );
+                                    },
+                                );
+                            });
+                            row.col(|ui| {
+                                ui.with_layout(
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
+                                    |ui| {
+                                        ui.label(
+                                            RichText::new(&user.home_dir)
+                                                .size(styles::FONT_SIZE_MD)
+                                                .color(styles::TEXT_SECONDARY_COLOR),
+                                        );
+                                    },
+                                );
+                            });
+                            row.col(|ui| {
+                                ui.with_layout(
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
+                                    |ui| {
+                                        let perm_text = if user.is_admin {
+                                            i18n::t("users.admin")
+                                        } else {
+                                            i18n::t("users.normal")
+                                        };
+                                        let perm_color = if user.is_admin {
+                                            styles::PRIMARY_COLOR
+                                        } else {
+                                            styles::TEXT_MUTED_COLOR
+                                        };
+                                        ui.label(
+                                            RichText::new(perm_text)
+                                                .size(styles::FONT_SIZE_MD)
+                                                .strong()
+                                                .color(perm_color),
+                                        );
+                                    },
+                                );
+                            });
+                            row.col(|ui| {
+                                ui.with_layout(
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
+                                    |ui| {
+                                        let (status_text, status_color) = if user.enabled {
+                                            (i18n::t("users.enabled"), styles::SUCCESS_COLOR)
+                                        } else {
+                                            (i18n::t("users.disabled"), styles::DANGER_COLOR)
+                                        };
+                                        ui.label(
+                                            RichText::new(status_text)
+                                                .size(styles::FONT_SIZE_MD)
+                                                .color(status_color),
+                                        );
+                                    },
+                                );
+                            });
+                            row.col(|ui| {
+                                ui.horizontal(|ui| {
+                                    let edit_btn = egui::Button::new(
+                                        RichText::new(i18n::t("users.edit"))
+                                            .size(styles::FONT_SIZE_MD),
+                                    )
+                                    .fill(styles::BG_SECONDARY)
+                                    .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
+                                    .corner_radius(egui::CornerRadius::same(4));
+                                    if ui.add(edit_btn).clicked() {
+                                        to_edit = Some(user.clone());
+                                    }
+
+                                    let toggle_text = if user.enabled {
+                                        i18n::t("users.disable")
+                                    } else {
+                                        i18n::t("users.enable")
+                                    };
+                                    let toggle_btn = egui::Button::new(
+                                        RichText::new(&toggle_text).size(styles::FONT_SIZE_MD),
+                                    )
+                                    .fill(if user.enabled {
+                                        styles::DANGER_LIGHT
+                                    } else {
+                                        styles::SUCCESS_LIGHT
+                                    })
+                                    .stroke(egui::Stroke::new(
+                                        1.0,
+                                        if user.enabled {
+                                            styles::DANGER_COLOR
+                                        } else {
+                                            styles::SUCCESS_COLOR
+                                        },
+                                    ))
+                                    .corner_radius(egui::CornerRadius::same(4));
+                                    if ui.add(toggle_btn).clicked() {
+                                        to_toggle = Some((user.username.clone(), !user.enabled));
+                                    }
+
+                                    let del = egui::Button::new(
+                                        RichText::new(i18n::t("users.delete"))
+                                            .size(styles::FONT_SIZE_MD)
+                                            .color(Color32::WHITE),
+                                    )
+                                    .fill(styles::DANGER_DARK)
+                                    .corner_radius(egui::CornerRadius::same(4));
+                                    if ui.add(del).clicked() {
+                                        to_delete_confirm = Some(user.username.clone());
+                                    }
+                                });
+                            });
+                        });
+                        body.row(2.0, |mut row| {
+                            let col_count = 5;
+                            for _ in 0..col_count {
+                                row.col(|ui| {
+                                    let rect = ui.available_rect_before_wrap();
+                                    let painter = ui.painter();
+                                    painter.hline(
+                                        rect.left()..=rect.right(),
+                                        rect.center().y,
+                                        egui::Stroke::new(1.0, styles::BORDER_COLOR),
+                                    );
+                                });
+                            }
+                        });
+                    }
+                });
+        });
 
         if let Some(u) = to_edit {
             self.open_edit_modal(&u);
@@ -739,7 +843,10 @@ impl UserTab {
                 }
                 Err(e) => {
                     tracing::error!("Failed to change user {} status: {}", name, e);
-                    self.status_message = Some((i18n::t_fmt("users.status_change_failed", &[&e.to_string()]), false));
+                    self.status_message = Some((
+                        i18n::t_fmt("users.status_change_failed", &[&e.to_string()]),
+                        false,
+                    ));
                 }
             }
             self.save();
