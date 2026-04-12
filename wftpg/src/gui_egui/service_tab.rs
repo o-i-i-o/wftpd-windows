@@ -1,3 +1,4 @@
+use crate::core::i18n;
 use crate::core::server_manager::ServerManager;
 use crate::gui_egui::styles;
 use egui::{Color32, RichText, Ui};
@@ -71,24 +72,21 @@ impl ServiceTab {
         self.status_message = Some((msg, false));
     }
 
-    /// 检查异步操作结果
     fn check_operation_result(&mut self) {
         if self.operation_state == OperationState::Idle {
             return;
         }
 
-        // 检查超时（30 秒）
         if let Some(start_time) = self.operation_start_time
             && start_time.elapsed() >= Duration::from_secs(30)
         {
             self.operation_state = OperationState::Idle;
             self.operation_receiver = None;
             self.operation_start_time = None;
-            self.set_err("操作超时，请稍后重试".to_string());
+            self.set_err(i18n::t("service.operation_timeout"));
             return;
         }
 
-        // 检查操作完成
         if let Some(rx) = &self.operation_receiver
             && let Ok(result) = rx.try_recv()
         {
@@ -106,7 +104,6 @@ impl ServiceTab {
         }
     }
 
-    /// 异步安装服务
     fn install_service_async(&mut self, ctx: &egui::Context) {
         self.operation_state = OperationState::Installing;
         self.operation_start_time = Some(Instant::now());
@@ -120,16 +117,15 @@ impl ServiceTab {
                 let manager = ServerManager::new();
                 manager.install_service()
             })) {
-                Ok(Ok(_)) => OperationResult::Success("服务安装成功，开机将自动启动".to_string()),
-                Ok(Err(e)) => OperationResult::Error(format!("安装失败：{}（需要管理员权限）", e)),
-                Err(_) => OperationResult::Error("安装过程中发生未知错误".to_string()),
+                Ok(Ok(_)) => OperationResult::Success(i18n::t("service.install_success")),
+                Ok(Err(e)) => OperationResult::Error(i18n::t_fmt("service.install_failed", &[&e.to_string()])),
+                Err(_) => OperationResult::Error(i18n::t("service.install_unknown_error")),
             };
             let _ = tx.send(result);
             ctx_clone.request_repaint();
         });
     }
 
-    /// 异步启动服务
     fn start_service_async(&mut self, ctx: &egui::Context) {
         self.operation_state = OperationState::Starting;
         self.operation_start_time = Some(Instant::now());
@@ -143,16 +139,15 @@ impl ServiceTab {
                 let manager = ServerManager::new();
                 manager.start_service()
             })) {
-                Ok(Ok(_)) => OperationResult::Success("服务已启动".to_string()),
-                Ok(Err(e)) => OperationResult::Error(format!("启动失败：{}", e)),
-                Err(_) => OperationResult::Error("启动过程中发生未知错误".to_string()),
+                Ok(Ok(_)) => OperationResult::Success(i18n::t("service.start_success")),
+                Ok(Err(e)) => OperationResult::Error(i18n::t_fmt("service.start_failed", &[&e.to_string()])),
+                Err(_) => OperationResult::Error(i18n::t("service.start_unknown_error")),
             };
             let _ = tx.send(result);
             ctx_clone.request_repaint();
         });
     }
 
-    /// 异步停止服务
     fn stop_service_async(&mut self, ctx: &egui::Context) {
         self.operation_state = OperationState::Stopping;
         self.operation_start_time = Some(Instant::now());
@@ -166,16 +161,15 @@ impl ServiceTab {
                 let manager = ServerManager::new();
                 manager.stop_service()
             })) {
-                Ok(Ok(_)) => OperationResult::Success("服务已停止".to_string()),
-                Ok(Err(e)) => OperationResult::Error(format!("停止失败：{}", e)),
-                Err(_) => OperationResult::Error("停止过程中发生未知错误".to_string()),
+                Ok(Ok(_)) => OperationResult::Success(i18n::t("service.stop_success")),
+                Ok(Err(e)) => OperationResult::Error(i18n::t_fmt("service.stop_failed", &[&e.to_string()])),
+                Err(_) => OperationResult::Error(i18n::t("service.stop_unknown_error")),
             };
             let _ = tx.send(result);
             ctx_clone.request_repaint();
         });
     }
 
-    /// 异步重启服务
     fn restart_service_async(&mut self, ctx: &egui::Context) {
         self.operation_state = OperationState::Restarting;
         self.operation_start_time = Some(Instant::now());
@@ -189,16 +183,15 @@ impl ServiceTab {
                 let manager = ServerManager::new();
                 manager.restart_service()
             })) {
-                Ok(Ok(_)) => OperationResult::Success("服务已重启".to_string()),
-                Ok(Err(e)) => OperationResult::Error(format!("重启失败：{}", e)),
-                Err(_) => OperationResult::Error("重启过程中发生未知错误".to_string()),
+                Ok(Ok(_)) => OperationResult::Success(i18n::t("service.restart_success")),
+                Ok(Err(e)) => OperationResult::Error(i18n::t_fmt("service.restart_failed", &[&e.to_string()])),
+                Err(_) => OperationResult::Error(i18n::t("service.restart_unknown_error")),
             };
             let _ = tx.send(result);
             ctx_clone.request_repaint();
         });
     }
 
-    /// 异步卸载服务
     fn uninstall_service_async(&mut self, ctx: &egui::Context) {
         self.operation_state = OperationState::Uninstalling;
         self.operation_start_time = Some(Instant::now());
@@ -212,9 +205,9 @@ impl ServiceTab {
                 let manager = ServerManager::new();
                 manager.uninstall_service()
             })) {
-                Ok(Ok(_)) => OperationResult::Success("服务已卸载".to_string()),
-                Ok(Err(e)) => OperationResult::Error(format!("卸载失败：{}", e)),
-                Err(_) => OperationResult::Error("卸载过程中发生未知错误".to_string()),
+                Ok(Ok(_)) => OperationResult::Success(i18n::t("service.uninstall_success")),
+                Ok(Err(e)) => OperationResult::Error(i18n::t_fmt("service.uninstall_failed", &[&e.to_string()])),
+                Err(_) => OperationResult::Error(i18n::t("service.uninstall_unknown_error")),
             };
             let _ = tx.send(result);
             ctx_clone.request_repaint();
@@ -226,18 +219,15 @@ impl ServiceTab {
     }
 
     pub fn ui(&mut self, ui: &mut Ui) {
-        // 检查异步操作结果
         self.check_operation_result();
 
-        // 定期刷新状态（从 2 秒改为 5 秒，减少不必要的系统调用）
         if self.last_check.elapsed().as_secs() >= 5 {
             self.refresh_status();
         }
 
         ui.horizontal(|ui| {
-            styles::page_header(ui, "🖥", "系统服务管理");
+            styles::page_header(ui, "🖥", &i18n::t("service.title"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // 直接使用引用，避免不必要的 clone
                 if let Some((msg, ok)) = &self.status_message {
                     styles::status_message(ui, msg, *ok);
                 }
@@ -246,7 +236,7 @@ impl ServiceTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            self.section_header(ui, "📋", "服务信息");
+            self.section_header(ui, "📋", &i18n::t("service.service_info"));
 
             let available_width = ui.available_width();
             let label_width = (available_width * 0.25).clamp(80.0, 120.0);
@@ -257,7 +247,7 @@ impl ServiceTab {
                 .min_col_width(label_width)
                 .show(ui, |ui| {
                     ui.label(
-                        RichText::new("服务名称")
+                        RichText::new(&i18n::t("service.service_name"))
                             .size(styles::FONT_SIZE_MD)
                             .color(styles::TEXT_LABEL_COLOR),
                     );
@@ -270,7 +260,7 @@ impl ServiceTab {
                     ui.end_row();
 
                     ui.label(
-                        RichText::new("显示名称")
+                        RichText::new(&i18n::t("service.display_name"))
                             .size(styles::FONT_SIZE_MD)
                             .color(styles::TEXT_LABEL_COLOR),
                     );
@@ -283,14 +273,14 @@ impl ServiceTab {
                     ui.end_row();
 
                     ui.label(
-                        RichText::new("安装状态")
+                        RichText::new(&i18n::t("service.install_status"))
                             .size(styles::FONT_SIZE_MD)
                             .color(styles::TEXT_LABEL_COLOR),
                     );
                     let (inst_txt, inst_col) = if self.is_installed {
-                        ("● 已安装", styles::SUCCESS_DARK)
+                        (&i18n::t("service.installed"), styles::SUCCESS_DARK)
                     } else {
-                        ("● 未安装", styles::DANGER_DARK)
+                        (&i18n::t("service.not_installed"), styles::DANGER_DARK)
                     };
                     ui.label(
                         RichText::new(inst_txt)
@@ -301,14 +291,14 @@ impl ServiceTab {
                     ui.end_row();
 
                     ui.label(
-                        RichText::new("运行状态")
+                        RichText::new(&i18n::t("service.run_status"))
                             .size(styles::FONT_SIZE_MD)
                             .color(styles::TEXT_LABEL_COLOR),
                     );
                     let (run_txt, run_col) = if self.is_running {
-                        ("● 运行中", styles::SUCCESS_DARK)
+                        (&i18n::t("service.running"), styles::SUCCESS_DARK)
                     } else {
-                        ("● 已停止", styles::DANGER_DARK)
+                        (&i18n::t("service.stopped"), styles::DANGER_DARK)
                     };
                     ui.label(
                         RichText::new(run_txt)
@@ -324,12 +314,12 @@ impl ServiceTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            self.section_header(ui, "⚙", "服务操作");
+            self.section_header(ui, "⚙", &i18n::t("service.service_ops"));
 
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
 
-                if ui.button("🔄 刷新状态").clicked() {
+                if ui.button(&i18n::t("service.refresh_status")).clicked() {
                     self.refresh_status();
                 }
 
@@ -337,8 +327,8 @@ impl ServiceTab {
 
                 if !self.is_installed {
                     let btn_text = match self.operation_state {
-                        OperationState::Installing => "📦 安装中...",
-                        _ => "📦 安装服务",
+                        OperationState::Installing => &i18n::t("service.installing"),
+                        _ => &i18n::t("service.install_service"),
                     };
                     let btn = egui::Button::new(
                         RichText::new(btn_text)
@@ -356,8 +346,8 @@ impl ServiceTab {
                 } else {
                     if !self.is_running {
                         let btn_text = match self.operation_state {
-                            OperationState::Starting => "▶ 启动中...",
-                            _ => "▶ 启动服务",
+                            OperationState::Starting => &i18n::t("service.starting"),
+                            _ => &i18n::t("service.start_service"),
                         };
                         let btn = egui::Button::new(
                             RichText::new(btn_text)
@@ -374,8 +364,8 @@ impl ServiceTab {
                         }
                     } else {
                         let btn_text = match self.operation_state {
-                            OperationState::Stopping => "⏹ 停止中...",
-                            _ => "⏹ 停止服务",
+                            OperationState::Stopping => &i18n::t("service.stopping"),
+                            _ => &i18n::t("service.stop_service"),
                         };
                         let btn = egui::Button::new(
                             RichText::new(btn_text)
@@ -393,10 +383,9 @@ impl ServiceTab {
 
                         ui.separator();
 
-                        // 重启服务按钮
                         let btn_text = match self.operation_state {
-                            OperationState::Restarting => "🔄 重启中...",
-                            _ => "🔄 重启服务",
+                            OperationState::Restarting => &i18n::t("service.restarting"),
+                            _ => &i18n::t("service.restart_service"),
                         };
                         let restart_btn = egui::Button::new(
                             RichText::new(btn_text)
@@ -417,7 +406,7 @@ impl ServiceTab {
 
                     if self.confirming_uninstall {
                         ui.label(
-                            RichText::new("确认卸载？")
+                            RichText::new(&i18n::t("service.confirm_uninstall"))
                                 .size(styles::FONT_SIZE_MD)
                                 .color(styles::DANGER_DARK),
                         );
@@ -425,7 +414,7 @@ impl ServiceTab {
                         let can_operate = self.operation_state == OperationState::Idle;
 
                         let yes_btn = egui::Button::new(
-                            RichText::new("确认")
+                            RichText::new(&i18n::t("service.confirm"))
                                 .color(Color32::WHITE)
                                 .size(styles::FONT_SIZE_MD),
                         )
@@ -437,13 +426,13 @@ impl ServiceTab {
                             self.confirming_uninstall = false;
                             self.uninstall_service_async(ui.ctx());
                         }
-                        if ui.button("取消").clicked() {
+                        if ui.button(&i18n::t("service.cancel")).clicked() {
                             self.confirming_uninstall = false;
                         }
                     } else {
                         let uninstall_btn_text = match self.operation_state {
-                            OperationState::Uninstalling => "🗑 卸载中...",
-                            _ => "🗑 卸载服务",
+                            OperationState::Uninstalling => &i18n::t("service.uninstalling"),
+                            _ => &i18n::t("service.uninstall_service"),
                         };
                         let uninstall_btn = egui::Button::new(
                             RichText::new(uninstall_btn_text)
@@ -469,12 +458,12 @@ impl ServiceTab {
 
         styles::warning_box(
             ui,
-            "注意事项",
+            &i18n::t("service.notes_title"),
             &[
-                "安装/卸载服务需要以管理员身份运行本程序",
-                "服务安装后将设为开机自动启动（AutoStart）",
-                "服务以 SYSTEM 账户运行，配置文件位于 ProgramData\\wftpg\\",
-                "停止服务会断开所有当前活动的 FTP/SFTP 连接",
+                &i18n::t("service.note_1"),
+                &i18n::t("service.note_2"),
+                &i18n::t("service.note_3"),
+                &i18n::t("service.note_4"),
             ],
         );
     }

@@ -1,5 +1,6 @@
 use crate::core::config::Config;
 use crate::core::config_manager::ConfigManager;
+use crate::core::i18n;
 use crate::core::ipc::IpcClient;
 use crate::gui_egui::styles;
 use egui::{RichText, Ui};
@@ -39,34 +40,31 @@ impl ServerTab {
         }
     }
 
-    /// 验证配置的有效性
     fn validate_config(config: &Config) -> Vec<String> {
         let mut errors = Vec::new();
 
-        // FTP 配置验证
         if config.ftp.enabled {
             if config.ftp.port == 0 {
-                errors.push("FTP 端口不能为 0".to_string());
+                errors.push(i18n::t("server.ftp_port_zero"));
             }
 
             if config.ftp.passive_ports.0 > config.ftp.passive_ports.1 {
-                errors.push(format!(
-                    "被动端口范围无效：{} - {}",
-                    config.ftp.passive_ports.0, config.ftp.passive_ports.1
+                errors.push(i18n::t_fmt(
+                    "server.passive_port_range_invalid",
+                    &[&config.ftp.passive_ports.0, &config.ftp.passive_ports.1],
                 ));
             }
 
             if config.ftp.allow_anonymous {
                 if let Some(ref home) = config.ftp.anonymous_home {
                     if home.trim().is_empty() {
-                        errors.push("匿名用户主目录不能为空".to_string());
+                        errors.push(i18n::t("server.anonymous_dir_empty"));
                     }
                 } else {
-                    errors.push("匿名用户已启用但未配置主目录".to_string());
+                    errors.push(i18n::t("server.anonymous_no_home"));
                 }
             }
 
-            // FTPS 配置验证
             if config.ftp.ftps.enabled {
                 if config
                     .ftp
@@ -75,7 +73,7 @@ impl ServerTab {
                     .as_ref()
                     .is_none_or(|p| p.trim().is_empty())
                 {
-                    errors.push("FTPS 已启用但未配置证书路径".to_string());
+                    errors.push(i18n::t("server.ftps_no_cert"));
                 }
                 if config
                     .ftp
@@ -84,37 +82,35 @@ impl ServerTab {
                     .as_ref()
                     .is_none_or(|p| p.trim().is_empty())
                 {
-                    errors.push("FTPS 已启用但未配置私钥路径".to_string());
+                    errors.push(i18n::t("server.ftps_no_key"));
                 }
             }
         }
 
-        // SFTP 配置验证
         if config.sftp.enabled {
             if config.sftp.port == 0 {
-                errors.push("SFTP 端口不能为 0".to_string());
+                errors.push(i18n::t("server.sftp_port_zero"));
             }
 
             if config.sftp.host_key_path.trim().is_empty() {
-                errors.push("SFTP 主机密钥路径不能为空".to_string());
+                errors.push(i18n::t("server.sftp_no_host_key"));
             }
 
             if config.sftp.max_auth_attempts == 0 {
-                errors.push("SFTP 最大认证次数必须大于 0".to_string());
+                errors.push(i18n::t("server.sftp_max_auth_zero"));
             }
         }
 
-        // 日志配置验证
         if config.logging.log_dir.trim().is_empty() {
-            errors.push("日志目录不能为空".to_string());
+            errors.push(i18n::t("server.log_dir_empty"));
         }
 
         if config.logging.max_log_size == 0 {
-            errors.push("单个日志文件最大大小必须大于 0".to_string());
+            errors.push(i18n::t("server.max_log_size_zero"));
         }
 
         if config.logging.max_log_files == 0 {
-            errors.push("最大日志文件数必须大于 0".to_string());
+            errors.push(i18n::t("server.max_log_files_zero"));
         }
 
         errors
@@ -129,7 +125,7 @@ impl ServerTab {
         let validation_errors = Self::validate_config(&config);
         if !validation_errors.is_empty() {
             self.status_message = Some((
-                format!("配置验证失败:\n{}", validation_errors.join("\n")),
+                i18n::t_fmt("server.config_validation_failed", &[&validation_errors.join("\n")]),
                 false,
             ));
             self.is_saving = false;
@@ -150,32 +146,26 @@ impl ServerTab {
 
             let result = match config_manager.save(&Config::get_config_path()) {
                 Ok(_) => {
-                    tracing::info!("服务器配置保存成功");
+                    tracing::info!("Server config saved successfully");
 
                     if IpcClient::is_server_running() {
                         match IpcClient::notify_reload() {
                             Ok(response) => {
                                 if response.success {
-                                    Ok("配置已保存，后端服务已重新加载配置".to_string())
+                                    Ok(i18n::t("server.config_saved"))
                                 } else {
-                                    Ok(format!(
-                                        "配置已保存，但后端重新加载失败: {}",
-                                        response.message
-                                    ))
+                                    Ok(i18n::t_fmt("server.config_saved_reload_failed", &[&response.message]))
                                 }
                             }
-                            Err(e) => Ok(format!(
-                                "配置已保存，但通知后端失败: {}。请手动重启服务。",
-                                e
-                            )),
+                            Err(e) => Ok(i18n::t_fmt("server.config_saved_notify_failed", &[&e])),
                         }
                     } else {
-                        Ok("配置已保存（后端服务未运行）".to_string())
+                        Ok(i18n::t("server.config_saved_not_running"))
                     }
                 }
                 Err(e) => {
-                    tracing::error!("保存服务器配置失败: {}", e);
-                    Err(format!("保存失败: {}", e))
+                    tracing::error!("Failed to save server config: {}", e);
+                    Err(i18n::t_fmt("server.config_save_failed", &[&e]))
                 }
             };
 
@@ -238,7 +228,7 @@ impl ServerTab {
                     ui.spinner();
                     ui.add_space(styles::SPACING_MD);
                     ui.label(
-                        RichText::new("正在加载配置...")
+                        RichText::new(i18n::t("server.loading_config"))
                             .size(styles::FONT_SIZE_LG)
                             .color(styles::TEXT_SECONDARY_COLOR),
                     );
@@ -249,7 +239,7 @@ impl ServerTab {
                 ui.vertical_centered(|ui| {
                     ui.add_space(ui.available_height() / 2.0 - 80.0);
                     ui.label(
-                        RichText::new("⚠ 配置加载失败")
+                        RichText::new(i18n::t("server.config_load_failed"))
                             .size(styles::FONT_SIZE_LG)
                             .strong()
                             .color(styles::DANGER_COLOR),
@@ -276,7 +266,7 @@ impl ServerTab {
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("⚙").size(styles::FONT_SIZE_XL));
                 ui.label(
-                    RichText::new("服务器配置")
+                    RichText::new(i18n::t("server.title"))
                         .size(styles::FONT_SIZE_XL)
                         .strong()
                         .color(styles::TEXT_PRIMARY_COLOR),
@@ -285,14 +275,14 @@ impl ServerTab {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let save_btn = if is_saving {
                         egui::Button::new(
-                            RichText::new("💾 保存中...")
+                            RichText::new(i18n::t("server.saving"))
                                 .color(egui::Color32::GRAY)
                                 .size(styles::FONT_SIZE_MD),
                         )
                         .fill(styles::BG_SECONDARY)
                         .corner_radius(egui::CornerRadius::same(6))
                     } else {
-                        styles::primary_button("💾 保存配置")
+                        styles::primary_button(&i18n::t("server.save_config"))
                     };
 
                     if ui.add(save_btn).clicked() && !is_saving {
@@ -318,18 +308,18 @@ impl ServerTab {
 
             styles::card_frame().show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                Self::section_header(ui, "📡", "FTP 设置");
+                Self::section_header(ui, "📡", &i18n::t("server.ftp_settings"));
 
                 ui.checkbox(
                     &mut config.ftp.enabled,
-                    RichText::new("启用 FTP 服务").size(styles::FONT_SIZE_MD),
+                    RichText::new(i18n::t("server.enable_ftp")).size(styles::FONT_SIZE_MD),
                 );
                 ui.add_space(styles::SPACING_MD);
 
                 let available_width = ui.available_width();
                 let label_width = (available_width * 0.15).clamp(100.0, 160.0);
 
-                styles::form_row(ui, "绑定 IP", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.bind_ip"), label_width, |ui| {
                     styles::input_frame().show(ui, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut config.ftp.bind_ip)
@@ -342,7 +332,7 @@ impl ServerTab {
                     });
                 });
 
-                styles::form_row(ui, "FTP 端口", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.ftp_port"), label_width, |ui| {
                     let mut port_str = config.ftp.port.to_string();
                     styles::input_frame().show(ui, |ui| {
                         ui.add(
@@ -359,7 +349,7 @@ impl ServerTab {
                     }
                 });
 
-                styles::form_row(ui, "欢迎消息", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.welcome_msg"), label_width, |ui| {
                     styles::input_frame().show(ui, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut config.ftp.welcome_message)
@@ -372,7 +362,7 @@ impl ServerTab {
                     });
                 });
 
-                styles::form_row(ui, "编码", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.encoding"), label_width, |ui| {
                     styles::input_frame().show(ui, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut config.ftp.encoding)
@@ -385,7 +375,7 @@ impl ServerTab {
                     });
                 });
 
-                styles::form_row(ui, "默认传输模式", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.transfer_mode"), label_width, |ui| {
                     let modes = ["binary", "ascii"];
                     egui::ComboBox::from_id_salt("transfer_mode")
                         .selected_text(&config.ftp.default_transfer_mode)
@@ -400,46 +390,46 @@ impl ServerTab {
                             }
                         });
                     ui.label(
-                        RichText::new("(binary: 二进制，ascii: 文本)")
+                        RichText::new(i18n::t("server.transfer_mode_hint"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::TEXT_MUTED_COLOR),
                     );
                 });
 
-                styles::form_row(ui, "默认连接模式", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.connection_mode"), label_width, |ui| {
                     let passive_label = if config.ftp.default_passive_mode {
-                        "被动模式 (PASV)"
+                        i18n::t("server.passive_mode")
                     } else {
-                        "主动模式 (PORT)"
+                        i18n::t("server.active_mode")
                     };
                     egui::ComboBox::from_id_salt("connection_mode")
-                        .selected_text(passive_label)
+                        .selected_text(&passive_label)
                         .width(120.0)
                         .show_ui(ui, |ui| {
                             ui.selectable_value(
                                 &mut config.ftp.default_passive_mode,
                                 true,
-                                "被动模式 (PASV)",
+                                i18n::t("server.passive_mode"),
                             );
                             ui.selectable_value(
                                 &mut config.ftp.default_passive_mode,
                                 false,
-                                "主动模式 (PORT)",
+                                i18n::t("server.active_mode"),
                             );
                         });
                     ui.label(
-                        RichText::new("(被动模式兼容性更好)")
+                        RichText::new(i18n::t("server.passive_mode_hint"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::TEXT_MUTED_COLOR),
                     );
                 });
 
-                styles::form_row(ui, "允许匿名访问", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.allow_anonymous"), label_width, |ui| {
                     ui.checkbox(&mut config.ftp.allow_anonymous, "");
                 });
 
                 if config.ftp.allow_anonymous {
-                    styles::form_row(ui, "匿名目录", label_width, |ui| {
+                    styles::form_row(ui, &i18n::t("server.anonymous_dir"), label_width, |ui| {
                         let mut anon_home = config.ftp.anonymous_home.clone().unwrap_or_default();
                         styles::input_frame().show(ui, |ui| {
                             ui.add(
@@ -451,8 +441,8 @@ impl ServerTab {
                                     )),
                             );
                         });
-                        if ui.button("浏览...").clicked()
-                            && let Some(path) = Self::pick_folder("选择匿名用户目录")
+                        if ui.button(&i18n::t("server.browse")).clicked()
+                            && let Some(path) = Self::pick_folder(&i18n::t("server.select_anonymous_dir"))
                         {
                             anon_home = path.to_string_lossy().to_string();
                         }
@@ -472,7 +462,7 @@ impl ServerTab {
                         ui.horizontal(|ui| {
                             ui.add_sized([label_width, 24.0], egui::Label::new(""));
                             ui.label(
-                                RichText::new("⚠ 匿名用户目录未配置，匿名访问将无法使用")
+                                RichText::new(i18n::t("server.anonymous_dir_not_configured"))
                                     .size(styles::FONT_SIZE_SM)
                                     .color(styles::WARNING_COLOR),
                             );
@@ -480,12 +470,12 @@ impl ServerTab {
                     }
                 }
 
-                styles::form_row(ui, "被动端口范围", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.passive_port_range"), label_width, |ui| {
                     let mut min_str = config.ftp.passive_ports.0.to_string();
                     let mut max_str = config.ftp.passive_ports.1.to_string();
 
                     ui.label(
-                        RichText::new("从")
+                        RichText::new(i18n::t("server.from"))
                             .size(styles::FONT_SIZE_MD)
                             .color(styles::TEXT_MUTED_COLOR),
                     );
@@ -504,7 +494,7 @@ impl ServerTab {
                     }
 
                     ui.label(
-                        RichText::new("到")
+                        RichText::new(i18n::t("server.to"))
                             .size(styles::FONT_SIZE_MD)
                             .color(styles::TEXT_MUTED_COLOR),
                     );
@@ -524,7 +514,7 @@ impl ServerTab {
 
                     if config.ftp.passive_ports.0 > config.ftp.passive_ports.1 {
                         ui.label(
-                            RichText::new("⚠ 起始端口不能大于结束端口")
+                            RichText::new("⚠ start port > end port")
                                 .color(styles::DANGER_COLOR)
                                 .size(styles::FONT_SIZE_SM),
                         );
@@ -533,7 +523,7 @@ impl ServerTab {
 
                 styles::form_row_with_suffix(
                     ui,
-                    "最大传输速度",
+                    &i18n::t("server.max_speed"),
                     label_width,
                     |ui| {
                         let mut speed_str = config.ftp.max_speed_kbps.to_string();
@@ -551,38 +541,34 @@ impl ServerTab {
                             config.ftp.max_speed_kbps = v;
                         }
                     },
-                    "KB/s (0 表示不限制)",
+                    &i18n::t("server.max_speed_hint"),
                 );
 
                 ui.add_space(styles::SPACING_SM);
 
                 ui.label(
-                    RichText::new("NAT 环境设置")
+                    RichText::new(i18n::t("server.passive_ip_override"))
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_SECONDARY_COLOR)
                         .strong(),
                 );
                 ui.label(
-                    RichText::new(
-                        "如果服务器在 NAT 网络环境中，配置以下选项以确保被动模式正常工作",
-                    )
-                    .size(styles::FONT_SIZE_SM)
-                    .color(styles::TEXT_MUTED_COLOR)
-                    .italics(),
+                    RichText::new(i18n::t("server.passive_ip_override"))
+                        .size(styles::FONT_SIZE_SM)
+                        .color(styles::TEXT_MUTED_COLOR)
+                        .italics(),
                 );
                 ui.add_space(styles::SPACING_SM);
 
-                // UPnP 自动端口映射
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.checkbox(&mut config.ftp.upnp_enabled, "启用 UPnP/IGD 自动端口映射")
-                        .on_hover_text("自动在路由器上配置端口转发，适用于家庭网络环境");
+                    ui.checkbox(&mut config.ftp.upnp_enabled, i18n::t("server.upnp_enabled"));
                 });
 
                 ui.add_space(styles::SPACING_SM);
 
                 let mut passive_ip = config.ftp.passive_ip_override.clone().unwrap_or_default();
-                styles::form_row(ui, "被动模式 IP", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.passive_ip_override"), label_width, |ui| {
                     styles::input_frame().show(ui, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut passive_ip)
@@ -604,7 +590,7 @@ impl ServerTab {
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
                     ui.label(
-                        RichText::new("PASV 响应中返回的外部 IP 地址")
+                        RichText::new(i18n::t("server.masquerade_address"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::TEXT_MUTED_COLOR)
                             .italics(),
@@ -612,7 +598,7 @@ impl ServerTab {
                 });
 
                 let mut masq_addr = config.ftp.masquerade_address.clone().unwrap_or_default();
-                styles::form_row(ui, "伪装地址", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.masquerade_address"), label_width, |ui| {
                     styles::input_frame().show(ui, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut masq_addr)
@@ -634,7 +620,7 @@ impl ServerTab {
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
                     ui.label(
-                        RichText::new("用于 NAT 环境的公网地址或域名")
+                        RichText::new(i18n::t("server.masquerade_address"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::TEXT_MUTED_COLOR)
                             .italics(),
@@ -643,15 +629,14 @@ impl ServerTab {
 
                 ui.add_space(styles::SPACING_SM);
 
-                // IP 地址映射表 (masquerade_map)
                 ui.label(
-                    RichText::new("IP 地址映射表")
+                    RichText::new(i18n::t("server.masquerade_map"))
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_SECONDARY_COLOR)
                         .strong(),
                 );
                 ui.label(
-                    RichText::new("为不同的内部 IP 配置对应的外部 IP，适用于多网卡/多公网 IP 环境")
+                    RichText::new(i18n::t("server.masquerade_map"))
                         .size(styles::FONT_SIZE_SM)
                         .color(styles::TEXT_MUTED_COLOR)
                         .italics(),
@@ -711,11 +696,10 @@ impl ServerTab {
                     ui.add_space(styles::SPACING_XS);
                 }
 
-                // 添加新映射的输入框
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
                     ui.label(
-                        RichText::new("添加新映射:")
+                        RichText::new(i18n::t("server.add_new_mapping"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::TEXT_SECONDARY_COLOR),
                     );
@@ -724,7 +708,6 @@ impl ServerTab {
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
 
-                    // 内部 IP 输入
                     let internal_ip_valid = self.new_internal_ip.trim().is_empty()
                         || self
                             .new_internal_ip
@@ -751,7 +734,7 @@ impl ServerTab {
                         ui.add(
                             egui::TextEdit::singleline(&mut self.new_internal_ip)
                                 .desired_width(120.0)
-                                .hint_text("内部 IP")
+                                .hint_text(i18n::t("server.internal_ip"))
                                 .font(egui::FontId::new(
                                     styles::FONT_SIZE_SM,
                                     egui::FontFamily::Monospace,
@@ -765,7 +748,6 @@ impl ServerTab {
                             .color(styles::TEXT_MUTED_COLOR),
                     );
 
-                    // 外部 IP 输入
                     let external_ip_valid = self.new_external_ip.trim().is_empty()
                         || self
                             .new_external_ip
@@ -792,7 +774,7 @@ impl ServerTab {
                         ui.add(
                             egui::TextEdit::singleline(&mut self.new_external_ip)
                                 .desired_width(120.0)
-                                .hint_text("外部 IP")
+                                .hint_text(i18n::t("server.external_ip"))
                                 .font(egui::FontId::new(
                                     styles::FONT_SIZE_SM,
                                     egui::FontFamily::Monospace,
@@ -800,7 +782,6 @@ impl ServerTab {
                         );
                     });
 
-                    // 添加按钮
                     let can_add = !self.new_internal_ip.trim().is_empty()
                         && !self.new_external_ip.trim().is_empty()
                         && internal_ip_valid
@@ -808,13 +789,13 @@ impl ServerTab {
 
                     let add_button = if can_add {
                         egui::Button::new(
-                            RichText::new("➕ 添加")
+                            RichText::new(i18n::t("server.add_mapping"))
                                 .size(styles::FONT_SIZE_SM)
                                 .color(egui::Color32::WHITE),
                         )
                         .fill(styles::PRIMARY_COLOR)
                     } else {
-                        egui::Button::new(RichText::new("➕ 添加").size(styles::FONT_SIZE_SM))
+                        egui::Button::new(RichText::new(i18n::t("server.add_mapping")).size(styles::FONT_SIZE_SM))
                             .fill(styles::BG_SECONDARY)
                     };
 
@@ -823,7 +804,6 @@ impl ServerTab {
                             self.new_internal_ip.trim().to_string(),
                             self.new_external_ip.trim().to_string(),
                         );
-                        // 清空输入框
                         self.new_internal_ip.clear();
                         self.new_external_ip.clear();
                     }
@@ -858,7 +838,7 @@ impl ServerTab {
                     ui.horizontal(|ui| {
                         ui.add_sized([label_width, 24.0], egui::Label::new(""));
                         ui.label(
-                            RichText::new("⚠ 内部 IP 格式无效")
+                            RichText::new(i18n::t("server.internal_ip_invalid"))
                                 .size(styles::FONT_SIZE_XS)
                                 .color(styles::DANGER_COLOR),
                         );
@@ -869,7 +849,7 @@ impl ServerTab {
                     ui.horizontal(|ui| {
                         ui.add_sized([label_width, 24.0], egui::Label::new(""));
                         ui.label(
-                            RichText::new("⚠ 外部 IP 格式无效")
+                            RichText::new(i18n::t("server.external_ip_invalid"))
                                 .size(styles::FONT_SIZE_XS)
                                 .color(styles::DANGER_COLOR),
                         );
@@ -879,7 +859,7 @@ impl ServerTab {
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
                     ui.label(
-                        RichText::new("优先级：映射表 > 伪装地址 > 被动模式 IP > 绑定 IP")
+                        RichText::new(i18n::t("server.masquerade_priority"))
                             .size(styles::FONT_SIZE_XS)
                             .color(styles::TEXT_MUTED_COLOR)
                             .italics(),
@@ -889,7 +869,7 @@ impl ServerTab {
                 ui.add_space(styles::SPACING_SM);
 
                 ui.label(
-                    RichText::new("连接超时设置")
+                    RichText::new(i18n::t("server.timeout_settings"))
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_SECONDARY_COLOR)
                         .strong(),
@@ -898,7 +878,7 @@ impl ServerTab {
 
                 styles::form_row_with_suffix(
                     ui,
-                    "连接超时",
+                    &i18n::t("server.connection_timeout"),
                     label_width,
                     |ui| {
                         let mut val_str = config.ftp.connection_timeout.to_string();
@@ -916,12 +896,12 @@ impl ServerTab {
                             config.ftp.connection_timeout = v;
                         }
                     },
-                    "秒",
+                    &i18n::t("server.seconds"),
                 );
 
                 styles::form_row_with_suffix(
                     ui,
-                    "空闲超时",
+                    &i18n::t("server.idle_timeout"),
                     label_width,
                     |ui| {
                         let mut val_str = config.ftp.idle_timeout.to_string();
@@ -939,18 +919,18 @@ impl ServerTab {
                             config.ftp.idle_timeout = v;
                         }
                     },
-                    "秒 (0 表示不限制)",
+                    &i18n::t("server.idle_timeout_hint"),
                 );
 
                 ui.add_space(styles::SPACING_SM);
 
-                styles::form_row(ui, "隐藏版本信息", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.hide_version_info"), label_width, |ui| {
                     ui.checkbox(&mut config.ftp.hide_version_info, "");
                 });
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
                     ui.label(
-                        RichText::new("在欢迎消息和服务器响应中隐藏版本号，增强安全性")
+                        RichText::new(i18n::t("server.hide_version_info_hint"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::TEXT_MUTED_COLOR)
                             .italics(),
@@ -962,16 +942,16 @@ impl ServerTab {
 
             styles::card_frame().show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                Self::section_header(ui, "🔒", "FTPS 设置 (FTP over SSL/TLS)");
+                Self::section_header(ui, "🔒", &i18n::t("server.ftps_settings"));
 
                 ui.checkbox(
                     &mut config.ftp.ftps.enabled,
-                    RichText::new("启用 FTPS").size(styles::FONT_SIZE_MD),
+                    RichText::new(i18n::t("server.enable_ftps")).size(styles::FONT_SIZE_MD),
                 );
                 ui.add_space(styles::SPACING_SM);
 
                 ui.label(
-                    RichText::new("FTPS 为 FTP 连接提供 SSL/TLS 加密保护")
+                    RichText::new(i18n::t("server.ftps_description"))
                         .size(styles::FONT_SIZE_SM)
                         .color(styles::TEXT_MUTED_COLOR)
                         .italics(),
@@ -982,13 +962,13 @@ impl ServerTab {
                 let label_width = (available_width * 0.15).clamp(100.0, 160.0);
 
                 if config.ftp.ftps.enabled {
-                    styles::form_row(ui, "强制 SSL", label_width, |ui| {
+                    styles::form_row(ui, &i18n::t("server.require_ssl"), label_width, |ui| {
                         ui.checkbox(&mut config.ftp.ftps.require_ssl, "");
                     });
                     ui.horizontal(|ui| {
                         ui.add_sized([label_width, 24.0], egui::Label::new(""));
                         ui.label(
-                            RichText::new("启用后将拒绝非加密连接")
+                            RichText::new(i18n::t("server.require_ssl_hint"))
                                 .size(styles::FONT_SIZE_SM)
                                 .color(styles::TEXT_MUTED_COLOR)
                                 .italics(),
@@ -997,23 +977,21 @@ impl ServerTab {
 
                     ui.add_space(styles::SPACING_SM);
 
-                    styles::form_row(ui, "隐式 SSL", label_width, |ui| {
+                    styles::form_row(ui, &i18n::t("server.implicit_ssl"), label_width, |ui| {
                         ui.checkbox(&mut config.ftp.ftps.implicit_ssl, "");
                     });
                     ui.horizontal(|ui| {
                         ui.add_sized([label_width, 24.0], egui::Label::new(""));
                         ui.label(
-                            RichText::new(
-                                "隐式 SSL 需要专用端口 (默认 990)，客户端无需发送 AUTH 命令",
-                            )
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::TEXT_MUTED_COLOR)
-                            .italics(),
+                            RichText::new(i18n::t("server.implicit_ssl_hint"))
+                                .size(styles::FONT_SIZE_SM)
+                                .color(styles::TEXT_MUTED_COLOR)
+                                .italics(),
                         );
                     });
 
                     if config.ftp.ftps.implicit_ssl {
-                        styles::form_row(ui, "隐式 SSL 端口", label_width, |ui| {
+                        styles::form_row(ui, &i18n::t("server.implicit_ssl_port"), label_width, |ui| {
                             let mut port_str = config.ftp.ftps.implicit_ssl_port.to_string();
                             styles::input_frame().show(ui, |ui| {
                                 ui.add(
@@ -1034,7 +1012,7 @@ impl ServerTab {
                     ui.add_space(styles::SPACING_SM);
 
                     let mut cert_path = config.ftp.ftps.cert_path.clone().unwrap_or_default();
-                    styles::form_row(ui, "证书文件", label_width, |ui| {
+                    styles::form_row(ui, &i18n::t("server.cert_file"), label_width, |ui| {
                         styles::input_frame().show(ui, |ui| {
                             ui.add(
                                 egui::TextEdit::singleline(&mut cert_path)
@@ -1045,8 +1023,8 @@ impl ServerTab {
                                     )),
                             );
                         });
-                        if ui.button("浏览...").clicked()
-                            && let Some(path) = Self::pick_cert_file("选择 FTPS 证书文件")
+                        if ui.button(&i18n::t("server.browse")).clicked()
+                            && let Some(path) = Self::pick_cert_file(&i18n::t("server.select_cert_file"))
                         {
                             cert_path = path.to_string_lossy().to_string();
                         }
@@ -1060,9 +1038,9 @@ impl ServerTab {
                     if let Some(cert_path) = &config.ftp.ftps.cert_path {
                         let cert_exists = std::path::Path::new(cert_path).exists();
                         let cert_status = if cert_exists {
-                            ("√ 证书文件已存在", styles::SUCCESS_COLOR)
+                            (i18n::t("server.cert_exists"), styles::SUCCESS_COLOR)
                         } else {
-                            ("⚠ 证书文件不存在", styles::DANGER_COLOR)
+                            (i18n::t("server.cert_not_exists"), styles::DANGER_COLOR)
                         };
                         ui.horizontal(|ui| {
                             ui.add_sized([label_width, 24.0], egui::Label::new(""));
@@ -1077,7 +1055,7 @@ impl ServerTab {
                         ui.horizontal(|ui| {
                             ui.add_sized([label_width, 24.0], egui::Label::new(""));
                             ui.label(
-                                RichText::new("⚠ 证书文件未配置")
+                                RichText::new(i18n::t("server.cert_not_configured"))
                                     .size(styles::FONT_SIZE_SM)
                                     .color(styles::WARNING_COLOR)
                                     .italics(),
@@ -1088,7 +1066,7 @@ impl ServerTab {
                     ui.add_space(styles::SPACING_SM);
 
                     let mut key_path = config.ftp.ftps.key_path.clone().unwrap_or_default();
-                    styles::form_row(ui, "私钥文件", label_width, |ui| {
+                    styles::form_row(ui, &i18n::t("server.key_file"), label_width, |ui| {
                         styles::input_frame().show(ui, |ui| {
                             ui.add(
                                 egui::TextEdit::singleline(&mut key_path)
@@ -1099,8 +1077,8 @@ impl ServerTab {
                                     )),
                             );
                         });
-                        if ui.button("浏览...").clicked()
-                            && let Some(path) = Self::pick_key_file("选择 FTPS 私钥文件")
+                        if ui.button(&i18n::t("server.browse")).clicked()
+                            && let Some(path) = Self::pick_key_file(&i18n::t("server.select_key_file"))
                         {
                             key_path = path.to_string_lossy().to_string();
                         }
@@ -1114,9 +1092,9 @@ impl ServerTab {
                     if let Some(key_path) = &config.ftp.ftps.key_path {
                         let key_exists = std::path::Path::new(key_path).exists();
                         let key_status = if key_exists {
-                            ("√ 私钥文件已存在", styles::SUCCESS_COLOR)
+                            (i18n::t("server.key_exists"), styles::SUCCESS_COLOR)
                         } else {
-                            ("⚠ 私钥文件不存在", styles::DANGER_COLOR)
+                            (i18n::t("server.key_not_exists"), styles::DANGER_COLOR)
                         };
                         ui.horizontal(|ui| {
                             ui.add_sized([label_width, 24.0], egui::Label::new(""));
@@ -1131,7 +1109,7 @@ impl ServerTab {
                         ui.horizontal(|ui| {
                             ui.add_sized([label_width, 24.0], egui::Label::new(""));
                             ui.label(
-                                RichText::new("⚠ 私钥文件未配置")
+                                RichText::new(i18n::t("server.key_not_configured"))
                                     .size(styles::FONT_SIZE_SM)
                                     .color(styles::WARNING_COLOR)
                                     .italics(),
@@ -1145,18 +1123,18 @@ impl ServerTab {
 
             styles::card_frame().show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                Self::section_header(ui, "🔐", "SFTP 设置");
+                Self::section_header(ui, "🔐", &i18n::t("server.sftp_settings"));
 
                 ui.checkbox(
                     &mut config.sftp.enabled,
-                    RichText::new("启用 SFTP 服务").size(styles::FONT_SIZE_MD),
+                    RichText::new(i18n::t("server.enable_sftp")).size(styles::FONT_SIZE_MD),
                 );
                 ui.add_space(styles::SPACING_MD);
 
                 let available_width = ui.available_width();
                 let label_width = (available_width * 0.15).clamp(100.0, 160.0);
 
-                styles::form_row(ui, "绑定 IP", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.bind_ip"), label_width, |ui| {
                     styles::input_frame().show(ui, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut config.sftp.bind_ip)
@@ -1171,7 +1149,7 @@ impl ServerTab {
 
                 styles::form_row_with_suffix(
                     ui,
-                    "SFTP 端口",
+                    &i18n::t("server.sftp_port"),
                     label_width,
                     |ui| {
                         let mut port_str = config.sftp.port.to_string();
@@ -1189,11 +1167,11 @@ impl ServerTab {
                             config.sftp.port = p;
                         }
                     },
-                    "(建议 2222)",
+                    &i18n::t("server.sftp_port_hint"),
                 );
 
                 let mut host_key_path = config.sftp.host_key_path.clone();
-                styles::form_row(ui, "主机密钥路径", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.host_key_path"), label_width, |ui| {
                     styles::input_frame().show(ui, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut host_key_path)
@@ -1204,8 +1182,8 @@ impl ServerTab {
                                 )),
                         );
                     });
-                    if ui.button("浏览...").clicked()
-                        && let Some(path) = Self::pick_file("选择 SFTP 主机密钥文件")
+                    if ui.button(&i18n::t("server.browse")).clicked()
+                        && let Some(path) = Self::pick_file(&i18n::t("server.select_host_key_file"))
                     {
                         host_key_path = path.to_string_lossy().to_string();
                     }
@@ -1215,9 +1193,9 @@ impl ServerTab {
                 let host_key_exists =
                     std::path::Path::new(config.sftp.host_key_path.trim()).exists();
                 let host_key_status = if host_key_exists {
-                    ("√ 文件已存在", styles::SUCCESS_COLOR)
+                    (i18n::t("server.file_exists"), styles::SUCCESS_COLOR)
                 } else {
-                    ("ℹ 文件不存在，启动时将自动生成", styles::TEXT_MUTED_COLOR)
+                    (i18n::t("server.host_key_auto_gen"), styles::TEXT_MUTED_COLOR)
                 };
 
                 ui.horizontal(|ui| {
@@ -1230,7 +1208,7 @@ impl ServerTab {
                     );
                 });
 
-                styles::form_row(ui, "最大认证次数", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.max_auth_attempts"), label_width, |ui| {
                     let mut val_str = config.sftp.max_auth_attempts.to_string();
                     styles::input_frame().show(ui, |ui| {
                         ui.add(
@@ -1249,7 +1227,7 @@ impl ServerTab {
 
                 styles::form_row_with_suffix(
                     ui,
-                    "认证超时",
+                    &i18n::t("server.auth_timeout"),
                     label_width,
                     |ui| {
                         let mut val_str = config.sftp.auth_timeout.to_string();
@@ -1267,10 +1245,10 @@ impl ServerTab {
                             config.sftp.auth_timeout = v;
                         }
                     },
-                    "秒",
+                    &i18n::t("server.seconds"),
                 );
 
-                styles::form_row(ui, "日志级别", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.log_level"), label_width, |ui| {
                     styles::input_frame().show(ui, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut config.sftp.log_level)
@@ -1286,14 +1264,14 @@ impl ServerTab {
                 ui.add_space(styles::SPACING_SM);
 
                 ui.label(
-                    RichText::new("安全增强")
+                    RichText::new(i18n::t("server.security_enhancement"))
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_SECONDARY_COLOR)
                         .strong(),
                 );
                 ui.add_space(styles::SPACING_SM);
 
-                styles::form_row(ui, "单用户最大会话数", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.max_sessions_per_user"), label_width, |ui| {
                     let mut val_str = config.sftp.max_sessions_per_user.to_string();
                     styles::input_frame().show(ui, |ui| {
                         ui.add(
@@ -1313,7 +1291,7 @@ impl ServerTab {
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
                     ui.label(
-                        RichText::new("限制单个用户同时连接的会话数量")
+                        RichText::new(i18n::t("server.max_sessions_per_user_hint"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::TEXT_MUTED_COLOR)
                             .italics(),
@@ -1325,13 +1303,13 @@ impl ServerTab {
 
             styles::card_frame().show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                Self::section_header(ui, "📋", "全局日志设置");
+                Self::section_header(ui, "📋", &i18n::t("server.global_log_settings"));
 
                 let available_width = ui.available_width();
                 let label_width = (available_width * 0.15).clamp(100.0, 160.0);
 
                 let mut log_dir = config.logging.log_dir.clone();
-                styles::form_row(ui, "日志目录", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.log_dir"), label_width, |ui| {
                     styles::input_frame().show(ui, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut log_dir)
@@ -1342,8 +1320,8 @@ impl ServerTab {
                                 )),
                         );
                     });
-                    if ui.button("浏览...").clicked()
-                        && let Some(path) = Self::pick_folder("选择日志目录")
+                    if ui.button(&i18n::t("server.browse")).clicked()
+                        && let Some(path) = Self::pick_folder(&i18n::t("server.select_log_dir"))
                     {
                         log_dir = path.to_string_lossy().to_string();
                     }
@@ -1353,16 +1331,14 @@ impl ServerTab {
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
                     ui.label(
-                        RichText::new(
-                            "系统日志和文件操作日志将分别保存为 wftpg-*.log 和 file-ops-*.log",
-                        )
-                        .size(styles::FONT_SIZE_SM)
-                        .color(styles::TEXT_MUTED_COLOR)
-                        .italics(),
+                        RichText::new(i18n::t("server.log_dir_hint"))
+                            .size(styles::FONT_SIZE_SM)
+                            .color(styles::TEXT_MUTED_COLOR)
+                            .italics(),
                     );
                 });
 
-                styles::form_row(ui, "日志级别", label_width, |ui| {
+                styles::form_row(ui, &i18n::t("server.log_level"), label_width, |ui| {
                     let levels = ["trace", "debug", "info", "warn", "error"];
                     egui::ComboBox::from_id_salt("log_level")
                         .selected_text(&config.logging.log_level)
@@ -1380,7 +1356,7 @@ impl ServerTab {
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
                     ui.label(
-                        RichText::new("日志级别越低，记录的日志越详细")
+                        RichText::new(i18n::t("server.log_level_hint"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::TEXT_MUTED_COLOR)
                             .italics(),
@@ -1389,7 +1365,7 @@ impl ServerTab {
 
                 styles::form_row_with_suffix(
                     ui,
-                    "单个日志文件最大大小",
+                    &i18n::t("server.max_log_size"),
                     label_width,
                     |ui| {
                         let size_mb = config.logging.max_log_size / 1024 / 1024;
@@ -1413,7 +1389,7 @@ impl ServerTab {
 
                 styles::form_row_with_suffix(
                     ui,
-                    "最大日志文件数",
+                    &i18n::t("server.max_log_files"),
                     label_width,
                     |ui| {
                         let mut files_str = config.logging.max_log_files.to_string();
@@ -1431,13 +1407,13 @@ impl ServerTab {
                             config.logging.max_log_files = v;
                         }
                     },
-                    "个 (自动清理过期日志)",
+                    &i18n::t("server.max_log_files_hint"),
                 );
 
                 ui.add_space(styles::SPACING_SM);
 
                 ui.label(
-                    RichText::new("说明")
+                    RichText::new(i18n::t("server.notes"))
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_SECONDARY_COLOR)
                         .strong(),
@@ -1450,22 +1426,22 @@ impl ServerTab {
                     .show(ui, |ui| {
                         ui.vertical(|ui| {
                             ui.label(
-                                RichText::new("• 日志将自动按日期滚动（每天一个文件）")
+                                RichText::new(i18n::t("server.note_1"))
                                     .size(styles::FONT_SIZE_SM)
                                     .color(styles::TEXT_LABEL_COLOR),
                             );
                             ui.label(
-                                RichText::new("• 超过最大文件数的旧日志会被自动清理")
+                                RichText::new(i18n::t("server.note_2"))
                                     .size(styles::FONT_SIZE_SM)
                                     .color(styles::TEXT_LABEL_COLOR),
                             );
                             ui.label(
-                                RichText::new("• 系统日志：wftpg-YYYY-MM-DD.log")
+                                RichText::new(i18n::t("server.note_3"))
                                     .size(styles::FONT_SIZE_SM)
                                     .color(styles::TEXT_LABEL_COLOR),
                             );
                             ui.label(
-                                RichText::new("• 文件操作日志：file-ops-YYYY-MM-DD.log")
+                                RichText::new(i18n::t("server.note_4"))
                                     .size(styles::FONT_SIZE_SM)
                                     .color(styles::TEXT_LABEL_COLOR),
                             );

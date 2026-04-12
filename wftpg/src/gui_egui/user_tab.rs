@@ -1,4 +1,5 @@
 use crate::core::config::Config;
+use crate::core::i18n;
 use crate::core::users::{Permissions, User, UserManager};
 use crate::gui_egui::styles;
 use egui::{Color32, Frame, RichText, Ui};
@@ -30,7 +31,7 @@ impl Default for UserTab {
         let user_manager = match UserManager::load(&Config::get_users_path()) {
             Ok(um) => um,
             Err(e) => {
-                tracing::warn!("加载用户配置失败，使用默认配置: {}", e);
+                tracing::warn!("{}", i18n::t_fmt("users.load_failed", &[&e.to_string()]));
                 UserManager::default()
             }
         };
@@ -57,12 +58,12 @@ impl UserTab {
     fn save(&mut self) {
         match self.user_manager.save(&Config::get_users_path()) {
             Ok(_) => {
-                tracing::info!("用户配置已保存");
-                self.status_message = Some(("用户配置已保存".into(), true));
+                tracing::info!("User config saved");
+                self.status_message = Some((i18n::t("users.user_saved"), true));
             }
             Err(e) => {
-                tracing::error!("保存用户配置失败: {}", e);
-                self.status_message = Some((format!("保存失败: {}", e), false));
+                tracing::error!("Failed to save user config: {}", e);
+                self.status_message = Some((i18n::t_fmt("users.save_failed", &[&e.to_string()]), false));
             }
         }
     }
@@ -91,23 +92,23 @@ impl UserTab {
 
     fn validate_form(&self, is_add: bool) -> Option<String> {
         if is_add && self.form_username.trim().is_empty() {
-            return Some("用户名不能为空".into());
+            return Some(i18n::t("users.username_empty"));
         }
         if is_add && self.form_password.is_empty() {
-            return Some("密码不能为空".into());
+            return Some(i18n::t("users.password_empty"));
         }
         if !self.form_password.is_empty() && self.form_password != self.form_confirm_password {
-            return Some("两次密码不一致".into());
+            return Some(i18n::t("users.password_mismatch"));
         }
         if self.form_home_dir.trim().is_empty() {
-            return Some("主目录不能为空".into());
+            return Some(i18n::t("users.home_dir_empty"));
         }
         None
     }
 
     fn pick_home_directory(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .set_title("选择用户主目录")
+            .set_title(&i18n::t("users.select_home_dir"))
             .pick_folder()
         {
             self.form_home_dir = path.to_string_lossy().to_string();
@@ -135,9 +136,9 @@ impl UserTab {
         let is_add = matches!(&self.modal, ModalMode::AddUser);
         let is_confirm = matches!(&self.modal, ModalMode::ConfirmDelete(_));
         let title = match &self.modal {
-            ModalMode::AddUser => "添加用户",
-            ModalMode::EditUser(_) => "编辑用户",
-            ModalMode::ConfirmDelete(_) => "确认删除",
+            ModalMode::AddUser => &i18n::t("users.add_modal_title"),
+            ModalMode::EditUser(_) => &i18n::t("users.edit_modal_title"),
+            ModalMode::ConfirmDelete(_) => &i18n::t("users.confirm_delete_title"),
             ModalMode::None => "",
         };
         let mw: f32 = if is_confirm {
@@ -159,16 +160,15 @@ impl UserTab {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 if is_confirm {
-                    // 使用引用获取用户名，避免 clone
                     if let ModalMode::ConfirmDelete(ref name) = self.modal {
                         ui.vertical_centered(|ui| {
                             ui.add_space(styles::SPACING_SM);
                             ui.label(
-                                RichText::new(format!("确定要删除用户 \"{}\" 吗？", name))
+                                RichText::new(i18n::t_fmt("users.confirm_delete_msg", &[name]))
                                     .size(styles::FONT_SIZE_MD),
                             );
                             ui.label(
-                                RichText::new("此操作不可撤销。")
+                                RichText::new(i18n::t("users.cannot_undo"))
                                     .color(styles::DANGER_COLOR)
                                     .size(styles::FONT_SIZE_MD),
                             );
@@ -176,11 +176,11 @@ impl UserTab {
                         });
                         ui.horizontal(|ui| {
                             let w = (mw - 32.0) / 2.0;
-                            if ui.add_sized([w, 32.0], egui::Button::new("取消")).clicked() {
+                            if ui.add_sized([w, 32.0], egui::Button::new(&i18n::t("users.cancel"))).clicked() {
                                 close_modal = true;
                             }
                             let del = egui::Button::new(
-                                RichText::new("确认删除")
+                                RichText::new(&i18n::t("users.confirm_delete"))
                                     .color(Color32::WHITE)
                                     .size(styles::FONT_SIZE_MD),
                             )
@@ -210,7 +210,7 @@ impl UserTab {
                                 ui.add_sized(
                                     [label_width, 24.0],
                                     egui::Label::new(
-                                        RichText::new("用户名:")
+                                        RichText::new(&i18n::t("users.username_label"))
                                             .size(styles::FONT_SIZE_MD)
                                             .color(styles::TEXT_SECONDARY_COLOR),
                                     ),
@@ -220,7 +220,7 @@ impl UserTab {
                                         ui.add(
                                             egui::TextEdit::singleline(&mut self.form_username)
                                                 .desired_width(input_width)
-                                                .hint_text("请输入用户名")
+                                                .hint_text(&i18n::t("users.enter_username"))
                                                 .font(egui::FontId::new(
                                                     styles::FONT_SIZE_MD,
                                                     egui::FontFamily::Proportional,
@@ -228,7 +228,6 @@ impl UserTab {
                                         );
                                     });
                                 } else {
-                                    // 使用引用，避免不必要的 clone
                                     ui.label(
                                         RichText::new(&self.form_username)
                                             .strong()
@@ -243,9 +242,9 @@ impl UserTab {
                                     [label_width, 24.0],
                                     egui::Label::new(
                                         RichText::new(if is_add {
-                                            "密码:"
+                                            &i18n::t("users.password_label")
                                         } else {
-                                            "新密码:"
+                                            &i18n::t("users.new_password_label")
                                         })
                                         .size(styles::FONT_SIZE_MD)
                                         .color(styles::TEXT_SECONDARY_COLOR),
@@ -257,9 +256,9 @@ impl UserTab {
                                             .password(true)
                                             .desired_width(input_width)
                                             .hint_text(if is_add {
-                                                "请输入密码"
+                                                &i18n::t("users.enter_password")
                                             } else {
-                                                "留空则不修改"
+                                                &i18n::t("users.leave_empty_no_change")
                                             })
                                             .font(egui::FontId::new(
                                                 styles::FONT_SIZE_MD,
@@ -273,7 +272,7 @@ impl UserTab {
                                 ui.add_sized(
                                     [label_width, 24.0],
                                     egui::Label::new(
-                                        RichText::new("确认密码:")
+                                        RichText::new(&i18n::t("users.confirm_password_label"))
                                             .size(styles::FONT_SIZE_MD)
                                             .color(styles::TEXT_SECONDARY_COLOR),
                                     ),
@@ -283,7 +282,7 @@ impl UserTab {
                                         egui::TextEdit::singleline(&mut self.form_confirm_password)
                                             .password(true)
                                             .desired_width(input_width)
-                                            .hint_text("再次输入密码")
+                                            .hint_text(&i18n::t("users.enter_password_again"))
                                             .font(egui::FontId::new(
                                                 styles::FONT_SIZE_MD,
                                                 egui::FontFamily::Proportional,
@@ -296,7 +295,7 @@ impl UserTab {
                                 ui.add_sized(
                                     [label_width, 24.0],
                                     egui::Label::new(
-                                        RichText::new("主目录:")
+                                        RichText::new(&i18n::t("users.home_dir_label"))
                                             .size(styles::FONT_SIZE_MD)
                                             .color(styles::TEXT_SECONDARY_COLOR),
                                     ),
@@ -305,14 +304,14 @@ impl UserTab {
                                     ui.add(
                                         egui::TextEdit::singleline(&mut self.form_home_dir)
                                             .desired_width(ui.available_width() - 80.0)
-                                            .hint_text("如: C:\\Users\\ftp")
+                                            .hint_text(&i18n::t("users.home_dir_example"))
                                             .font(egui::FontId::new(
                                                 styles::FONT_SIZE_MD,
                                                 egui::FontFamily::Proportional,
                                             )),
                                     );
                                 });
-                                if ui.button("浏览...").clicked() {
+                                if ui.button(&i18n::t("server.browse")).clicked() {
                                     self.pick_home_directory();
                                 }
                             });
@@ -321,26 +320,25 @@ impl UserTab {
                                 ui.add_sized(
                                     [label_width, 24.0],
                                     egui::Label::new(
-                                        RichText::new("权限:")
+                                        RichText::new(&i18n::t("users.permissions_label"))
                                             .size(styles::FONT_SIZE_MD)
                                             .color(styles::TEXT_SECONDARY_COLOR),
                                     ),
                                 );
-                                ui.checkbox(&mut self.form_is_admin, "赋予管理员权限");
+                                ui.checkbox(&mut self.form_is_admin, &i18n::t("users.grant_admin"));
                             });
 
                             ui.add_space(styles::SPACING_XS);
 
-                            // 高级权限设置
                             ui.horizontal_wrapped(|ui| {
-                                ui.checkbox(&mut self.form_permissions.can_read, "读取");
-                                ui.checkbox(&mut self.form_permissions.can_write, "写入");
-                                ui.checkbox(&mut self.form_permissions.can_delete, "删除");
-                                ui.checkbox(&mut self.form_permissions.can_list, "列表");
-                                ui.checkbox(&mut self.form_permissions.can_mkdir, "创建目录");
-                                ui.checkbox(&mut self.form_permissions.can_rmdir, "删除目录");
-                                ui.checkbox(&mut self.form_permissions.can_rename, "重命名");
-                                ui.checkbox(&mut self.form_permissions.can_append, "追加");
+                                ui.checkbox(&mut self.form_permissions.can_read, &i18n::t("users.perm_read"));
+                                ui.checkbox(&mut self.form_permissions.can_write, &i18n::t("users.perm_write"));
+                                ui.checkbox(&mut self.form_permissions.can_delete, &i18n::t("users.perm_delete"));
+                                ui.checkbox(&mut self.form_permissions.can_list, &i18n::t("users.perm_list"));
+                                ui.checkbox(&mut self.form_permissions.can_mkdir, &i18n::t("users.perm_mkdir"));
+                                ui.checkbox(&mut self.form_permissions.can_rmdir, &i18n::t("users.perm_rmdir"));
+                                ui.checkbox(&mut self.form_permissions.can_rename, &i18n::t("users.perm_rename"));
+                                ui.checkbox(&mut self.form_permissions.can_append, &i18n::t("users.perm_append"));
                             });
                         });
 
@@ -357,11 +355,11 @@ impl UserTab {
                     ui.add_space(styles::SPACING_XS);
                     ui.horizontal(|ui| {
                         let w = (mw - 32.0) / 2.0;
-                        if ui.add_sized([w, 30.0], egui::Button::new("取消")).clicked() {
+                        if ui.add_sized([w, 30.0], egui::Button::new(&i18n::t("users.cancel"))).clicked() {
                             close_modal = true;
                         }
                         let ok = egui::Button::new(
-                            RichText::new(if is_add { "添加" } else { "保存" })
+                            RichText::new(if is_add { &i18n::t("users.add") } else { &i18n::t("users.save") })
                                 .color(Color32::WHITE)
                                 .size(styles::FONT_SIZE_MD),
                         )
@@ -391,20 +389,20 @@ impl UserTab {
                             .update_permissions(username, self.form_permissions)
                         {
                             Ok(_) => {
-                                tracing::info!("用户 {} 权限更新成功", username);
+                                tracing::info!("User {} permissions updated", username);
                             }
                             Err(e) => {
-                                tracing::warn!("用户 {} 权限更新失败: {}", username, e);
+                                tracing::warn!("User {} permission update failed: {}", username, e);
                                 self.status_message =
-                                    Some((format!("用户已添加，但权限设置失败: {}", e), false));
+                                    Some((i18n::t_fmt("users.user_added_perm_failed", &[&e.to_string()]), false));
                             }
                         }
                         self.save();
                         self.modal = ModalMode::None;
                     }
                     Err(e) => {
-                        tracing::error!("添加用户 {} 失败: {}", self.form_username.trim(), e);
-                        self.form_error = Some(format!("添加失败: {}", e));
+                        tracing::error!("Add user {} failed: {}", self.form_username.trim(), e);
+                        self.form_error = Some(i18n::t_fmt("users.add_failed", &[&e.to_string()]));
                     }
                 }
             } else if let ModalMode::EditUser(ref uname) = self.modal {
@@ -416,11 +414,11 @@ impl UserTab {
                     .update_home_dir(uname, self.form_home_dir.trim())
                 {
                     Ok(_) => {
-                        tracing::info!("用户 {} 主目录更新成功", uname);
+                        tracing::info!("User {} home dir updated", uname);
                     }
                     Err(e) => {
-                        tracing::warn!("用户 {} 主目录更新失败: {}", uname, e);
-                        error_messages.push(format!("主目录更新失败: {}", e));
+                        tracing::warn!("User {} home dir update failed: {}", uname, e);
+                        error_messages.push(i18n::t_fmt("users.home_dir_update_failed", &[&e.to_string()]));
                         has_error = true;
                     }
                 }
@@ -431,11 +429,11 @@ impl UserTab {
                         .update_password(uname, &self.form_password)
                     {
                         Ok(_) => {
-                            tracing::info!("用户 {} 密码更新成功", uname);
+                            tracing::info!("User {} password updated", uname);
                         }
                         Err(e) => {
-                            tracing::warn!("用户 {} 密码更新失败: {}", uname, e);
-                            error_messages.push(format!("密码更新失败: {}", e));
+                            tracing::warn!("User {} password update failed: {}", uname, e);
+                            error_messages.push(i18n::t_fmt("users.password_update_failed", &[&e.to_string()]));
                             has_error = true;
                         }
                     }
@@ -446,29 +444,29 @@ impl UserTab {
                     .update_permissions(uname, self.form_permissions)
                 {
                     Ok(_) => {
-                        tracing::info!("用户 {} 权限更新成功", uname);
+                        tracing::info!("User {} permissions updated", uname);
                     }
                     Err(e) => {
-                        tracing::warn!("用户 {} 权限更新失败: {}", uname, e);
-                        error_messages.push(format!("权限更新失败: {}", e));
+                        tracing::warn!("User {} permission update failed: {}", uname, e);
+                        error_messages.push(i18n::t_fmt("users.perm_update_failed", &[&e.to_string()]));
                         has_error = true;
                     }
                 }
 
                 match self.user_manager.set_user_admin(uname, self.form_is_admin) {
                     Ok(_) => {
-                        tracing::info!("用户 {} 管理员状态更新成功", uname);
+                        tracing::info!("User {} admin status updated", uname);
                     }
                     Err(e) => {
-                        tracing::warn!("用户 {} 管理员状态更新失败: {}", uname, e);
-                        error_messages.push(format!("管理员状态更新失败: {}", e));
+                        tracing::warn!("User {} admin status update failed: {}", uname, e);
+                        error_messages.push(i18n::t_fmt("users.admin_status_update_failed", &[&e.to_string()]));
                         has_error = true;
                     }
                 }
 
                 if has_error {
                     self.status_message = Some((
-                        format!("部分更新失败: {}", error_messages.join("; ")),
+                        i18n::t_fmt("users.partial_update_failed", &[&error_messages.join("; ")]),
                         false,
                     ));
                 }
@@ -480,19 +478,17 @@ impl UserTab {
         if let Some(name) = delete_target {
             match self.user_manager.remove_user(&name) {
                 Ok(_) => {
-                    tracing::info!("用户 {} 已删除", name);
+                    tracing::info!("User {} deleted", name);
                     self.save();
                 }
                 Err(e) => {
-                    tracing::error!("删除用户 {} 失败：{}", name, e);
-                    self.status_message = Some((format!("删除用户失败：{}", e), false));
+                    tracing::error!("Delete user {} failed: {}", name, e);
+                    self.status_message = Some((i18n::t_fmt("users.delete_failed", &[&e.to_string()]), false));
                 }
             }
-            // 无论成功或失败，都关闭模态框
             close_modal = true;
         }
 
-        // 统一处理模态框关闭逻辑
         if close_modal {
             self.modal = ModalMode::None;
             self.form_error = None;
@@ -505,9 +501,8 @@ impl UserTab {
         self.show_modal(&ctx);
 
         ui.horizontal(|ui| {
-            styles::page_header(ui, "👥", "用户管理");
+            styles::page_header(ui, "👥", &i18n::t("users.title"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // 直接使用引用，避免不必要的 clone
                 if let Some((msg, ok)) = &self.status_message {
                     styles::status_message(ui, msg, *ok);
                 }
@@ -516,7 +511,7 @@ impl UserTab {
 
         ui.horizontal(|ui| {
             let add_btn = egui::Button::new(
-                RichText::new("➕ 添加用户")
+                RichText::new(&i18n::t("users.add_user"))
                     .color(Color32::WHITE)
                     .size(styles::FONT_SIZE_MD),
             )
@@ -526,24 +521,23 @@ impl UserTab {
                 self.open_add_modal();
             }
             ui.add_space(styles::SPACING_SM);
-            if ui.button("🔄 刷新").clicked() {
+            if ui.button(&i18n::t("log.refresh")).clicked() {
                 match UserManager::load(&Config::get_users_path()) {
                     Ok(um) => {
                         self.user_manager = um;
-                        tracing::info!("用户列表已刷新");
-                        self.status_message = Some(("用户列表已刷新".into(), true));
+                        tracing::info!("User list refreshed");
+                        self.status_message = Some((i18n::t("users.user_list_refreshed"), true));
                     }
                     Err(e) => {
-                        tracing::error!("刷新用户列表失败: {}", e);
-                        self.status_message = Some((format!("刷新失败: {}", e), false));
+                        tracing::error!("Refresh user list failed: {}", e);
+                        self.status_message = Some((i18n::t_fmt("users.refresh_failed", &[&e.to_string()]), false));
                     }
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // 使用 user_count() 避免不必要的 clone
                 let count = self.user_manager.user_count();
                 ui.label(
-                    RichText::new(format!("共 {} 个用户", count))
+                    RichText::new(i18n::t_fmt("users.total_users", &[&count.to_string()]))
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_MUTED_COLOR),
                 );
@@ -552,14 +546,13 @@ impl UserTab {
 
         ui.add_space(styles::SPACING_MD);
 
-        // 使用 iter_users() 返回引用，避免 clone 所有用户
         let users: Vec<&User> = self.user_manager.iter_users().collect();
         let mut to_toggle: Option<(String, bool)> = None;
         let mut to_edit: Option<User> = None;
         let mut to_delete_confirm: Option<String> = None;
 
         if users.is_empty() {
-            styles::empty_state(ui, "📭", "暂无用户", "点击 \"➕ 添加用户\" 创建第一个用户");
+            styles::empty_state(ui, "📭", &i18n::t("users.no_users"), &i18n::t("users.no_users_hint"));
         } else {
             styles::card_frame().show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
@@ -582,35 +575,35 @@ impl UserTab {
                     .header(styles::FONT_SIZE_MD, |mut header| {
                         header.col(|ui| {
                             ui.label(
-                                RichText::new("用户名")
+                                RichText::new(&i18n::t("users.username"))
                                     .strong()
                                     .color(styles::TEXT_PRIMARY_COLOR),
                             );
                         });
                         header.col(|ui| {
                             ui.label(
-                                RichText::new("主目录")
+                                RichText::new(&i18n::t("users.home_dir"))
                                     .strong()
                                     .color(styles::TEXT_PRIMARY_COLOR),
                             );
                         });
                         header.col(|ui| {
                             ui.label(
-                                RichText::new("权限")
+                                RichText::new(&i18n::t("users.permissions"))
                                     .strong()
                                     .color(styles::TEXT_PRIMARY_COLOR),
                             );
                         });
                         header.col(|ui| {
                             ui.label(
-                                RichText::new("状态")
+                                RichText::new(&i18n::t("users.status"))
                                     .strong()
                                     .color(styles::TEXT_PRIMARY_COLOR),
                             );
                         });
                         header.col(|ui| {
                             ui.label(
-                                RichText::new("操作")
+                                RichText::new(&i18n::t("users.actions"))
                                     .strong()
                                     .color(styles::TEXT_PRIMARY_COLOR),
                             );
@@ -618,10 +611,8 @@ impl UserTab {
                     })
                     .body(|mut body| {
                         for &user in &users {
-                            // user 现在是 User（通过解构引用）
                             body.row(styles::FONT_SIZE_MD, |mut row| {
                                 row.col(|ui| {
-                                    // 直接使用引用访问字段
                                     ui.label(
                                         RichText::new(&user.username)
                                             .size(styles::FONT_SIZE_MD)
@@ -638,11 +629,11 @@ impl UserTab {
                                 });
                                 row.col(|ui| {
                                     let admin_rt = if user.is_admin {
-                                        RichText::new("👑 管理员")
+                                        RichText::new(&i18n::t("users.admin"))
                                             .size(styles::FONT_SIZE_MD)
                                             .color(styles::PRIMARY_COLOR)
                                     } else {
-                                        RichText::new("👤 普通")
+                                        RichText::new(&i18n::t("users.normal"))
                                             .size(styles::FONT_SIZE_MD)
                                             .color(styles::TEXT_LABEL_COLOR)
                                     };
@@ -656,7 +647,7 @@ impl UserTab {
                                     };
                                     let st_icon = if user.enabled { "●" } else { "○" };
                                     ui.label(
-                                        RichText::new(format!("{} 启用", st_icon))
+                                        RichText::new(format!("{} {}", st_icon, i18n::t("users.enabled")))
                                             .size(styles::FONT_SIZE_MD)
                                             .color(st_col),
                                     );
@@ -666,21 +657,20 @@ impl UserTab {
                                         ui.spacing_mut().item_spacing.x = 6.0;
 
                                         let edit_btn = egui::Button::new(
-                                            RichText::new("编辑").size(styles::FONT_SIZE_MD),
+                                            RichText::new(&i18n::t("users.edit")).size(styles::FONT_SIZE_MD),
                                         )
                                         .fill(styles::BG_SECONDARY)
                                         .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
                                         .corner_radius(egui::CornerRadius::same(4));
                                         if ui.add(edit_btn).clicked() {
-                                            // 在需要时 clone
                                             to_edit = Some(user.clone());
                                         }
 
                                         let toggle_btn = egui::Button::new(
                                             RichText::new(if user.enabled {
-                                                "禁用"
+                                                &i18n::t("users.disable")
                                             } else {
-                                                "启用"
+                                                &i18n::t("users.enable")
                                             })
                                             .size(styles::FONT_SIZE_MD),
                                         )
@@ -699,20 +689,18 @@ impl UserTab {
                                         ))
                                         .corner_radius(egui::CornerRadius::same(4));
                                         if ui.add(toggle_btn).clicked() {
-                                            // 在需要时 clone
                                             to_toggle =
                                                 Some((user.username.clone(), !user.enabled));
                                         }
 
                                         let del = egui::Button::new(
-                                            RichText::new("删除")
+                                            RichText::new(&i18n::t("users.delete"))
                                                 .size(styles::FONT_SIZE_MD)
                                                 .color(Color32::WHITE),
                                         )
                                         .fill(styles::DANGER_DARK)
                                         .corner_radius(egui::CornerRadius::same(4));
                                         if ui.add(del).clicked() {
-                                            // 在需要时 clone
                                             to_delete_confirm = Some(user.username.clone());
                                         }
                                     });
@@ -744,14 +732,14 @@ impl UserTab {
             match self.user_manager.set_user_enabled(&name, enabled) {
                 Ok(_) => {
                     tracing::info!(
-                        "用户 {} 状态已更改为 {}",
+                        "User {} status changed to {}",
                         name,
-                        if enabled { "启用" } else { "禁用" }
+                        if enabled { "enabled" } else { "disabled" }
                     );
                 }
                 Err(e) => {
-                    tracing::error!("更改用户 {} 状态失败: {}", name, e);
-                    self.status_message = Some((format!("更改用户状态失败: {}", e), false));
+                    tracing::error!("Failed to change user {} status: {}", name, e);
+                    self.status_message = Some((i18n::t_fmt("users.status_change_failed", &[&e.to_string()]), false));
                 }
             }
             self.save();

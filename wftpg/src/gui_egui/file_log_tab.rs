@@ -1,4 +1,5 @@
 use crate::core::config::Config;
+use crate::core::i18n;
 use crate::core::logger::LogEntry;
 use crate::gui_egui::styles;
 use egui::RichText;
@@ -11,24 +12,22 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-const MAX_DISPLAY_LOGS: usize = 500; // 最大显示 500 条，避免内存过大（从 2000 降低到 500）
-const INITIAL_FETCH_COUNT: usize = 100; // 初始加载 100 条（从 200 降低到 100）
-const INCREMENTAL_READ_SIZE: usize = 20; // 每次增量读取最多 20 条（从 50 降低到 20）
+const MAX_DISPLAY_LOGS: usize = 500;
+const INITIAL_FETCH_COUNT: usize = 100;
+const INCREMENTAL_READ_SIZE: usize = 20;
 
 pub struct FileLogTab {
-    logs: VecDeque<LogEntry>, // 使用 VecDeque 优化头部删除
+    logs: VecDeque<LogEntry>,
     last_error: Option<String>,
     loading: bool,
     last_refresh_time: Option<Instant>,
     log_dir: PathBuf,
-    // 增量读取状态
     last_file_pos: u64,
     current_log_file: Option<PathBuf>,
-    // 文件监听器（事件驱动）
     log_watcher: Option<RecommendedWatcher>,
     log_rx: Option<Receiver<Result<Event, notify::Error>>>,
-    needs_refresh: bool,              // 标记是否需要刷新
-    last_event_time: Option<Instant>, // 上次事件时间（用于防抖）
+    needs_refresh: bool,
+    last_event_time: Option<Instant>,
 }
 
 impl Default for FileLogTab {
@@ -57,18 +56,14 @@ impl Default for FileLogTab {
 impl FileLogTab {
     pub fn new() -> Self {
         let mut tab = Self::default();
-        // 初始化文件监听器
         tab.init_log_watcher();
         tab.load_logs();
         tab
     }
 
-    /// 初始化日志文件监听器
     fn init_log_watcher(&mut self) {
-        // 创建通道接收文件事件
         let (tx, rx) = mpsc::channel();
 
-        // 创建监听器 - 使用更短的轮询间隔以提高响应速度
         let watcher_result = RecommendedWatcher::new(
             move |res: Result<Event, notify::Error>| {
                 let _ = tx.send(res);
@@ -78,7 +73,6 @@ impl FileLogTab {
 
         match watcher_result {
             Ok(mut watcher) => {
-                // 监听日志目录
                 self.watch_log_dir(&mut watcher);
 
                 self.log_watcher = Some(watcher);
@@ -90,7 +84,6 @@ impl FileLogTab {
         }
     }
 
-    /// 尝试监听日志目录
     fn watch_log_dir(&mut self, watcher: &mut RecommendedWatcher) {
         if self.log_dir.exists() {
             if let Err(e) = watcher.watch(&self.log_dir, RecursiveMode::NonRecursive) {
@@ -103,9 +96,7 @@ impl FileLogTab {
         }
     }
 
-    /// 检查日志文件事件（在 UI 循环中调用）
     pub fn check_log_events(&mut self, ctx: &egui::Context) {
-        // 如果日志目录不存在，直接返回
         if !self.log_dir.exists() {
             return;
         }
@@ -120,11 +111,9 @@ impl FileLogTab {
                 }
                 match result {
                     Ok(event) => {
-                        // 处理所有类型的事件（创建、修改、删除等）
                         for path in &event.paths {
                             if path.extension().is_some_and(|ext| ext == "log") {
                                 let now = Instant::now();
-                                // 减少防抖时间到 100ms，提高响应速度
                                 if self
                                     .last_event_time
                                     .is_none_or(|t| t.elapsed() >= Duration::from_millis(100))
@@ -135,7 +124,6 @@ impl FileLogTab {
                                         "File log file changed: {:?}, will refresh",
                                         path
                                     );
-                                    // 请求 UI 重绘，确保日志能够立即显示
                                     ctx.request_repaint();
                                 }
                                 break;
@@ -150,7 +138,6 @@ impl FileLogTab {
         }
     }
 
-    /// 初始化加载日志
     fn load_logs(&mut self) {
         self.loading = true;
         self.last_error = None;
@@ -158,7 +145,6 @@ impl FileLogTab {
 
         let log_dir = &self.log_dir;
 
-        // 找到最新的日志文件
         if let Ok(entries) = fs::read_dir(log_dir) {
             let mut log_files: Vec<_> = entries
                 .filter_map(|e| e.ok())
@@ -169,21 +155,18 @@ impl FileLogTab {
                 })
                 .collect();
 
-            // 按修改时间排序，最新的在前
             log_files.sort_by(|a, b| {
                 let a_time = a.metadata().and_then(|m| m.modified()).ok();
                 let b_time = b.metadata().and_then(|m| m.modified()).ok();
                 b_time.cmp(&a_time)
             });
 
-            // 读取最新日志文件的最后部分
             if let Some(latest_file) = log_files.first() {
                 self.current_log_file = Some(latest_file.path());
                 if let Ok(file) = File::open(latest_file.path()) {
                     let metadata = file.metadata().ok();
                     let file_size = metadata.map(|m| m.len()).unwrap_or(0);
 
-                    // 从文件末尾往前读，获取最新的 INITIAL_FETCH_COUNT 条
                     let reader = BufReader::new(file);
                     let mut lines: Vec<_> = reader.lines().collect();
                     lines.reverse();
@@ -202,13 +185,11 @@ impl FileLogTab {
                         }
                     }
 
-                    // 记录当前文件位置（下次从这里继续读）
                     self.last_file_pos = file_size;
                 }
             }
         }
 
-        // 按时间戳降序排序（新的在前），然后只保留最新的 MAX_DISPLAY_LOGS
         let mut logs_vec: Vec<_> = self.logs.drain(..).collect();
         logs_vec.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         if logs_vec.len() > MAX_DISPLAY_LOGS {
@@ -220,14 +201,12 @@ impl FileLogTab {
         self.last_refresh_time = Some(Instant::now());
     }
 
-    /// 增量读取新日志（只读新增的部分）
     fn incrementally_read_logs(&mut self) {
         let Some(current_file) = &self.current_log_file else {
             return;
         };
 
         if !current_file.exists() {
-            // 文件不存在，重新初始化
             self.load_logs();
             return;
         }
@@ -240,18 +219,15 @@ impl FileLogTab {
 
             let current_size = metadata.len();
 
-            // 如果文件变小了（日志轮转），重新初始化
             if current_size < self.last_file_pos {
                 self.load_logs();
                 return;
             }
 
-            // 如果没有新内容，直接返回
             if current_size == self.last_file_pos {
                 return;
             }
 
-            // 只读取新增的部分
             let mut reader = BufReader::new(file);
             if reader.seek(SeekFrom::Start(self.last_file_pos)).is_err() {
                 return;
@@ -273,22 +249,18 @@ impl FileLogTab {
                 }
             }
 
-            // 只在成功读取后更新文件位置，避免跳过有效日志
-            // 如果没有读到任何日志（都是无效行），也更新位置避免重复读取
             if !new_entries.is_empty() || count == 0 {
                 self.last_file_pos = current_size;
             }
 
-            // 如果有新日志，插入到队列头部（最新的在前）
             if !new_entries.is_empty() {
                 for entry in new_entries.into_iter().rev() {
                     if self.logs.len() >= MAX_DISPLAY_LOGS {
-                        self.logs.pop_back(); // 移除最旧的
+                        self.logs.pop_back();
                     }
                     self.logs.push_front(entry);
                 }
 
-                // 更新刷新时间
                 self.last_refresh_time = Some(Instant::now());
             }
         }
@@ -306,25 +278,36 @@ impl FileLogTab {
             Some(t) => {
                 let elapsed = t.elapsed();
                 if elapsed < Duration::from_secs(60) {
-                    format!("{} 秒前刷新", elapsed.as_secs())
+                    i18n::t_fmt("file_log.n_seconds_ago", &[&elapsed.as_secs().to_string()])
                 } else if elapsed < Duration::from_secs(3600) {
-                    format!("{} 分钟前刷新", elapsed.as_secs() / 60)
+                    i18n::t_fmt("file_log.n_minutes_ago", &[&(elapsed.as_secs() / 60).to_string()])
                 } else {
-                    format!("{} 小时前刷新", elapsed.as_secs() / 3600)
+                    i18n::t_fmt("file_log.n_hours_ago", &[&(elapsed.as_secs() / 3600).to_string()])
                 }
             }
-            None => "未刷新".to_string(),
+            None => i18n::t("file_log.not_refreshed"),
+        }
+    }
+
+    fn translate_operation(&self, op: &str) -> String {
+        match op {
+            "UPLOAD" => i18n::t("file_log.upload"),
+            "DOWNLOAD" => i18n::t("file_log.download"),
+            "DELETE" => i18n::t("file_log.delete"),
+            "MKDIR" => i18n::t("file_log.mkdir"),
+            "RMDIR" => i18n::t("file_log.rmdir"),
+            "RENAME" => i18n::t("file_log.rename"),
+            "UPDATE" => i18n::t("file_log.update"),
+            _ => op.to_string(),
         }
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        styles::page_header(ui, "📁", "文件操作日志");
+        styles::page_header(ui, "📁", &i18n::t("file_log.title"));
 
-        // 先检查文件事件（事件驱动），并传入 context 用于请求重绘
         let ctx = ui.ctx().clone();
         self.check_log_events(&ctx);
 
-        // 如果有新日志触发，则加载（防抖动已处理）
         if self.needs_refresh && !self.loading {
             self.incrementally_read_logs();
             self.needs_refresh = false;
@@ -333,14 +316,14 @@ impl FileLogTab {
         ui.horizontal(|ui| {
             let refresh_btn = if self.loading {
                 egui::Button::new(
-                    RichText::new("⏳ 刷新中...")
+                    RichText::new(i18n::t("file_log.refreshing"))
                         .color(egui::Color32::GRAY)
                         .size(styles::FONT_SIZE_MD),
                 )
                 .fill(styles::BG_SECONDARY)
                 .corner_radius(egui::CornerRadius::same(6))
             } else {
-                styles::small_button("🔄 刷新")
+                styles::small_button(&i18n::t("file_log.refresh"))
             };
 
             if ui.add(refresh_btn).clicked() && !self.loading {
@@ -349,12 +332,11 @@ impl FileLogTab {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let status_text = if self.loading {
-                    format!("加载中... | {} 条", self.logs.len())
+                    i18n::t_fmt("file_log.loading", &[&self.logs.len().to_string()])
                 } else {
-                    format!(
-                        "共 {} 条记录 | {}",
-                        self.logs.len(),
-                        self.format_last_refresh()
+                    i18n::t_fmt(
+                        "file_log.total_count",
+                        &[&self.logs.len().to_string(), &self.format_last_refresh()],
                     )
                 };
                 ui.label(
@@ -364,8 +346,6 @@ impl FileLogTab {
                 );
             });
         });
-
-        // 移除自动刷新，改为手动刷新和事件驱动
 
         if let Some(err) = &self.last_error {
             styles::status_message(ui, err, false);
@@ -381,7 +361,7 @@ impl FileLogTab {
                     ui.spinner();
                     ui.add_space(styles::SPACING_MD);
                     ui.label(
-                        RichText::new("正在加载文件日志...")
+                        RichText::new(i18n::t("file_log.loading_log"))
                             .size(styles::FONT_SIZE_MD)
                             .color(styles::TEXT_SECONDARY_COLOR),
                     );
@@ -393,16 +373,14 @@ impl FileLogTab {
                 styles::empty_state(
                     ui,
                     "📭",
-                    "暂无文件操作记录",
-                    "用户进行文件操作时会在这里显示记录",
+                    &i18n::t("file_log.no_logs"),
+                    &i18n::t("file_log.no_logs_hint"),
                 );
                 return;
             }
 
             let available_width = ui.available_width();
 
-            // 使用 ScrollArea 包裹表格，支持滚动
-            // 使用 lazy_body 优化性能，只渲染可见行
             let table = TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
@@ -424,7 +402,7 @@ impl FileLogTab {
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
                                 ui.label(
-                                    RichText::new("时间")
+                                    RichText::new(i18n::t("file_log.col_time"))
                                         .strong()
                                         .color(styles::TEXT_PRIMARY_COLOR),
                                 );
@@ -436,7 +414,7 @@ impl FileLogTab {
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
                                 ui.label(
-                                    RichText::new("用户")
+                                    RichText::new(i18n::t("file_log.col_user"))
                                         .strong()
                                         .color(styles::TEXT_PRIMARY_COLOR),
                                 );
@@ -448,7 +426,7 @@ impl FileLogTab {
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
                                 ui.label(
-                                    RichText::new("客户端")
+                                    RichText::new(i18n::t("file_log.col_client"))
                                         .strong()
                                         .color(styles::TEXT_PRIMARY_COLOR),
                                 );
@@ -460,7 +438,7 @@ impl FileLogTab {
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
                                 ui.label(
-                                    RichText::new("协议")
+                                    RichText::new(i18n::t("file_log.col_protocol"))
                                         .strong()
                                         .color(styles::TEXT_PRIMARY_COLOR),
                                 );
@@ -472,7 +450,7 @@ impl FileLogTab {
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
                                 ui.label(
-                                    RichText::new("操作")
+                                    RichText::new(i18n::t("file_log.col_operation"))
                                         .strong()
                                         .color(styles::TEXT_PRIMARY_COLOR),
                                 );
@@ -484,7 +462,7 @@ impl FileLogTab {
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
                                 ui.label(
-                                    RichText::new("大小")
+                                    RichText::new(i18n::t("file_log.col_size"))
                                         .strong()
                                         .color(styles::TEXT_PRIMARY_COLOR),
                                 );
@@ -493,14 +471,13 @@ impl FileLogTab {
                     });
                     header.col(|ui| {
                         ui.label(
-                            RichText::new("文件路径")
+                            RichText::new(i18n::t("file_log.col_file_path"))
                                 .strong()
                                 .color(styles::TEXT_PRIMARY_COLOR),
                         );
                     });
                 })
                 .body(|mut body| {
-                    // 直接使用 iter() 而不收集中间 Vec
                     for entry in &self.logs {
                         body.row(styles::FONT_SIZE_MD, |mut row| {
                             row.col(|ui| {
@@ -585,6 +562,7 @@ impl FileLogTab {
                                         let operation =
                                             entry.fields.operation.as_deref().unwrap_or("-");
                                         let success = entry.fields.success.unwrap_or(true);
+                                        let translated_op = self.translate_operation(operation);
                                         let op_color = match operation {
                                             "DELETE" | "RMDIR" => styles::DANGER_COLOR,
                                             "UPLOAD" | "MKDIR" => styles::SUCCESS_COLOR,
@@ -595,7 +573,7 @@ impl FileLogTab {
                                         };
                                         let status_icon = if success { "√" } else { "×" };
                                         ui.label(
-                                            RichText::new(format!("{} {}", status_icon, operation))
+                                            RichText::new(format!("{} {}", status_icon, translated_op))
                                                 .size(styles::FONT_SIZE_MD)
                                                 .strong()
                                                 .color(op_color),

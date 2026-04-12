@@ -1,3 +1,4 @@
+use crate::core::i18n;
 use crate::gui_egui::styles;
 use egui::{Color32, RichText, Ui};
 
@@ -32,7 +33,6 @@ impl AboutTab {
             return;
         }
 
-        // 模态框背景遮罩
         egui::Area::new(egui::Id::new("licenses_modal_backdrop"))
             .fixed_pos(egui::pos2(0.0, 0.0))
             .order(egui::Order::Background)
@@ -45,7 +45,7 @@ impl AboutTab {
         let modal_height = (screen.height() * 0.7).clamp(400.0, 600.0);
         let center = egui::pos2(screen.center().x, screen.center().y);
 
-        egui::Window::new("开源软件声明")
+        egui::Window::new(i18n::t("about.licenses_modal_title"))
             .pivot(egui::Align2::CENTER_CENTER)
             .fixed_pos(center)
             .fixed_size([modal_width, modal_height])
@@ -54,28 +54,27 @@ impl AboutTab {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 ui.label(
-                    RichText::new("本项目使用了以下开源组件：")
+                    RichText::new(i18n::t("about.licenses_intro"))
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_SECONDARY_COLOR),
                 );
                 ui.add_space(styles::SPACING_MD);
 
-                // 开源组件列表
                 let licenses = [
-                    ("egui", "0.34.0", "MIT OR Apache-2.0", "即时模式GUI框架"),
-                    ("eframe", "0.34.0", "MIT OR Apache-2.0", "egui应用程序框架"),
-                    ("egui_extras", "0.34.0", "MIT OR Apache-2.0", "egui额外组件"),
-                    ("rfd", "0.17.2", "MIT", "原生文件对话框"),
-                    ("tokio", "1.x", "MIT", "异步运行时"),
-                    ("serde", "1.x", "MIT OR Apache-2.0", "序列化框架"),
-                    ("chrono", "0.4", "MIT OR Apache-2.0", "日期时间处理"),
-                    ("anyhow", "1.x", "MIT OR Apache-2.0", "错误处理"),
-                    ("russh", "0.58.1", "Apache-2.0", "SSH/SFTP服务器库"),
-                    ("rsa", "0.9", "MIT OR Apache-2.0", "RSA加密算法"),
-                    ("argon2", "0.5.3", "MIT OR Apache-2.0", "密码哈希算法"),
-                    ("windows", "0.62", "MIT OR Apache-2.0", "Windows API绑定"),
-                    ("tracing", "0.1", "MIT", "结构化日志框架"),
-                    ("parking_lot", "0.12", "MIT OR Apache-2.0", "高性能同步原语"),
+                    ("egui", "0.34.0", "MIT OR Apache-2.0", "Immediate mode GUI framework"),
+                    ("eframe", "0.34.0", "MIT OR Apache-2.0", "egui application framework"),
+                    ("egui_extras", "0.34.0", "MIT OR Apache-2.0", "egui extra components"),
+                    ("rfd", "0.17.2", "MIT", "Native file dialog"),
+                    ("tokio", "1.x", "MIT", "Async runtime"),
+                    ("serde", "1.x", "MIT OR Apache-2.0", "Serialization framework"),
+                    ("chrono", "0.4", "MIT OR Apache-2.0", "Date time handling"),
+                    ("anyhow", "1.x", "MIT OR Apache-2.0", "Error handling"),
+                    ("russh", "0.58.1", "Apache-2.0", "SSH/SFTP server library"),
+                    ("rsa", "0.9", "MIT OR Apache-2.0", "RSA encryption"),
+                    ("argon2", "0.5.3", "MIT OR Apache-2.0", "Password hashing"),
+                    ("windows", "0.62", "MIT OR Apache-2.0", "Windows API bindings"),
+                    ("tracing", "0.1", "MIT", "Structured logging"),
+                    ("parking_lot", "0.12", "MIT OR Apache-2.0", "High-performance sync primitives"),
                 ];
 
                 egui::ScrollArea::vertical()
@@ -119,7 +118,7 @@ impl AboutTab {
                 ui.add_space(styles::SPACING_SM);
 
                 ui.vertical_centered(|ui| {
-                    if ui.add(styles::primary_button("关闭")).clicked() {
+                    if ui.add(styles::primary_button(&i18n::t("app.close"))).clicked() {
                         self.show_licenses_modal = false;
                     }
                 });
@@ -132,14 +131,14 @@ impl AboutTab {
         self.show_licenses_modal(&ctx);
 
         ui.horizontal(|ui| {
-            styles::page_header(ui, "ℹ", "关于");
+            styles::page_header(ui, "ℹ", &i18n::t("about.title"));
         });
 
         ui.add_space(styles::SPACING_MD);
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "📦", "软件信息");
+            Self::section_header(ui, "📦", &i18n::t("about.software_info"));
 
             ui.vertical(|ui| {
                 ui.label(
@@ -150,12 +149,12 @@ impl AboutTab {
                 );
                 ui.add_space(styles::SPACING_SM);
                 ui.label(
-                    RichText::new(format!("版本: {}", env!("CARGO_PKG_VERSION")))
+                    RichText::new(i18n::t_fmt("about.version", &[env!("CARGO_PKG_VERSION")]))
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_SECONDARY_COLOR),
                 );
                 ui.label(
-                    RichText::new("SFTP/FTP 服务器管理工具")
+                    RichText::new(i18n::t("about.description"))
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_SECONDARY_COLOR),
                 );
@@ -166,23 +165,23 @@ impl AboutTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "👤", "作者信息");
+            Self::section_header(ui, "👤", &i18n::t("about.author_info"));
 
             ui.vertical(|ui| {
                 ui.label(
-                    RichText::new("作者: 吴威富")
+                    RichText::new(i18n::t("about.author"))
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_PRIMARY_COLOR),
                 );
                 ui.add_space(styles::SPACING_SM);
                 ui.label(
-                    RichText::new("电子邮箱: boss@oi-io.cc")
+                    RichText::new(i18n::t("about.email"))
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_PRIMARY_COLOR),
                 );
                 ui.add_space(styles::SPACING_SM);
                 ui.label(
-                    RichText::new("技术栈: Rust + egui")
+                    RichText::new(i18n::t("about.tech_stack"))
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_SECONDARY_COLOR),
                 );
@@ -193,21 +192,21 @@ impl AboutTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "⚠", "注意事项");
+            Self::section_header(ui, "⚠", &i18n::t("about.notices_title"));
 
             ui.vertical(|ui| {
                 let notices = [
-                    "1. 本软件需要管理员权限运行，用于管理 Windows 服务",
-                    "2. 配置文件存储在 C:\\ProgramData\\wftpg\\ 目录",
-                    "3. 修改配置后请保存，后台服务会自动重新加载",
-                    "4. 端口变更、FTP/SFTP主配置变动需要重启wftpd服务才能生效",
-                    "5. 请确保防火墙允许 FTP/SFTP 端口通信",
-                    "6. 当前不支持管理Windows上的符号链接",
+                    i18n::t("about.notice_1"),
+                    i18n::t("about.notice_2"),
+                    i18n::t("about.notice_3"),
+                    i18n::t("about.notice_4"),
+                    i18n::t("about.notice_5"),
+                    i18n::t("about.notice_6"),
                 ];
 
                 for notice in &notices {
                     ui.label(
-                        RichText::new(*notice)
+                        RichText::new(notice)
                             .size(styles::FONT_SIZE_MD)
                             .color(styles::TEXT_SECONDARY_COLOR),
                     );
@@ -220,24 +219,54 @@ impl AboutTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "📄", "开源协议");
+            Self::section_header(ui, "🌐", &i18n::t("about.language"));
 
             ui.vertical(|ui| {
                 ui.label(
-                    RichText::new("本软件基于 MIT 协议开源")
+                    RichText::new(i18n::t("about.language_hint"))
+                        .size(styles::FONT_SIZE_MD)
+                        .color(styles::TEXT_SECONDARY_COLOR),
+                );
+                ui.add_space(styles::SPACING_SM);
+
+                ui.horizontal(|ui| {
+                    for lang in i18n::Language::all() {
+                        let is_current = *lang == i18n::current_language();
+                        let btn = if is_current {
+                            styles::primary_button(lang.display_name())
+                        } else {
+                            styles::secondary_button(lang.display_name())
+                        };
+                        if ui.add(btn).clicked() {
+                            i18n::set_language(*lang);
+                            save_gui_language(*lang);
+                        }
+                    }
+                });
+            });
+        });
+
+        ui.add_space(styles::SPACING_MD);
+
+        styles::card_frame().show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            Self::section_header(ui, "📄", &i18n::t("about.license_title"));
+
+            ui.vertical(|ui| {
+                ui.label(
+                    RichText::new(i18n::t("about.license_desc"))
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_SECONDARY_COLOR),
                 );
                 ui.add_space(styles::SPACING_SM);
                 ui.label(
-                    RichText::new("Copyright © 2026 WFTPG Contributors")
+                    RichText::new(i18n::t("about.copyright"))
                         .size(styles::FONT_SIZE_SM)
                         .color(styles::TEXT_MUTED_COLOR),
                 );
                 ui.add_space(styles::SPACING_MD);
 
-                // 超链接样式的按钮
-                let link_text = RichText::new("📋 开源软件声明")
+                let link_text = RichText::new(i18n::t("about.view_licenses"))
                     .size(styles::FONT_SIZE_MD)
                     .color(styles::PRIMARY_COLOR)
                     .underline();
@@ -252,5 +281,20 @@ impl AboutTab {
                 }
             });
         });
+    }
+}
+
+fn save_gui_language(lang: i18n::Language) {
+    use std::fs;
+    use std::io::Write;
+
+    let config_dir = crate::core::config::Config::get_config_path()
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("C:\\ProgramData\\wftpg"));
+
+    let lang_file = config_dir.join("gui_language.txt");
+    if let Ok(mut file) = fs::File::create(&lang_file) {
+        let _ = file.write_all(lang.code().as_bytes());
     }
 }

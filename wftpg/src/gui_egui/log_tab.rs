@@ -1,4 +1,5 @@
 use crate::core::config::Config;
+use crate::core::i18n;
 use crate::core::logger::LogEntry;
 use crate::gui_egui::styles;
 use egui::{Color32, RichText};
@@ -322,25 +323,23 @@ impl LogTab {
             Some(t) => {
                 let elapsed = t.elapsed();
                 if elapsed < Duration::from_secs(60) {
-                    format!("{} 秒前刷新", elapsed.as_secs())
+                    i18n::t_fmt("log.n_seconds_ago", &[&elapsed.as_secs().to_string()])
                 } else if elapsed < Duration::from_secs(3600) {
-                    format!("{} 分钟前刷新", elapsed.as_secs() / 60)
+                    i18n::t_fmt("log.n_minutes_ago", &[&(elapsed.as_secs() / 60).to_string()])
                 } else {
-                    format!("{} 小时前刷新", elapsed.as_secs() / 3600)
+                    i18n::t_fmt("log.n_hours_ago", &[&(elapsed.as_secs() / 3600).to_string()])
                 }
             }
-            None => "未刷新".to_string(),
+            None => i18n::t("log.not_refreshed"),
         }
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        styles::page_header(ui, "📋", "系统日志");
+        styles::page_header(ui, "📋", &i18n::t("log.title"));
 
-        // 先检查文件事件（事件驱动），并传入 context 用于请求重绘
         let ctx = ui.ctx().clone();
         self.check_log_events(&ctx);
 
-        // 如果有新日志触发，则加载（防抖动已处理）
         if self.needs_refresh && !self.loading {
             self.incrementally_read_logs();
             self.needs_refresh = false;
@@ -349,14 +348,14 @@ impl LogTab {
         ui.horizontal(|ui| {
             let refresh_btn = if self.loading {
                 egui::Button::new(
-                    RichText::new("⏳ 刷新中...")
+                    RichText::new(&i18n::t("log.refreshing"))
                         .color(egui::Color32::GRAY)
                         .size(styles::FONT_SIZE_MD),
                 )
                 .fill(styles::BG_SECONDARY)
                 .corner_radius(egui::CornerRadius::same(6))
             } else {
-                styles::small_button("🔄 刷新")
+                styles::small_button(&i18n::t("log.refresh"))
             };
 
             if ui.add(refresh_btn).clicked() && !self.loading {
@@ -365,9 +364,9 @@ impl LogTab {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let status_text = if self.loading {
-                    format!("加载中... | {} 条", self.logs.len())
+                    i18n::t_fmt("log.loading", &[&self.logs.len().to_string()])
                 } else {
-                    format!("共 {} 条 | {}", self.logs.len(), self.format_last_refresh())
+                    i18n::t_fmt("log.total_count", &[&self.logs.len().to_string(), &self.format_last_refresh()])
                 };
                 ui.label(
                     RichText::new(status_text)
@@ -376,8 +375,6 @@ impl LogTab {
                 );
             });
         });
-
-        // 移除自动刷新，改为手动刷新和事件驱动
 
         if let Some(err) = &self.last_error {
             styles::status_message(ui, err, false);
@@ -393,7 +390,7 @@ impl LogTab {
                     ui.spinner();
                     ui.add_space(styles::SPACING_MD);
                     ui.label(
-                        RichText::new("正在加载日志...")
+                        RichText::new(&i18n::t("log.loading_log"))
                             .size(styles::FONT_SIZE_MD)
                             .color(styles::TEXT_SECONDARY_COLOR),
                     );
@@ -402,21 +399,19 @@ impl LogTab {
             }
 
             if self.logs.is_empty() {
-                styles::empty_state(ui, "📭", "暂无日志记录", "服务运行后日志会在这里显示");
+                styles::empty_state(ui, "📭", &i18n::t("log.no_logs"), &i18n::t("log.no_logs_hint"));
                 return;
             }
 
             let available_width = ui.available_width();
 
-            // 使用 ScrollArea 包裹表格，支持滚动
             let scroll_area_id = egui::Id::new("log_scroll_area");
 
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
-                .stick_to_bottom(self.scroll_to_bottom) // 根据复选框动态控制
+                .stick_to_bottom(self.scroll_to_bottom)
                 .id_salt(scroll_area_id)
                 .show(ui, |ui| {
-                    // 使用 lazy_body 优化性能，只渲染可见行
                     let table = TableBuilder::new(ui)
                         .striped(true)
                         .resizable(true)
@@ -438,7 +433,7 @@ impl LogTab {
                                     ),
                                     |ui| {
                                         ui.label(
-                                            RichText::new("时间")
+                                            RichText::new(&i18n::t("log.col_time"))
                                                 .strong()
                                                 .color(styles::TEXT_PRIMARY_COLOR),
                                         );
@@ -452,7 +447,7 @@ impl LogTab {
                                     ),
                                     |ui| {
                                         ui.label(
-                                            RichText::new("级别")
+                                            RichText::new(&i18n::t("log.col_level"))
                                                 .strong()
                                                 .color(styles::TEXT_PRIMARY_COLOR),
                                         );
@@ -466,7 +461,7 @@ impl LogTab {
                                     ),
                                     |ui| {
                                         ui.label(
-                                            RichText::new("协议")
+                                            RichText::new(&i18n::t("log.col_protocol"))
                                                 .strong()
                                                 .color(styles::TEXT_PRIMARY_COLOR),
                                         );
@@ -480,7 +475,7 @@ impl LogTab {
                                     ),
                                     |ui| {
                                         ui.label(
-                                            RichText::new("客户端")
+                                            RichText::new(&i18n::t("log.col_client"))
                                                 .strong()
                                                 .color(styles::TEXT_PRIMARY_COLOR),
                                         );
@@ -489,14 +484,13 @@ impl LogTab {
                             });
                             header.col(|ui| {
                                 ui.label(
-                                    RichText::new("信息")
+                                    RichText::new(&i18n::t("log.col_message"))
                                         .strong()
                                         .color(styles::TEXT_PRIMARY_COLOR),
                                 );
                             });
                         })
                         .body(|mut body| {
-                            // 直接使用 iter() 而不收集中间 Vec
                             for entry in &self.logs {
                                 body.row(styles::FONT_SIZE_MD, |mut row| {
                                     row.col(|ui| {
@@ -592,8 +586,9 @@ impl LogTab {
                                         } else {
                                             entry.fields.message.clone()
                                         };
+                                        let translated_msg = i18n::map_log(&msg);
                                         ui.label(
-                                            RichText::new(&msg)
+                                            RichText::new(&translated_msg)
                                                 .size(styles::FONT_SIZE_MD)
                                                 .color(styles::TEXT_PRIMARY_COLOR),
                                         );
@@ -617,15 +612,13 @@ impl LogTab {
                         });
                 });
 
-            // 滚动控制区域
             ui.add_space(styles::SPACING_SM);
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.scroll_to_bottom, "自动滚动到底部");
+                ui.checkbox(&mut self.scroll_to_bottom, &i18n::t("log.auto_scroll"));
 
-                // 如果有新日志且用户不在底部，显示提示
                 if self.new_logs_count > 0 && !self.user_at_bottom {
                     let btn = egui::Button::new(
-                        RichText::new(format!("⬇ {} 条新日志", self.new_logs_count))
+                        RichText::new(i18n::t_fmt("log.new_logs", &[&self.new_logs_count.to_string()]))
                             .color(Color32::WHITE)
                             .size(styles::FONT_SIZE_SM),
                     )

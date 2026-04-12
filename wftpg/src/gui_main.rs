@@ -9,6 +9,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use wftpg::core::config::Config;
 use wftpg::core::config_manager::ConfigManager;
 use wftpg::core::config_watcher::ConfigWatcher;
+use wftpg::core::i18n;
 use wftpg::core::server_manager::ServerManager;
 use wftpg::gui_egui::{
     about_tab, file_log_tab, log_tab, security_tab, server_tab, service_tab, styles, user_tab,
@@ -29,7 +30,7 @@ mod admin {
 
     pub fn request_admin_restart() -> Result<(), String> {
         let exe_path =
-            std::env::current_exe().map_err(|e| format!("无法获取当前程序路径: {}", e))?;
+            std::env::current_exe().map_err(|e| i18n::t_fmt("app.cannot_get_exe_path", &[&e]))?;
 
         let exe_path_str = exe_path.to_string_lossy().to_string();
         let mut wide_path: Vec<u16> = exe_path_str.encode_utf16().collect();
@@ -49,7 +50,7 @@ mod admin {
 
             let result_val = result.0 as i32;
             if result_val <= 32 {
-                return Err(format!("请求管理员权限失败，错误代码: {}", result_val));
+                return Err(i18n::t_fmt("app.admin_restart_failed", &[&result_val]));
             }
         }
 
@@ -66,7 +67,7 @@ mod admin {
                 std::process::exit(0);
             }
             Err(e) => {
-                tracing::error!("请求管理员权限失败: {}", e);
+                tracing::error!("{}", i18n::t_fmt("app.admin_request_failed_log", &[&e]));
                 false
             }
         }
@@ -139,12 +140,16 @@ struct WftpgApp {
     init_start_time: Instant,
     cached_styles: CachedStyles,
     config_watcher: Option<ConfigWatcher>,
-    pending_unset_topmost: bool, // 标记是否需要在首次交互后取消置顶
+    pending_unset_topmost: bool,
+    language: i18n::Language,
 }
 
 impl WftpgApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         cc.egui_ctx.set_global_style(styles::get_custom_style());
+
+        let language = load_gui_language();
+        i18n::init(language);
 
         let config = Config::load(&Config::get_config_path()).unwrap_or_default();
         let config_manager = ConfigManager::new(config);
@@ -166,9 +171,9 @@ impl WftpgApp {
                     } else if let Some(s) = panic_info.downcast_ref::<String>() {
                         s.clone()
                     } else {
-                        "未知错误".to_string()
+                        "Unknown error".to_string()
                     };
-                    Err(format!("初始化时发生 panic: {}", msg))
+                    Err(i18n::t_fmt("app.init_panic", &[&msg]))
                 }
             };
 
@@ -196,7 +201,8 @@ impl WftpgApp {
             init_start_time: Instant::now(),
             cached_styles: CachedStyles::new(),
             config_watcher: None,
-            pending_unset_topmost: false, // 初始化为 false
+            pending_unset_topmost: false,
+            language,
         }
     }
 
@@ -233,12 +239,12 @@ impl WftpgApp {
     fn check_init_result(&mut self, ctx: &egui::Context) {
         if self.init_start_time.elapsed() >= Duration::from_secs(INIT_TIMEOUT_SECS) {
             self.init_receiver = None;
-            self.init_error = Some(format!(
-                "初始化超时（{}秒），请检查程序权限或查看日志。",
-                INIT_TIMEOUT_SECS
+            self.init_error = Some(i18n::t_fmt(
+                "app.init_timeout",
+                &[&INIT_TIMEOUT_SECS],
             ));
             self.init_state = InitState::Error;
-            tracing::error!("应用初始化超时");
+            tracing::error!("{}", i18n::t("app.init_timeout_log"));
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
             return;
         }
@@ -252,24 +258,20 @@ impl WftpgApp {
                 Ok(init_result) => {
                     self.show_service_install_dialog = init_result.show_service_dialog;
                     self.init_state = InitState::Ready;
-                    // 初始化配置监听器
                     self.init_config_watcher();
 
-                    // 显示窗口并设置启动时置顶（可被其他窗口挤占）
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                    // 方案 1: 使用 AlwaysOnTop + 后续手动降级（推荐，兼容性最好）
                     ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
                         egui::WindowLevel::AlwaysOnTop,
                     ));
-                    // 标记需要在首次交互后取消置顶
                     self.pending_unset_topmost = true;
 
-                    tracing::info!("应用初始化完成，配置监听器已启动，窗口已置顶");
+                    tracing::info!("{}", i18n::t("app.init_complete_log"));
                 }
                 Err(e) => {
                     self.init_error = Some(e);
                     self.init_state = InitState::Error;
-                    tracing::error!("应用初始化失败");
+                    tracing::error!("{}", i18n::t("app.init_failed_log"));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                 }
             }
@@ -282,9 +284,9 @@ impl WftpgApp {
         {
             self.service_install_receiver = None;
             self.service_install_start_time = None;
-            self.service_install_status = ServiceInstallStatus::Failed(format!(
-                "服务安装超时（{}秒），请检查服务状态或手动安装。",
-                SERVICE_INSTALL_TIMEOUT_SECS
+            self.service_install_status = ServiceInstallStatus::Failed(i18n::t_fmt(
+                "service.operation_timeout",
+                &[],
             ));
             return;
         }
@@ -298,7 +300,7 @@ impl WftpgApp {
             match result {
                 Ok(_) => {
                     self.service_install_status =
-                        ServiceInstallStatus::Success("服务安装并启动成功！".to_string());
+                        ServiceInstallStatus::Success(i18n::t("app.service_install_success"));
                 }
                 Err(e) => {
                     self.service_install_status = ServiceInstallStatus::Failed(e);
@@ -355,16 +357,16 @@ impl WftpgApp {
 
             let final_result = match result {
                 Ok(Ok(_)) => Ok(()),
-                Ok(Err(e)) => Err(format!("服务安装失败：{}。请以管理员身份运行程序。", e)),
+                Ok(Err(e)) => Err(i18n::t_fmt("app.service_install_failed", &[&e])),
                 Err(panic_info) => {
                     let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
                         s.to_string()
                     } else if let Some(s) = panic_info.downcast_ref::<String>() {
                         s.clone()
                     } else {
-                        "未知错误".to_string()
+                        "Unknown error".to_string()
                     };
-                    Err(format!("服务安装时发生 panic: {}", msg))
+                    Err(i18n::t_fmt("app.service_install_panic", &[&msg]))
                 }
             };
 
@@ -378,7 +380,7 @@ impl WftpgApp {
             return;
         }
 
-        egui::Window::new("安装后台服务")
+        egui::Window::new(i18n::t("app.install_service_title"))
             .collapsible(false)
             .resizable(false)
             .fixed_size([520.0, 0.0])
@@ -386,10 +388,10 @@ impl WftpgApp {
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space(styles::SPACING_LG);
-                    ui.label(RichText::new("🔔 检测到 wftpd.exe").size(styles::FONT_SIZE_LG).strong());
+                    ui.label(RichText::new(i18n::t("app.detected_wftpd")).size(styles::FONT_SIZE_LG).strong());
                     ui.add_space(styles::SPACING_SM);
-                    ui.label(RichText::new("WFTPG 后台服务尚未安装。").size(styles::FONT_SIZE_MD));
-                    ui.label(RichText::new("是否将 wftpd.exe 注册为 Windows 服务并启动？").size(styles::FONT_SIZE_MD));
+                    ui.label(RichText::new(i18n::t("app.service_not_installed")).size(styles::FONT_SIZE_MD));
+                    ui.label(RichText::new(i18n::t("app.install_question")).size(styles::FONT_SIZE_MD));
                     ui.add_space(styles::SPACING_LG);
 
                     match &self.service_install_status {
@@ -397,10 +399,10 @@ impl WftpgApp {
                             ui.vertical_centered(|ui| {
                                 ui.spinner();
                                 ui.add_space(styles::SPACING_MD);
-                                ui.label(RichText::new("正在安装服务...").size(styles::FONT_SIZE_MD));
+                                ui.label(RichText::new(i18n::t("app.installing_service")).size(styles::FONT_SIZE_MD));
                             });
                             ui.add_space(styles::SPACING_SM);
-                            ui.label(RichText::new("这可能需要几秒钟，请稍候...").size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
+                            ui.label(RichText::new(i18n::t("app.install_wait")).size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
                         }
                         ServiceInstallStatus::Success(msg) => {
                             ui.vertical_centered(|ui| {
@@ -408,7 +410,7 @@ impl WftpgApp {
                             });
                             ui.add_space(styles::SPACING_LG);
                             ui.vertical_centered(|ui| {
-                                if ui.add(styles::secondary_button("关闭")).clicked() {
+                                if ui.add(styles::secondary_button(&i18n::t("app.close"))).clicked() {
                                     self.show_service_install_dialog = false;
                                     self.service_install_status = ServiceInstallStatus::None;
                                 }
@@ -423,8 +425,8 @@ impl WftpgApp {
                                 .inner_margin(egui::Margin::same(8))
                                 .corner_radius(egui::CornerRadius::same(4))
                                 .show(ui, |ui| {
-                                    ui.label(RichText::new("手动安装命令:").size(styles::FONT_SIZE_SM).strong());
-                                    ui.label(RichText::new("sc create wftpd binPath= \"<安装目录>\\wftpd.exe\" start= auto").size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
+                                    ui.label(RichText::new(i18n::t("app.manual_install_cmd")).size(styles::FONT_SIZE_SM).strong());
+                                    ui.label(RichText::new("sc create wftpd binPath= \"<install_dir>\\wftpd.exe\" start= auto").size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
                                     ui.add_space(styles::SPACING_XS);
                                     ui.label(RichText::new("sc start wftpd").size(styles::FONT_SIZE_SM).color(styles::TEXT_MUTED_COLOR));
                                 });
@@ -432,23 +434,23 @@ impl WftpgApp {
                             ui.add_space(styles::SPACING_LG);
 
                             ui.horizontal_centered(|ui| {
-                                if ui.add(styles::secondary_button("关闭")).clicked() {
+                                if ui.add(styles::secondary_button(&i18n::t("app.close"))).clicked() {
                                     self.show_service_install_dialog = false;
                                     self.service_install_status = ServiceInstallStatus::None;
                                 }
                                 ui.add_space(styles::SPACING_MD);
-                                if ui.add(styles::primary_button("重试")).clicked() {
+                                if ui.add(styles::primary_button(&i18n::t("app.retry"))).clicked() {
                                     self.install_service(ctx);
                                 }
                             });
                         }
                         ServiceInstallStatus::None => {
                             ui.vertical_centered(|ui| {
-                                if ui.add(styles::secondary_button("稍后手动安装")).clicked() {
+                                if ui.add(styles::secondary_button(&i18n::t("app.later_manual_install"))).clicked() {
                                     self.show_service_install_dialog = false;
                                 }
                                 ui.add_space(styles::SPACING_MD);
-                                if ui.add(styles::primary_button("安装并启动服务")).clicked() {
+                                if ui.add(styles::primary_button(&i18n::t("app.install_and_start"))).clicked() {
                                     self.install_service(ctx);
                                 }
                             });
@@ -497,7 +499,7 @@ impl App for WftpgApp {
                             ui.spinner();
                             ui.add_space(styles::SPACING_MD);
                             ui.label(
-                                RichText::new("正在初始化...")
+                                RichText::new(i18n::t("app.initializing"))
                                     .size(styles::FONT_SIZE_LG)
                                     .color(styles::TEXT_SECONDARY_COLOR),
                             );
@@ -512,7 +514,7 @@ impl App for WftpgApp {
                         ui.vertical_centered(|ui| {
                             ui.add_space(ui.available_height() / 2.0 - 80.0);
                             ui.label(
-                                RichText::new("⚠ 初始化失败")
+                                RichText::new(i18n::t("app.init_failed"))
                                     .size(styles::FONT_SIZE_LG)
                                     .strong()
                                     .color(styles::DANGER_COLOR),
@@ -526,7 +528,7 @@ impl App for WftpgApp {
                                 );
                             }
                             ui.add_space(styles::SPACING_LG);
-                            if ui.add(styles::primary_button("退出程序")).clicked() {
+                            if ui.add(styles::primary_button(&i18n::t("app.exit"))).clicked() {
                                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                             }
                         });
@@ -549,13 +551,13 @@ impl App for WftpgApp {
                         ui.spacing_mut().item_spacing.x = 6.0;
 
                         let tabs = [
-                            ("⚙", "服务器", 0usize),
-                            ("👤", "用户管理", 1),
-                            ("🔒", "安全设置", 2),
-                            ("🖥", "系统服务", 3),
-                            ("📋", "运行日志", 4),
-                            ("📁", "文件日志", 5),
-                            ("ℹ", "关于", 6),
+                            ("⚙", i18n::t("tab.server"), 0usize),
+                            ("👤", i18n::t("tab.users"), 1),
+                            ("🔒", i18n::t("tab.security"), 2),
+                            ("🖥", i18n::t("tab.service"), 3),
+                            ("📋", i18n::t("tab.system_log"), 4),
+                            ("📁", i18n::t("tab.file_log"), 5),
+                            ("ℹ", i18n::t("tab.about"), 6),
                         ];
 
                         for (icon, label, idx) in &tabs {
@@ -620,7 +622,8 @@ impl App for WftpgApp {
 
     /// 在应用程序退出前调用，用于清理 egui 资源
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        tracing::info!("GUI 应用程序即将关闭，正在清理 egui 资源...");
+        save_gui_language(self.language);
+        tracing::info!("GUI application closing, cleaning up egui resources...");
     }
 }
 
@@ -719,6 +722,29 @@ fn create_default_icon() -> IconData {
     }
 }
 
+fn load_gui_language() -> i18n::Language {
+    let path = wftpg::core::config::get_program_data_path().join("gui_config.json");
+    if path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(lang_code) = obj.get("language").and_then(|v| v.as_str()) {
+                    return i18n::Language::from_code(lang_code);
+                }
+            }
+        }
+    }
+    i18n::Language::Zh
+}
+
+fn save_gui_language(language: i18n::Language) {
+    let path = wftpg::core::config::get_program_data_path().join("gui_config.json");
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let json = serde_json::json!({ "language": language.code() });
+    let _ = std::fs::write(&path, json.to_string());
+}
+
 fn main() -> eframe::Result<()> {
     init_tracing_for_gui();
 
@@ -752,7 +778,7 @@ fn main() -> eframe::Result<()> {
     };
 
     eframe::run_native(
-        "WFTPG - SFTP/FTP 管理工具",
+        "WFTPG - SFTP/FTP Manager",
         options,
         Box::new(|cc| {
             setup_fonts(&cc.egui_ctx);

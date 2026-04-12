@@ -6,6 +6,7 @@ pub mod config;
 pub mod config_manager;
 pub mod config_watcher;
 pub mod error;
+pub mod i18n;
 pub mod ipc;
 pub mod logger;
 pub mod path_utils;

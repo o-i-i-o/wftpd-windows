@@ -1,5 +1,6 @@
 use crate::core::config::Config;
 use crate::core::config_manager::ConfigManager;
+use crate::core::i18n;
 use crate::core::ipc::IpcClient;
 use crate::gui_egui::styles;
 use egui::RichText;
@@ -23,8 +24,8 @@ fn validate_ip_cidr(input: &str) -> Vec<ValidationError> {
 
         if !is_valid_ip_or_cidr(trimmed) {
             errors.push(ValidationError {
-                field: format!("第 {} 行", line_num + 1),
-                message: format!("无效的 IP/CIDR 格式: {}", trimmed),
+                field: i18n::t_fmt("security.line_n", &[&(line_num + 1).to_string()]),
+                message: i18n::t_fmt("security.invalid_ip_cidr", &[trimmed]),
             });
         }
     }
@@ -211,49 +212,46 @@ impl SecurityTab {
 
         let mut valid = true;
 
-        // 验证 Fail2Ban 配置
         if let Ok(v) = self.fail2ban_threshold_buf.parse::<u32>() {
             if v == 0 {
-                self.fail2ban_threshold_error = Some("失败阈值必须大于 0".to_string());
+                self.fail2ban_threshold_error = Some(i18n::t("security.must_greater_0"));
                 valid = false;
             }
         } else {
-            self.fail2ban_threshold_error = Some("请输入有效的数字".to_string());
+            self.fail2ban_threshold_error = Some(i18n::t("security.enter_valid_number"));
             valid = false;
         }
 
         if let Ok(v) = self.fail2ban_ban_time_buf.parse::<u64>() {
             if v == 0 {
-                self.fail2ban_ban_time_error = Some("封禁时间必须大于 0".to_string());
+                self.fail2ban_ban_time_error = Some(i18n::t("security.must_greater_0"));
                 valid = false;
             }
         } else {
-            self.fail2ban_ban_time_error = Some("请输入有效的数字".to_string());
+            self.fail2ban_ban_time_error = Some(i18n::t("security.enter_valid_number"));
             valid = false;
         }
 
-        // 验证连接限制
         if let Ok(v) = self.max_connections_buf.parse::<usize>() {
             if v == 0 {
-                self.max_connections_error = Some("最大连接数必须大于 0".to_string());
+                self.max_connections_error = Some(i18n::t("security.must_greater_0"));
                 valid = false;
             }
         } else {
-            self.max_connections_error = Some("请输入有效的数字".to_string());
+            self.max_connections_error = Some(i18n::t("security.enter_valid_number"));
             valid = false;
         }
 
         if let Ok(v) = self.max_connections_per_ip_buf.parse::<usize>() {
             if v == 0 {
-                self.max_connections_per_ip_error = Some("单 IP 最大连接数必须大于 0".to_string());
+                self.max_connections_per_ip_error = Some(i18n::t("security.must_greater_0"));
                 valid = false;
             }
         } else {
-            self.max_connections_per_ip_error = Some("请输入有效的数字".to_string());
+            self.max_connections_per_ip_error = Some(i18n::t("security.enter_valid_number"));
             valid = false;
         }
 
-        // 验证 IP/CIDR
         let allowed_errors = validate_ip_cidr(&self.allowed_ips_text);
         let denied_errors = validate_ip_cidr(&self.denied_ips_text);
 
@@ -304,22 +302,17 @@ impl SecurityTab {
 
     fn save_async(&mut self, ctx: &egui::Context) {
         if self.is_saving {
-            tracing::warn!("保存操作正在进行中");
+            tracing::warn!("Save operation in progress");
             return;
         }
 
-        // 检查是否有未完成的接收器
         if let Some(rx) = &self.save_receiver {
             match rx.try_recv() {
                 Ok(_) => {
-                    // 有未完成的结果，先处理它
                     self.check_save_result();
                 }
-                Err(std::sync::mpsc::TryRecvError::Empty) => {
-                    // 通道为空，继续
-                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    // 发送器已断开，重置
                     self.save_receiver = None;
                     self.save_sender = None;
                 }
@@ -327,17 +320,16 @@ impl SecurityTab {
         }
 
         if !self.validate_all() {
-            self.status_message = Some(("输入验证失败，请检查红色标记的字段".to_string(), false));
-            tracing::warn!("验证失败，停止保存");
+            self.status_message = Some((i18n::t("security.validation_failed"), false));
+            tracing::warn!("Validation failed, aborting save");
             return;
         }
 
         self.apply_buffers_to_config();
 
         self.is_saving = true;
-        self.status_message = Some(("正在保存配置...".to_string(), true));
+        self.status_message = Some((i18n::t("security.saving_config"), true));
 
-        // 使用 config_manager 保存配置
         let config_manager = self.config_manager.clone();
 
         let (tx, rx) = mpsc::channel();
@@ -347,53 +339,51 @@ impl SecurityTab {
         let ctx_clone = ctx.clone();
 
         std::thread::spawn(move || {
-            tracing::info!("开始保存安全配置...");
+            tracing::info!("Starting security config save...");
             let result = match config_manager.save(&Config::get_config_path()) {
                 Ok(_) => {
-                    tracing::info!("配置保存成功，检查后端服务状态...");
+                    tracing::info!("Config saved, checking backend service status...");
                     if IpcClient::is_server_running() {
-                        tracing::info!("后端服务运行中，发送重新加载通知...");
+                        tracing::info!("Backend service running, sending reload notification...");
                         match IpcClient::notify_reload() {
                             Ok(response) => {
                                 if response.success {
-                                    tracing::info!("后端重新加载成功");
-                                    SaveResult::Success(
-                                        "安全配置已保存，后端服务已重新加载配置".to_string(),
-                                    )
+                                    tracing::info!("Backend reload successful");
+                                    SaveResult::Success(i18n::t("security.config_saved_reload"))
                                 } else {
-                                    tracing::warn!("后端重新加载失败：{}", response.message);
-                                    SaveResult::Success(format!(
-                                        "配置已保存，但后端重新加载失败：{}",
-                                        response.message
+                                    tracing::warn!("Backend reload failed: {}", response.message);
+                                    SaveResult::Success(i18n::t_fmt(
+                                        "security.config_saved_reload_failed",
+                                        &[&response.message],
                                     ))
                                 }
                             }
                             Err(e) => {
-                                tracing::error!("通知后端失败：{}", e);
-                                SaveResult::Success(format!(
-                                    "配置已保存，但通知后端失败：{}。请手动重启服务。",
-                                    e
+                                tracing::error!("Failed to notify backend: {}", e);
+                                SaveResult::Success(i18n::t_fmt(
+                                    "security.config_saved_notify_failed",
+                                    &[&e.to_string()],
                                 ))
                             }
                         }
                     } else {
-                        tracing::warn!("后端服务未运行");
-                        SaveResult::Success("安全配置已保存（后端服务未运行）".to_string())
+                        tracing::warn!("Backend service not running");
+                        SaveResult::Success(i18n::t("security.config_saved_not_running"))
                     }
                 }
                 Err(e) => {
-                    tracing::error!("保存失败：{}", e);
-                    SaveResult::Error(format!("保存失败：{}", e))
+                    tracing::error!("Save failed: {}", e);
+                    SaveResult::Error(i18n::t_fmt("security.config_save_failed", &[&e.to_string()]))
                 }
             };
 
             if let Err(e) = tx.send(result) {
-                tracing::error!("发送保存结果失败：{}", e);
+                tracing::error!("Failed to send save result: {}", e);
             }
             ctx_clone.request_repaint();
         });
 
-        tracing::info!("保存线程已启动");
+        tracing::info!("Save thread started");
     }
 
     fn check_save_result(&mut self) {
@@ -422,14 +412,14 @@ impl SecurityTab {
             Some(t) => {
                 let elapsed = t.elapsed();
                 if elapsed.as_secs() < 60 {
-                    format!("{} 秒前保存", elapsed.as_secs())
+                    i18n::t_fmt("security.saved_n_seconds_ago", &[&elapsed.as_secs().to_string()])
                 } else if elapsed.as_secs() < 3600 {
-                    format!("{} 分钟前保存", elapsed.as_secs() / 60)
+                    i18n::t_fmt("security.saved_n_minutes_ago", &[&(elapsed.as_secs() / 60).to_string()])
                 } else {
-                    format!("{} 小时前保存", elapsed.as_secs() / 3600)
+                    i18n::t_fmt("security.saved_n_hours_ago", &[&(elapsed.as_secs() / 3600).to_string()])
                 }
             }
-            None => "未保存".to_string(),
+            None => i18n::t("security.not_saved"),
         }
     }
 
@@ -437,18 +427,18 @@ impl SecurityTab {
         self.check_save_result();
 
         ui.horizontal(|ui| {
-            styles::page_header(ui, "🔒", "安全设置");
+            styles::page_header(ui, "🔒", &i18n::t("security.title"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let save_btn = if self.is_saving {
                     egui::Button::new(
-                        RichText::new("💾 保存中...")
+                        RichText::new(&i18n::t("security.saving"))
                             .color(egui::Color32::GRAY)
                             .size(styles::FONT_SIZE_MD),
                     )
                     .fill(styles::BG_SECONDARY)
                     .corner_radius(egui::CornerRadius::same(6))
                 } else {
-                    styles::primary_button("💾 保存安全配置")
+                    styles::primary_button(&i18n::t("security.save_config"))
                 };
 
                 if ui.add(save_btn).clicked() && !self.is_saving {
@@ -469,35 +459,34 @@ impl SecurityTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "🔐", "登录安全");
+            Self::section_header(ui, "🔐", &i18n::t("security.login_security"));
 
             let available_width = ui.available_width();
             let label_width = (available_width * 0.2).clamp(100.0, 160.0);
 
-            // Fail2Ban 配置 - 通用安全防护（适用于 FTP 和 SFTP）
             ui.label(
-                RichText::new("Fail2Ban 防护")
+                RichText::new(&i18n::t("security.fail2ban_protection"))
                     .size(styles::FONT_SIZE_MD)
                     .color(styles::TEXT_SECONDARY_COLOR)
                     .strong(),
             );
             ui.label(
-                RichText::new("自动封禁多次失败的 IP，保护 FTP 和 SFTP 服务")
+                RichText::new(&i18n::t("security.fail2ban_desc"))
                     .size(styles::FONT_SIZE_SM)
                     .color(styles::TEXT_MUTED_COLOR),
             );
 
             ui.add_space(styles::SPACING_XS);
 
-            styles::form_row(ui, "启用 Fail2Ban", label_width, |ui| {
+            styles::form_row(ui, &i18n::t("security.enable_fail2ban"), label_width, |ui| {
                 ui.checkbox(&mut self.fail2ban_enabled, "")
-                    .on_hover_text("启用后，多次认证失败的 IP 将被临时封禁");
+                    .on_hover_text(&i18n::t("security.enable_fail2ban_hint"));
             });
 
             if self.fail2ban_enabled {
                 styles::form_row_with_suffix(
                     ui,
-                    "失败阈值",
+                    &i18n::t("security.fail_threshold"),
                     label_width,
                     |ui| {
                         let response = styles::input_frame().show(ui, |ui| {
@@ -514,16 +503,16 @@ impl SecurityTab {
                         if response.response.lost_focus() {
                             if let Ok(v) = self.fail2ban_threshold_buf.parse::<u32>() {
                                 if v == 0 {
-                                    self.fail2ban_threshold_error = Some("必须大于 0".to_string());
+                                    self.fail2ban_threshold_error = Some(i18n::t("security.must_greater_0"));
                                 } else {
                                     self.fail2ban_threshold_error = None;
                                 }
                             } else {
-                                self.fail2ban_threshold_error = Some("请输入有效数字".to_string());
+                                self.fail2ban_threshold_error = Some(i18n::t("security.enter_valid_number"));
                             }
                         }
                     },
-                    "次",
+                    &i18n::t("security.times"),
                 );
 
                 if let Some(err) = &self.fail2ban_threshold_error {
@@ -539,7 +528,7 @@ impl SecurityTab {
 
                 styles::form_row_with_suffix(
                     ui,
-                    "封禁时间",
+                    &i18n::t("security.ban_time"),
                     label_width,
                     |ui| {
                         let response = styles::input_frame().show(ui, |ui| {
@@ -556,16 +545,16 @@ impl SecurityTab {
                         if response.response.lost_focus() {
                             if let Ok(v) = self.fail2ban_ban_time_buf.parse::<u64>() {
                                 if v == 0 {
-                                    self.fail2ban_ban_time_error = Some("必须大于 0".to_string());
+                                    self.fail2ban_ban_time_error = Some(i18n::t("security.must_greater_0"));
                                 } else {
                                     self.fail2ban_ban_time_error = None;
                                 }
                             } else {
-                                self.fail2ban_ban_time_error = Some("请输入有效数字".to_string());
+                                self.fail2ban_ban_time_error = Some(i18n::t("security.enter_valid_number"));
                             }
                         }
                     },
-                    "秒",
+                    &i18n::t("security.seconds"),
                 );
 
                 if let Some(err) = &self.fail2ban_ban_time_error {
@@ -582,9 +571,7 @@ impl SecurityTab {
                 ui.add_space(styles::SPACING_MD);
             }
 
-            // 连接限制
-
-            styles::form_row(ui, "最大连接数", label_width, |ui| {
+            styles::form_row(ui, &i18n::t("security.max_connections"), label_width, |ui| {
                 let response = styles::input_frame().show(ui, |ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.max_connections_buf)
@@ -599,12 +586,12 @@ impl SecurityTab {
                 if response.response.lost_focus() {
                     if let Ok(v) = self.max_connections_buf.parse::<usize>() {
                         if v == 0 {
-                            self.max_connections_error = Some("必须大于 0".to_string());
+                            self.max_connections_error = Some(i18n::t("security.must_greater_0"));
                         } else {
                             self.max_connections_error = None;
                         }
                     } else {
-                        self.max_connections_error = Some("请输入有效数字".to_string());
+                        self.max_connections_error = Some(i18n::t("security.enter_valid_number"));
                     }
                 }
             });
@@ -620,7 +607,7 @@ impl SecurityTab {
                 });
             }
 
-            styles::form_row(ui, "单 IP 最大连接数", label_width, |ui| {
+            styles::form_row(ui, &i18n::t("security.max_connections_per_ip"), label_width, |ui| {
                 let response = styles::input_frame().show(ui, |ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.max_connections_per_ip_buf)
@@ -635,12 +622,12 @@ impl SecurityTab {
                 if response.response.lost_focus() {
                     if let Ok(v) = self.max_connections_per_ip_buf.parse::<usize>() {
                         if v == 0 {
-                            self.max_connections_per_ip_error = Some("必须大于 0".to_string());
+                            self.max_connections_per_ip_error = Some(i18n::t("security.must_greater_0"));
                         } else {
                             self.max_connections_per_ip_error = None;
                         }
                     } else {
-                        self.max_connections_per_ip_error = Some("请输入有效数字".to_string());
+                        self.max_connections_per_ip_error = Some(i18n::t("security.enter_valid_number"));
                     }
                 }
             });
@@ -658,31 +645,30 @@ impl SecurityTab {
 
             ui.add_space(styles::SPACING_MD);
 
-            // 符号链接安全配置
             ui.label(
-                RichText::new("文件系统安全")
+                RichText::new(&i18n::t("security.symlink_security"))
                     .size(styles::FONT_SIZE_MD)
                     .color(styles::TEXT_SECONDARY_COLOR)
                     .strong(),
             );
             ui.label(
-                RichText::new("控制符号链接（symlink）的使用，影响安全性")
+                RichText::new(&i18n::t("security.symlink_security_desc"))
                     .size(styles::FONT_SIZE_SM)
                     .color(styles::TEXT_MUTED_COLOR),
             );
 
             ui.add_space(styles::SPACING_XS);
 
-            styles::form_row(ui, "允许符号链接", label_width, |ui| {
+            styles::form_row(ui, &i18n::t("security.allow_symlinks"), label_width, |ui| {
                 ui.checkbox(&mut self.allow_symlinks, "")
-                    .on_hover_text("启用后，FTP/SFTP 用户可以访问符号链接指向的目标\n禁用可提高安全性，防止路径逃逸攻击");
+                    .on_hover_text(&i18n::t("security.allow_symlinks_hint"));
             });
 
             if !self.allow_symlinks {
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
                     ui.label(
-                        RichText::new("✓ 已禁用符号链接，提高安全性")
+                        RichText::new(&i18n::t("security.symlink_disabled_secure"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::SUCCESS_COLOR),
                     );
@@ -691,7 +677,7 @@ impl SecurityTab {
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
                     ui.label(
-                        RichText::new("⚠ 启用符号链接可能存在安全风险")
+                        RichText::new(&i18n::t("security.symlink_enabled_warning"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::WARNING_COLOR),
                     );
@@ -703,15 +689,15 @@ impl SecurityTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "🌐", "IP 访问控制");
+            Self::section_header(ui, "🌐", &i18n::t("security.ip_access_control"));
 
             ui.label(
-                RichText::new("允许的 IP/CIDR")
+                RichText::new(&i18n::t("security.allowed_ips"))
                     .size(styles::FONT_SIZE_MD)
                     .color(styles::TEXT_SECONDARY_COLOR),
             );
             ui.label(
-                RichText::new("每行一个，0.0.0.0/0 表示允许全部")
+                RichText::new(&i18n::t("security.allowed_ips_hint"))
                     .size(styles::FONT_SIZE_SM)
                     .color(styles::TEXT_MUTED_COLOR),
             );
@@ -731,10 +717,10 @@ impl SecurityTab {
             if allowed_response.response.lost_focus() {
                 let errors = validate_ip_cidr(&self.allowed_ips_text);
                 self.validation_errors
-                    .retain(|e| !e.message.contains("允许"));
+                    .retain(|e| !e.message.contains("[Allowed]"));
                 self.validation_errors
                     .extend(errors.into_iter().map(|mut e| {
-                        e.message = format!("[允许列表] {}", e.message);
+                        e.message = format!("[Allowed] {}", e.message);
                         e
                     }));
             }
@@ -742,12 +728,12 @@ impl SecurityTab {
             ui.add_space(styles::SPACING_MD);
 
             ui.label(
-                RichText::new("拒绝的 IP/CIDR")
+                RichText::new(&i18n::t("security.denied_ips"))
                     .size(styles::FONT_SIZE_MD)
                     .color(styles::TEXT_SECONDARY_COLOR),
             );
             ui.label(
-                RichText::new("每行一个，优先级高于允许列表")
+                RichText::new(&i18n::t("security.denied_ips_hint"))
                     .size(styles::FONT_SIZE_SM)
                     .color(styles::TEXT_MUTED_COLOR),
             );
@@ -767,10 +753,10 @@ impl SecurityTab {
             if denied_response.response.lost_focus() {
                 let errors = validate_ip_cidr(&self.denied_ips_text);
                 self.validation_errors
-                    .retain(|e| !e.message.contains("拒绝"));
+                    .retain(|e| !e.message.contains("[Denied]"));
                 self.validation_errors
                     .extend(errors.into_iter().map(|mut e| {
-                        e.message = format!("[拒绝列表] {}", e.message);
+                        e.message = format!("[Denied] {}", e.message);
                         e
                     }));
             }
@@ -778,7 +764,7 @@ impl SecurityTab {
             if !self.validation_errors.is_empty() {
                 ui.add_space(styles::SPACING_SM);
                 ui.label(
-                    RichText::new("⚠ IP/CIDR 验证错误：")
+                    RichText::new(&i18n::t("security.ip_validation_error"))
                         .size(styles::FONT_SIZE_SM)
                         .color(styles::DANGER_COLOR)
                         .strong(),
