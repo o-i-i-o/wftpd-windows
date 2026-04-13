@@ -87,7 +87,12 @@ impl SftpState {
                 client_version = client_version,
                 "SFTP INIT: client version too low, minimum is 3"
             );
-            return Ok(self.build_status_packet(0, 8, "Protocol version too old, minimum is 3", ""));
+            return Ok(self.build_status_packet(
+                0,
+                8,
+                "Protocol version too old, minimum is 3",
+                "",
+            ));
         }
 
         let server_version = client_version.min(6);

@@ -309,14 +309,8 @@ impl SftpState {
             let file = tokio::fs::File::open(path).await?;
             let std_file = file.into_std().await;
             let metadata = std_file.metadata()?;
-            let original_atime = metadata
-                .accessed()
-                .ok()
-                .unwrap_or(SystemTime::UNIX_EPOCH);
-            let original_mtime = metadata
-                .modified()
-                .ok()
-                .unwrap_or(SystemTime::UNIX_EPOCH);
+            let original_atime = metadata.accessed().ok().unwrap_or(SystemTime::UNIX_EPOCH);
+            let original_mtime = metadata.modified().ok().unwrap_or(SystemTime::UNIX_EPOCH);
 
             let atime = atime_sec
                 .map(|s| SystemTime::UNIX_EPOCH + Duration::from_secs(s))

@@ -759,7 +759,10 @@ impl SftpState {
 
     pub fn parse_u32(&self, data: &[u8], offset: usize) -> Result<u32> {
         if offset + 4 > data.len() {
-            return Err(anyhow::anyhow!("Insufficient data for u32 at offset {}", offset));
+            return Err(anyhow::anyhow!(
+                "Insufficient data for u32 at offset {}",
+                offset
+            ));
         }
         Ok(u32::from_be_bytes([
             data[offset],
@@ -771,7 +774,10 @@ impl SftpState {
 
     pub fn parse_u64(&self, data: &[u8], offset: usize) -> Result<u64> {
         if offset + 8 > data.len() {
-            return Err(anyhow::anyhow!("Insufficient data for u64 at offset {}", offset));
+            return Err(anyhow::anyhow!(
+                "Insufficient data for u64 at offset {}",
+                offset
+            ));
         }
         Ok(u64::from_be_bytes([
             data[offset],

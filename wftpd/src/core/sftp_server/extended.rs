@@ -59,8 +59,8 @@ impl SftpState {
 
         match tokio::fs::File::open(&full_path).await {
             Ok(mut file) => {
-                use tokio::io::AsyncSeekExt;
                 use tokio::io::AsyncReadExt;
+                use tokio::io::AsyncSeekExt;
 
                 if start > 0 && file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
                     return Ok(self.build_status_packet(id, 4, "Seek failed", ""));
@@ -89,9 +89,12 @@ impl SftpState {
                             }
                         }
                         Err(e) => {
-                            return Ok(
-                                self.build_status_packet(id, 4, &format!("Read error: {}", e), ""),
-                            );
+                            return Ok(self.build_status_packet(
+                                id,
+                                4,
+                                &format!("Read error: {}", e),
+                                "",
+                            ));
                         }
                     }
                 }
@@ -133,8 +136,8 @@ impl SftpState {
 
         match tokio::fs::File::open(&full_path).await {
             Ok(mut file) => {
-                use tokio::io::AsyncSeekExt;
                 use tokio::io::AsyncReadExt;
+                use tokio::io::AsyncSeekExt;
 
                 if start > 0 && file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
                     return Ok(self.build_status_packet(id, 4, "Seek failed", ""));
@@ -163,9 +166,12 @@ impl SftpState {
                             }
                         }
                         Err(e) => {
-                            return Ok(
-                                self.build_status_packet(id, 4, &format!("Read error: {}", e), ""),
-                            );
+                            return Ok(self.build_status_packet(
+                                id,
+                                4,
+                                &format!("Read error: {}", e),
+                                "",
+                            ));
                         }
                     }
                 }
@@ -221,7 +227,11 @@ impl SftpState {
                     self.username.as_deref().unwrap_or("anonymous"),
                     &self.client_ip,
                     "COPY",
-                    &format!("{} -> {}", src_full.to_string_lossy(), dst_full.to_string_lossy()),
+                    &format!(
+                        "{} -> {}",
+                        src_full.to_string_lossy(),
+                        dst_full.to_string_lossy()
+                    ),
                     bytes_copied,
                     "SFTP",
                     true,
@@ -285,7 +295,11 @@ impl SftpState {
                     self.username.as_deref().unwrap_or("anonymous"),
                     &self.client_ip,
                     "HARDLINK",
-                    &format!("{} -> {}", src_full.to_string_lossy(), dst_full.to_string_lossy()),
+                    &format!(
+                        "{} -> {}",
+                        src_full.to_string_lossy(),
+                        dst_full.to_string_lossy()
+                    ),
                     0u64,
                     "SFTP",
                     true,
@@ -333,46 +347,44 @@ impl SftpState {
         }
 
         match fs2::free_space(&target_path) {
-            Ok(free_space) => {
-                match fs2::available_space(&target_path) {
-                    Ok(available_space) => {
-                        let total_space = fs2::total_space(&target_path).unwrap_or(0);
+            Ok(free_space) => match fs2::available_space(&target_path) {
+                Ok(available_space) => {
+                    let total_space = fs2::total_space(&target_path).unwrap_or(0);
 
-                        let bsize: u64 = 4096;
-                        let frsize: u64 = 4096;
-                        let blocks: u64 = total_space / frsize;
-                        let bfree: u64 = free_space / frsize;
-                        let bavail: u64 = available_space / frsize;
-                        let files: u64 = 1000000;
-                        let ffree: u64 = 500000;
-                        let favail: u64 = 500000;
-                        let fsid: u64 = 0;
-                        let flag: u64 = 0;
-                        let namemax: u64 = 255;
+                    let bsize: u64 = 4096;
+                    let frsize: u64 = 4096;
+                    let blocks: u64 = total_space / frsize;
+                    let bfree: u64 = free_space / frsize;
+                    let bavail: u64 = available_space / frsize;
+                    let files: u64 = 1000000;
+                    let ffree: u64 = 500000;
+                    let favail: u64 = 500000;
+                    let fsid: u64 = 0;
+                    let flag: u64 = 0;
+                    let namemax: u64 = 255;
 
-                        let mut payload = vec![124];
-                        payload.extend_from_slice(&id.to_be_bytes());
+                    let mut payload = vec![124];
+                    payload.extend_from_slice(&id.to_be_bytes());
 
-                        payload.extend_from_slice(&bsize.to_be_bytes());
-                        payload.extend_from_slice(&frsize.to_be_bytes());
-                        payload.extend_from_slice(&blocks.to_be_bytes());
-                        payload.extend_from_slice(&bfree.to_be_bytes());
-                        payload.extend_from_slice(&bavail.to_be_bytes());
-                        payload.extend_from_slice(&files.to_be_bytes());
-                        payload.extend_from_slice(&ffree.to_be_bytes());
-                        payload.extend_from_slice(&favail.to_be_bytes());
-                        payload.extend_from_slice(&fsid.to_be_bytes());
-                        payload.extend_from_slice(&flag.to_be_bytes());
-                        payload.extend_from_slice(&namemax.to_be_bytes());
+                    payload.extend_from_slice(&bsize.to_be_bytes());
+                    payload.extend_from_slice(&frsize.to_be_bytes());
+                    payload.extend_from_slice(&blocks.to_be_bytes());
+                    payload.extend_from_slice(&bfree.to_be_bytes());
+                    payload.extend_from_slice(&bavail.to_be_bytes());
+                    payload.extend_from_slice(&files.to_be_bytes());
+                    payload.extend_from_slice(&ffree.to_be_bytes());
+                    payload.extend_from_slice(&favail.to_be_bytes());
+                    payload.extend_from_slice(&fsid.to_be_bytes());
+                    payload.extend_from_slice(&flag.to_be_bytes());
+                    payload.extend_from_slice(&namemax.to_be_bytes());
 
-                        Ok(self.build_packet(&payload))
-                    }
-                    Err(e) => {
-                        tracing::error!("STATVFS available_space error: {}", e);
-                        Ok(self.build_status_packet(id, 4, "Failed to get filesystem info", ""))
-                    }
+                    Ok(self.build_packet(&payload))
                 }
-            }
+                Err(e) => {
+                    tracing::error!("STATVFS available_space error: {}", e);
+                    Ok(self.build_status_packet(id, 4, "Failed to get filesystem info", ""))
+                }
+            },
             Err(e) => {
                 tracing::error!("STATVFS free_space error: {}", e);
                 Ok(self.build_status_packet(id, 4, "Failed to get filesystem info", ""))
