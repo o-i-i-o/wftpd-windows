@@ -35,7 +35,11 @@ impl SftpState {
                 *last_access = std::time::Instant::now();
 
                 let lock_type = flags & 0x7;
-                let _blocking = (flags & 0x8) != 0;
+                let blocking = (flags & 0x8) != 0;
+
+                if blocking {
+                    return Ok(self.build_status_packet(id, 4, "Blocking locks not supported", ""));
+                }
 
                 match lock_type {
                     0 => {

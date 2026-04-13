@@ -368,40 +368,16 @@ impl SftpServer {
         let sessions = self.active_sessions.lock();
         if let Some(counter) = sessions.get(username) {
             let old_count = counter.fetch_sub(1, Ordering::SeqCst);
-            if old_count > 0 {
-                let new_count = old_count - 1;
-                tracing::debug!("User {} session decremented to {}", username, new_count);
-
-                // If count reaches zero, remove from HashMap
-                // Use compare_exchange to ensure cleanup only when count is actually 0, avoiding race conditions
-                if new_count == 0 {
-                    // Try to exchange counter from 0 to 0, success means no other thread modified it
-                    if counter
-                        .compare_exchange(0, 0, Ordering::SeqCst, Ordering::SeqCst)
-                        .is_ok()
-                    {
-                        drop(sessions); // Release lock before removal
-                        let mut sessions_mut = self.active_sessions.lock();
-                        // Check again to prevent new sessions from joining during lock release
-                        if let Some(c) = sessions_mut.get(username) {
-                            let current = c.load(Ordering::SeqCst);
-                            if current == 0 {
-                                sessions_mut.remove(username);
-                                tracing::debug!("User {} removed from session tracking", username);
-                            } else {
-                                tracing::debug!(
-                                    "User {} has new sessions ({}), skip cleanup",
-                                    username,
-                                    current
-                                );
-                            }
-                        }
-                    } else {
-                        tracing::debug!(
-                            "User {} session count changed during cleanup, skip removal",
-                            username
-                        );
-                    }
+            if old_count > 1 {
+                tracing::debug!("User {} session decremented to {}", username, old_count - 1);
+            } else if old_count == 1 {
+                drop(sessions);
+                let mut sessions_mut = self.active_sessions.lock();
+                if let Some(c) = sessions_mut.get(username)
+                    && c.load(Ordering::SeqCst) == 0
+                {
+                    sessions_mut.remove(username);
+                    tracing::debug!("User {} removed from session tracking", username);
                 }
             } else {
                 tracing::warn!(
@@ -929,9 +905,8 @@ impl SftpState {
                 attrs.extend_from_slice(&(ext_name.len() as u32).to_be_bytes());
                 attrs.extend_from_slice(ext_name.as_bytes());
 
-                let ctime_str = ctime.to_string();
-                attrs.extend_from_slice(&(ctime_str.len() as u32).to_be_bytes());
-                attrs.extend_from_slice(ctime_str.as_bytes());
+                attrs.extend_from_slice(&8u32.to_be_bytes());
+                attrs.extend_from_slice(&ctime.to_be_bytes());
             }
         }
 

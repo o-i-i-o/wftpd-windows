@@ -170,6 +170,12 @@ impl SftpState {
                             .map(|m| m.len())
                             .unwrap_or(written_bytes);
 
+                        if let Some(username) = &self.username
+                            && let Err(e) = self.quota_manager.add_usage(username, file_size).await
+                        {
+                            tracing::warn!("Failed to update quota for user {}: {}", username, e);
+                        }
+
                         if existed {
                             crate::file_op_log!(
                                 update,

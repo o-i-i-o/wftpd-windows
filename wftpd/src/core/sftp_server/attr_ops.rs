@@ -207,8 +207,15 @@ impl SftpState {
         let flags = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
         let mut offset = 4;
 
-        if flags & 0x00000001 != 0 && offset + 8 <= data.len() {
-            let size = u64::from_be_bytes([
+        let need_set_size = flags & 0x00000001 != 0;
+        let need_set_times = (flags & 0x00000010 != 0) || (flags & 0x00000020 != 0);
+
+        let mut target_size: Option<u64> = None;
+        let mut atime_sec: Option<u64> = None;
+        let mut mtime_sec: Option<u64> = None;
+
+        if need_set_size && offset + 8 <= data.len() {
+            target_size = Some(u64::from_be_bytes([
                 data[offset],
                 data[offset + 1],
                 data[offset + 2],
@@ -217,40 +224,16 @@ impl SftpState {
                 data[offset + 5],
                 data[offset + 6],
                 data[offset + 7],
-            ]);
+            ]));
             offset += 8;
-
-            let file = tokio::fs::OpenOptions::new().write(true).open(path).await?;
-            file.set_len(size).await?;
-            tracing::debug!("SETSTAT: set size to {} for {:?}", size, path);
         }
 
         if flags & 0x00000002 != 0 && offset + 4 <= data.len() {
-            let _uid = u32::from_be_bytes([
-                data[offset],
-                data[offset + 1],
-                data[offset + 2],
-                data[offset + 3],
-            ]);
             offset += 4;
-            tracing::debug!(
-                "SETSTAT: uid change requested for {:?} (ignored on Windows)",
-                path
-            );
         }
 
         if flags & 0x00000004 != 0 && offset + 4 <= data.len() {
-            let _gid = u32::from_be_bytes([
-                data[offset],
-                data[offset + 1],
-                data[offset + 2],
-                data[offset + 3],
-            ]);
             offset += 4;
-            tracing::debug!(
-                "SETSTAT: gid change requested for {:?} (ignored on Windows)",
-                path
-            );
         }
 
         if flags & 0x00000008 != 0 && offset + 4 <= data.len() {
@@ -270,7 +253,6 @@ impl SftpState {
                 let mut perm = metadata.permissions();
                 perm.set_mode(mode);
                 tokio::fs::set_permissions(path, perm).await?;
-                tracing::debug!("SETSTAT: set permissions to {:o} for {:?}", mode, path);
             }
             #[cfg(windows)]
             {
@@ -281,9 +263,6 @@ impl SftpState {
                 );
             }
         }
-
-        let mut atime_sec: Option<u64> = None;
-        let mut mtime_sec: Option<u64> = None;
 
         if flags & 0x00000010 != 0 && offset + 8 <= data.len() {
             atime_sec = Some(u64::from(u32::from_be_bytes([
@@ -304,9 +283,19 @@ impl SftpState {
             ])));
         }
 
+        if !need_set_size && !need_set_times {
+            return Ok(());
+        }
+
+        let file = tokio::fs::OpenOptions::new().write(true).open(path).await?;
+
+        if let Some(size) = target_size {
+            file.set_len(size).await?;
+            tracing::debug!("SETSTAT: set size to {} for {:?}", size, path);
+        }
+
         if atime_sec.is_some() || mtime_sec.is_some() {
             use std::time::{Duration, SystemTime};
-            let file = tokio::fs::File::open(path).await?;
             let std_file = file.into_std().await;
             let metadata = std_file.metadata()?;
             let original_atime = metadata.accessed().ok().unwrap_or(SystemTime::UNIX_EPOCH);

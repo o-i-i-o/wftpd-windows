@@ -16,6 +16,11 @@ impl SftpState {
             return Ok(vec![]);
         }
 
+        if self.last_handle_cleanup.elapsed() > std::time::Duration::from_secs(300) {
+            self.cleanup_expired_handles().await;
+            self.last_handle_cleanup = std::time::Instant::now();
+        }
+
         let cmd = data[0];
 
         match cmd {

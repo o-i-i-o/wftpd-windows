@@ -209,17 +209,25 @@ impl SftpState {
             Err(resp) => return Ok(resp),
         };
 
-        if tokio::fs::create_dir_all(&full_path).await.is_ok() {
-            crate::file_op_log!(
-                mkdir,
-                self.username.as_deref().unwrap_or("anonymous"),
-                &self.client_ip,
-                &full_path.to_string_lossy(),
-                "SFTP"
-            );
-            Ok(self.build_status_packet(id, 0, "OK", ""))
-        } else {
-            Ok(self.build_status_packet(id, 4, "Failed to create directory", ""))
+        if full_path.exists() {
+            return Ok(self.build_status_packet(id, 4, "Directory already exists", ""));
+        }
+
+        match tokio::fs::create_dir(&full_path).await {
+            Ok(()) => {
+                crate::file_op_log!(
+                    mkdir,
+                    self.username.as_deref().unwrap_or("anonymous"),
+                    &self.client_ip,
+                    &full_path.to_string_lossy(),
+                    "SFTP"
+                );
+                Ok(self.build_status_packet(id, 0, "OK", ""))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Ok(self.build_status_packet(id, 2, "Parent directory not found", ""))
+            }
+            Err(_) => Ok(self.build_status_packet(id, 4, "Failed to create directory", "")),
         }
     }
 

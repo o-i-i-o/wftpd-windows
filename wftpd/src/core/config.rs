@@ -98,9 +98,10 @@ impl ServerConfig {
     }
 
     pub fn unregister(&self, client_ip: &str) {
-        let global = self.global_connection_count.fetch_sub(1, Ordering::SeqCst);
-        if global == 0 {
+        let old_global = self.global_connection_count.fetch_sub(1, Ordering::SeqCst);
+        if old_global == 0 {
             self.global_connection_count.fetch_add(1, Ordering::SeqCst);
+            tracing::warn!("Connection count underflow prevented during unregister");
         }
 
         let mut map = self.connection_count_per_ip.lock();

@@ -282,14 +282,24 @@ impl russh::server::Handler for SftpHandler {
         let (enabled, user_pubkey_path, home_dir) = {
             let users = self.user_manager.lock();
             if let Some(u) = users.get_user(user) {
-                (
-                    u.enabled,
-                    get_program_data_path()
-                        .join(format!("keys/{}.pub", user))
-                        .to_string_lossy()
-                        .to_string(),
-                    Some(u.home_dir.clone()),
-                )
+                if user.contains('/') || user.contains('\\') || user.contains("..") {
+                    tracing::warn!(
+                        client_ip = %self.client_ip,
+                        username = %user,
+                        action = "AUTH_REJECTED",
+                        "Public key auth rejected: username contains path traversal characters"
+                    );
+                    (false, String::new(), None)
+                } else {
+                    (
+                        u.enabled,
+                        get_program_data_path()
+                            .join(format!("keys/{}.pub", user))
+                            .to_string_lossy()
+                            .to_string(),
+                        Some(u.home_dir.clone()),
+                    )
+                }
             } else {
                 (false, String::new(), None)
             }

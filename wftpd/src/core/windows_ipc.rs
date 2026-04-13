@@ -112,7 +112,14 @@ impl IpcServerInner {
                 None,
             );
 
-            self.handle.store(new_handle.0, Ordering::SeqCst);
+            if !new_handle.is_invalid() {
+                self.handle.store(new_handle.0, Ordering::SeqCst);
+            } else {
+                tracing::error!(
+                    "Failed to create new pipe instance: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
 
             Ok(IpcStream {
                 handle: current_handle,
@@ -175,7 +182,14 @@ impl IpcServerInner {
                 None,
             );
 
-            self.handle.store(new_handle.0, Ordering::SeqCst);
+            if !new_handle.is_invalid() {
+                self.handle.store(new_handle.0, Ordering::SeqCst);
+            } else {
+                tracing::error!(
+                    "Failed to create new pipe instance: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
 
             Ok(Some(IpcStream {
                 handle: current_handle,

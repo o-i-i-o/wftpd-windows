@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Clone)]
 pub struct Fail2BanConfig {
@@ -39,6 +40,7 @@ pub struct Fail2BanManager {
     state: Mutex<Fail2BanState>,
     config: Mutex<Fail2BanConfig>,
     callbacks: Mutex<Vec<Arc<BanCallback>>>,
+    cleanup_started: AtomicBool,
 }
 
 impl Fail2BanManager {
@@ -50,6 +52,7 @@ impl Fail2BanManager {
             }),
             config: Mutex::new(config),
             callbacks: Mutex::new(Vec::new()),
+            cleanup_started: AtomicBool::new(false),
         }
     }
 
@@ -191,6 +194,13 @@ impl Fail2BanManager {
     }
 
     pub fn start_cleanup_task(self: Arc<Self>) {
+        if self
+            .cleanup_started
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return;
+        }
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
             loop {
