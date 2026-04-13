@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -22,14 +22,23 @@ impl Default for Fail2BanConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BanEvent {
+    Banned,
+    Unbanned,
+}
+
+pub type BanCallback = dyn Fn(&str, BanEvent) + Send + Sync;
+
 struct Fail2BanState {
-    failed_attempts: HashMap<String, Vec<DateTime<Utc>>>,
+    failed_attempts: HashMap<String, HashSet<DateTime<Utc>>>,
     banned_ips: HashMap<String, DateTime<Utc>>,
 }
 
 pub struct Fail2BanManager {
     state: Mutex<Fail2BanState>,
     config: Mutex<Fail2BanConfig>,
+    callbacks: Mutex<Vec<Arc<BanCallback>>>,
 }
 
 impl Fail2BanManager {
@@ -40,6 +49,29 @@ impl Fail2BanManager {
                 banned_ips: HashMap::new(),
             }),
             config: Mutex::new(config),
+            callbacks: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn register_callback(&self, callback: Arc<BanCallback>) {
+        let mut callbacks = self.callbacks.lock();
+        callbacks.push(callback);
+    }
+
+    pub fn update_config(&self, new_config: Fail2BanConfig) {
+        let mut config = self.config.lock();
+        *config = new_config;
+        tracing::info!("Fail2Ban: Configuration updated");
+    }
+
+    pub fn get_config(&self) -> Fail2BanConfig {
+        self.config.lock().clone()
+    }
+
+    fn trigger_callbacks(&self, ip: &str, event: BanEvent) {
+        let callbacks = self.callbacks.lock();
+        for callback in callbacks.iter() {
+            callback(ip, event);
         }
     }
 
@@ -57,7 +89,7 @@ impl Fail2BanManager {
         let mut state = self.state.lock();
 
         let entry = state.failed_attempts.entry(ip.to_string()).or_default();
-        entry.push(now);
+        entry.insert(now);
         entry.retain(|&time| (now - time).num_seconds() < find_time as i64);
 
         if entry.len() >= threshold as usize {
@@ -65,12 +97,15 @@ impl Fail2BanManager {
             state.banned_ips.insert(ip.to_string(), ban_until);
             state.failed_attempts.remove(ip);
 
+            drop(state);
+
             tracing::warn!(
                 "Fail2Ban: IP {} reached threshold ({} failures), banning for {} seconds",
                 ip,
                 threshold,
                 ban_time
             );
+            self.trigger_callbacks(ip, BanEvent::Banned);
             return true;
         }
 
@@ -86,6 +121,8 @@ impl Fail2BanManager {
                 return true;
             }
             state.banned_ips.remove(ip);
+            drop(state);
+            self.trigger_callbacks(ip, BanEvent::Unbanned);
         }
 
         false
@@ -93,8 +130,13 @@ impl Fail2BanManager {
 
     pub async fn unban_ip(&self, ip: &str) {
         let mut state = self.state.lock();
-        state.banned_ips.remove(ip);
-        tracing::info!("Fail2Ban: Manually unbanned IP {}", ip);
+        let existed = state.banned_ips.remove(ip).is_some();
+        drop(state);
+
+        if existed {
+            tracing::info!("Fail2Ban: Manually unbanned IP {}", ip);
+            self.trigger_callbacks(ip, BanEvent::Unbanned);
+        }
     }
 
     pub async fn reset_failures(&self, ip: &str) {
@@ -120,12 +162,30 @@ impl Fail2BanManager {
         };
 
         let mut state = self.state.lock();
+
+        let expired_bans: Vec<String> = state
+            .banned_ips
+            .iter()
+            .filter(|&(_, ban_until)| now >= *ban_until)
+            .map(|(ip, _)| ip.clone())
+            .collect();
+
+        for ip in &expired_bans {
+            state.banned_ips.remove(ip);
+        }
+
         state.banned_ips.retain(|_, &mut ban_until| now < ban_until);
 
         for (_, times) in state.failed_attempts.iter_mut() {
             times.retain(|&time| (now - time).num_seconds() < find_time_secs);
         }
         state.failed_attempts.retain(|_, times| !times.is_empty());
+
+        drop(state);
+
+        for ip in expired_bans {
+            self.trigger_callbacks(&ip, BanEvent::Unbanned);
+        }
 
         tracing::debug!("Fail2Ban: Cleanup completed");
     }
@@ -165,5 +225,83 @@ mod tests {
 
         manager.reset_failures("192.168.1.1").await;
         assert_eq!(manager.get_failure_count("192.168.1.1").await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_config_hot_update() {
+        let manager = Fail2BanManager::new(Fail2BanConfig::default());
+
+        let new_config = Fail2BanConfig {
+            enabled: true,
+            threshold: 10,
+            ban_time: 7200,
+            find_time: 1200,
+        };
+        manager.update_config(new_config.clone());
+
+        let current_config = manager.get_config();
+        assert_eq!(current_config.enabled, true);
+        assert_eq!(current_config.threshold, 10);
+        assert_eq!(current_config.ban_time, 7200);
+        assert_eq!(current_config.find_time, 1200);
+    }
+
+    #[tokio::test]
+    async fn test_event_callback() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let manager = Fail2BanManager::new(Fail2BanConfig {
+            enabled: true,
+            threshold: 2,
+            ban_time: 60,
+            find_time: 300,
+        });
+
+        let ban_count = Arc::new(AtomicUsize::new(0));
+        let unban_count = Arc::new(AtomicUsize::new(0));
+
+        let ban_count_clone = ban_count.clone();
+        let unban_count_clone = unban_count.clone();
+
+        manager.register_callback(Arc::new(move |ip, event| match event {
+            BanEvent::Banned => {
+                ban_count_clone.fetch_add(1, Ordering::SeqCst);
+            }
+            BanEvent::Unbanned => {
+                unban_count_clone.fetch_add(1, Ordering::SeqCst);
+            }
+        }));
+
+        assert!(!manager.add_failure("192.168.1.2").await);
+        assert!(manager.add_failure("192.168.1.2").await);
+
+        assert_eq!(ban_count.load(Ordering::SeqCst), 1);
+
+        manager.unban_ip("192.168.1.2").await;
+        assert_eq!(unban_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_hashset_no_duplicates() {
+        let manager = Fail2BanManager::new(Fail2BanConfig {
+            enabled: true,
+            threshold: 5,
+            ban_time: 60,
+            find_time: 300,
+        });
+
+        let now = Utc::now();
+        {
+            let mut state = manager.state.lock();
+            let mut times = HashSet::new();
+            times.insert(now);
+            times.insert(now);
+            times.insert(now);
+            state
+                .failed_attempts
+                .insert("192.168.1.3".to_string(), times);
+        }
+
+        assert_eq!(manager.get_failure_count("192.168.1.3").await, 1);
     }
 }
