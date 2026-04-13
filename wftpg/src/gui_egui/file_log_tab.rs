@@ -311,10 +311,17 @@ impl FileLogTab {
     }
 
     fn clean_file_path(path: &str) -> String {
-        if let Some(stripped) = path.strip_prefix("\\\\?\\") {
-            stripped.to_string()
+        if path.contains(" -> ") {
+            let parts: Vec<&str> = path.split(" -> ").collect();
+            if parts.len() == 2 {
+                let left = parts[0].strip_prefix("\\\\?\\").unwrap_or(parts[0]);
+                let right = parts[1].strip_prefix("\\\\?\\").unwrap_or(parts[1]);
+                format!("{} -> {}", left, right)
+            } else {
+                path.to_string()
+            }
         } else {
-            path.to_string()
+            path.strip_prefix("\\\\?\\").unwrap_or(path).to_string()
         }
     }
 
