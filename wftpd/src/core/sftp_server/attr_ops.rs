@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 impl SftpState {
     pub async fn handle_stat(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let path = self.parse_string(data, 5)?;
 
         if !self.check_permission(|p| p.can_read || p.can_list) {
@@ -34,7 +34,7 @@ impl SftpState {
     }
 
     pub async fn handle_lstat(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let path = self.parse_string(data, 5)?;
 
         if !self.check_permission(|p| p.can_read || p.can_list) {
@@ -62,7 +62,7 @@ impl SftpState {
     }
 
     pub async fn handle_fstat(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let handle_str = self.parse_string(data, 5)?;
 
         let handle = self.handles.get(&handle_str);
@@ -102,7 +102,7 @@ impl SftpState {
     }
 
     pub async fn handle_setstat(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let (path, path_len) = self.parse_string_with_len(data, 5)?;
 
         if !self.check_permission(|p| p.can_write) {
@@ -146,7 +146,7 @@ impl SftpState {
     }
 
     pub async fn handle_fsetstat(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let (handle_str, handle_len) = self.parse_string_with_len(data, 5)?;
 
         if !self.check_permission(|p| p.can_write) {
@@ -282,82 +282,59 @@ impl SftpState {
             }
         }
 
-        if flags & 0x00000010 != 0 && offset + 4 <= data.len() {
-            let atime_sec = u32::from_be_bytes([
+        let mut atime_sec: Option<u64> = None;
+        let mut mtime_sec: Option<u64> = None;
+
+        if flags & 0x00000010 != 0 && offset + 8 <= data.len() {
+            atime_sec = Some(u64::from(u32::from_be_bytes([
                 data[offset],
                 data[offset + 1],
                 data[offset + 2],
                 data[offset + 3],
-            ]) as i64;
-            offset += 4;
+            ])));
+            offset += 8;
+        }
 
-            if offset + 4 <= data.len() {
-                let _atime_nsec = u32::from_be_bytes([
-                    data[offset],
-                    data[offset + 1],
-                    data[offset + 2],
-                    data[offset + 3],
-                ]);
-                offset += 4;
-            }
+        if flags & 0x00000020 != 0 && offset + 8 <= data.len() {
+            mtime_sec = Some(u64::from(u32::from_be_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ])));
+        }
 
-            if flags & 0x00000020 != 0 && offset + 4 <= data.len() {
-                let mtime_sec = u32::from_be_bytes([
-                    data[offset],
-                    data[offset + 1],
-                    data[offset + 2],
-                    data[offset + 3],
-                ]) as i64;
-                offset += 4;
+        if atime_sec.is_some() || mtime_sec.is_some() {
+            use std::time::{Duration, SystemTime};
+            let file = tokio::fs::File::open(path).await?;
+            let std_file = file.into_std().await;
+            let metadata = std_file.metadata()?;
+            let original_atime = metadata
+                .accessed()
+                .ok()
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            let original_mtime = metadata
+                .modified()
+                .ok()
+                .unwrap_or(SystemTime::UNIX_EPOCH);
 
-                if offset + 4 <= data.len() {
-                    let _mtime_nsec = u32::from_be_bytes([
-                        data[offset],
-                        data[offset + 1],
-                        data[offset + 2],
-                        data[offset + 3],
-                    ]);
-                }
+            let atime = atime_sec
+                .map(|s| SystemTime::UNIX_EPOCH + Duration::from_secs(s))
+                .unwrap_or(original_atime);
+            let mtime = mtime_sec
+                .map(|s| SystemTime::UNIX_EPOCH + Duration::from_secs(s))
+                .unwrap_or(original_mtime);
 
-                #[cfg(windows)]
-                {
-                    use std::time::{Duration, SystemTime};
-                    let mtime = SystemTime::UNIX_EPOCH + Duration::from_secs(mtime_sec as u64);
-                    let atime = SystemTime::UNIX_EPOCH + Duration::from_secs(atime_sec as u64);
-                    let file = tokio::fs::File::open(path).await?;
-                    let std_file = file.into_std().await;
-                    let _metadata = std_file.metadata()?;
-                    let times = std::fs::FileTimes::new()
-                        .set_modified(mtime)
-                        .set_accessed(atime);
-                    std_file.set_times(times)?;
-                    tracing::debug!(
-                        "SETSTAT: set mtime={:?}, atime={:?} for {:?}",
-                        mtime,
-                        atime,
-                        path
-                    );
-                }
-                #[cfg(not(windows))]
-                {
-                    use std::os::unix::fs::FileTimesExt;
-                    use std::time::{Duration, SystemTime};
-                    let mtime = SystemTime::UNIX_EPOCH + Duration::from_secs(mtime_sec as u64);
-                    let atime = SystemTime::UNIX_EPOCH + Duration::from_secs(atime_sec as u64);
-                    let file = tokio::fs::File::open(path).await?;
-                    let std_file = file.into_std().await;
-                    let times = std::fs::FileTimes::new()
-                        .set_modified(mtime)
-                        .set_accessed(atime);
-                    std_file.set_times(times)?;
-                    tracing::debug!(
-                        "SETSTAT: set mtime={:?}, atime={:?} for {:?}",
-                        mtime,
-                        atime,
-                        path
-                    );
-                }
-            }
+            let times = std::fs::FileTimes::new()
+                .set_accessed(atime)
+                .set_modified(mtime);
+            std_file.set_times(times)?;
+            tracing::debug!(
+                "SETSTAT: set atime={:?}, mtime={:?} for {:?}",
+                atime,
+                mtime,
+                path
+            );
         }
 
         Ok(())

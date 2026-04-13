@@ -757,23 +757,23 @@ impl SftpState {
         handle
     }
 
-    pub fn parse_u32(&self, data: &[u8], offset: usize) -> u32 {
+    pub fn parse_u32(&self, data: &[u8], offset: usize) -> Result<u32> {
         if offset + 4 > data.len() {
-            return 0;
+            return Err(anyhow::anyhow!("Insufficient data for u32 at offset {}", offset));
         }
-        u32::from_be_bytes([
+        Ok(u32::from_be_bytes([
             data[offset],
             data[offset + 1],
             data[offset + 2],
             data[offset + 3],
-        ])
+        ]))
     }
 
-    pub fn parse_u64(&self, data: &[u8], offset: usize) -> u64 {
+    pub fn parse_u64(&self, data: &[u8], offset: usize) -> Result<u64> {
         if offset + 8 > data.len() {
-            return 0;
+            return Err(anyhow::anyhow!("Insufficient data for u64 at offset {}", offset));
         }
-        u64::from_be_bytes([
+        Ok(u64::from_be_bytes([
             data[offset],
             data[offset + 1],
             data[offset + 2],
@@ -782,27 +782,29 @@ impl SftpState {
             data[offset + 5],
             data[offset + 6],
             data[offset + 7],
-        ])
+        ]))
     }
 
     pub fn parse_string(&self, data: &[u8], offset: usize) -> Result<String> {
-        if offset + 4 > data.len() {
-            return Ok(String::new());
-        }
-        let len = self.parse_u32(data, offset) as usize;
+        let len = self.parse_u32(data, offset)? as usize;
         if offset + 4 + len > data.len() {
-            return Ok(String::new());
+            return Err(anyhow::anyhow!(
+                "String length {} exceeds available data at offset {}",
+                len,
+                offset
+            ));
         }
         Ok(String::from_utf8_lossy(&data[offset + 4..offset + 4 + len]).to_string())
     }
 
     pub fn parse_string_with_len(&self, data: &[u8], offset: usize) -> Result<(String, usize)> {
-        if offset + 4 > data.len() {
-            return Ok((String::new(), 0));
-        }
-        let len = self.parse_u32(data, offset) as usize;
+        let len = self.parse_u32(data, offset)? as usize;
         if offset + 4 + len > data.len() {
-            return Ok((String::new(), 0));
+            return Err(anyhow::anyhow!(
+                "String length {} exceeds available data at offset {}",
+                len,
+                offset
+            ));
         }
         let s = String::from_utf8_lossy(&data[offset + 4..offset + 4 + len]).to_string();
         Ok((s, len))
@@ -813,6 +815,12 @@ impl SftpState {
         packet.extend_from_slice(&(payload.len() as u32).to_be_bytes());
         packet.extend_from_slice(payload);
         packet
+    }
+
+    pub fn build_version_packet(&self, version: u32) -> Vec<u8> {
+        let mut payload = vec![2];
+        payload.extend_from_slice(&version.to_be_bytes());
+        self.build_packet(&payload)
     }
 
     pub fn build_status_packet(&self, id: u32, status: u32, msg: &str, lang: &str) -> Vec<u8> {

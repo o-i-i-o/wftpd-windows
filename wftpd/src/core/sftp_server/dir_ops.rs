@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 impl SftpState {
     pub async fn handle_opendir(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let path = self.parse_string(data, 5)?;
 
         if !self.check_permission(|p| p.can_list) {
@@ -51,7 +51,7 @@ impl SftpState {
     }
 
     pub async fn handle_readdir(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let handle_str = self.parse_string(data, 5)?;
 
         let entries_result = {
@@ -170,7 +170,7 @@ impl SftpState {
     }
 
     pub async fn handle_remove(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let path = self.parse_string(data, 5)?;
 
         if !self.check_permission(|p| p.can_delete) {
@@ -197,7 +197,7 @@ impl SftpState {
     }
 
     pub async fn handle_mkdir(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let path = self.parse_string(data, 5)?;
 
         if !self.check_permission(|p| p.can_mkdir) {
@@ -224,7 +224,7 @@ impl SftpState {
     }
 
     pub async fn handle_rmdir(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let path = self.parse_string(data, 5)?;
 
         if !self.check_permission(|p| p.can_rmdir) {
@@ -255,7 +255,7 @@ impl SftpState {
     }
 
     pub async fn handle_rename(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let (old_path, old_len) = self.parse_string_with_len(data, 5)?;
         let new_path_pos = 5 + 4 + old_len;
         let new_path = self.parse_string(data, new_path_pos)?;
@@ -291,6 +291,10 @@ impl SftpState {
                 old_full.display()
             );
             return Ok(self.build_status_packet(id, 2, "No such file", ""));
+        }
+
+        if old_full == new_full {
+            return Ok(self.build_status_packet(id, 0, "OK", ""));
         }
 
         if !path_starts_with_ignore_case(&old_full, PathBuf::from(&self.home_dir))
@@ -363,7 +367,7 @@ impl SftpState {
     }
 
     pub async fn handle_realpath(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let path = self.parse_string(data, 5)?;
 
         let full_path = if path.is_empty() || path == "." {
@@ -382,7 +386,7 @@ impl SftpState {
             }
         };
 
-        let resolved = if full_path.exists() {
+        let (resolved, is_dir) = if full_path.exists() {
             match full_path.canonicalize() {
                 Ok(canon) => {
                     if !path_starts_with_ignore_case(&canon, PathBuf::from(&self.home_dir)) {
@@ -393,12 +397,13 @@ impl SftpState {
                         );
                         return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
                     }
-                    canon
+                    let is_dir = canon.is_dir();
+                    (canon, is_dir)
                 }
-                Err(_) => full_path,
+                Err(_) => (full_path.clone(), full_path.is_dir()),
             }
         } else {
-            full_path
+            (full_path, false)
         };
 
         let path_str = match crate::core::path_utils::to_ftp_path(
@@ -419,11 +424,15 @@ impl SftpState {
         payload.extend_from_slice(&(path_str.len() as u32).to_be_bytes());
         payload.extend_from_slice(path_str.as_bytes());
 
-        let longname = format!("drwxr-xr-x  1 user user  0 Jan 01 00:00 {}", path_str);
+        let longname = format!(
+            "{}  1 user user  0 Jan 01 00:00 {}",
+            if is_dir { "drwxr-xr-x" } else { "-rw-r--r--" },
+            path_str
+        );
         payload.extend_from_slice(&(longname.len() as u32).to_be_bytes());
         payload.extend_from_slice(longname.as_bytes());
 
-        payload.extend_from_slice(&self.build_attrs(true, 0));
+        payload.extend_from_slice(&self.build_attrs(is_dir, 0));
 
         tracing::debug!(
             client_ip = %self.client_ip,

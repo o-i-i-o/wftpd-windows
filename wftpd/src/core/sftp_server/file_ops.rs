@@ -9,10 +9,10 @@ use crate::core::sftp_server::{
 
 impl SftpState {
     pub async fn handle_open(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let (path, path_len) = self.parse_string_with_len(data, 5)?;
         let pflags_pos = 5 + 4 + path_len;
-        let pflags = self.parse_u32(data, pflags_pos);
+        let pflags = self.parse_u32(data, pflags_pos)?;
 
         let need_read = pflags & SSH_FXF_READ != 0;
         let need_write = pflags & SSH_FXF_WRITE != 0;
@@ -71,6 +71,7 @@ impl SftpState {
 
             if need_append {
                 tokio::fs::OpenOptions::new()
+                    .read(need_read)
                     .write(true)
                     .create(need_creat)
                     .append(true)
@@ -78,6 +79,7 @@ impl SftpState {
                     .await
             } else if need_trunc {
                 tokio::fs::OpenOptions::new()
+                    .read(need_read)
                     .write(true)
                     .create(need_creat)
                     .truncate(true)
@@ -130,7 +132,7 @@ impl SftpState {
     }
 
     pub async fn handle_close(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let handle = self.parse_string(data, 5)?;
 
         if let Some(handle_obj) = self.handles.remove(&handle) {
@@ -156,7 +158,6 @@ impl SftpState {
                         tracing::debug!("sync_data on close {:?}: {}", path, e);
                     }
 
-                    // File will be automatically closed on drop, but explicit close releases resources earlier
                     drop(file);
 
                     if locked {
@@ -234,11 +235,11 @@ impl SftpState {
     }
 
     pub async fn handle_read(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let (handle_str, handle_len) = self.parse_string_with_len(data, 5)?;
         let offset_pos = 5 + 4 + handle_len;
-        let offset = self.parse_u64(data, offset_pos);
-        let len = self.parse_u32(data, offset_pos + 8) as usize;
+        let offset = self.parse_u64(data, offset_pos)?;
+        let len = self.parse_u32(data, offset_pos + 8)? as usize;
 
         if !self.check_permission(|p| p.can_read) {
             tracing::warn!(
@@ -337,11 +338,11 @@ impl SftpState {
     }
 
     pub async fn handle_write(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let (handle_str, handle_len) = self.parse_string_with_len(data, 5)?;
         let offset_pos = 5 + 4 + handle_len;
-        let offset = self.parse_u64(data, offset_pos);
-        let data_len = self.parse_u32(data, offset_pos + 8) as usize;
+        let offset = self.parse_u64(data, offset_pos)?;
+        let data_len = self.parse_u32(data, offset_pos + 8)? as usize;
 
         if offset_pos + 12 + data_len > data.len() {
             tracing::error!(

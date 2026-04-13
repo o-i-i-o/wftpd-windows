@@ -190,7 +190,7 @@ impl SftpHandler {
             state.buffer.drain(0..4 + packet_len);
 
             if !packet.is_empty() {
-                let response = state.handle_sftp_packet(&packet).await?;
+                let response = state.dispatch_packet(&packet).await?;
                 responses.extend_from_slice(&response);
             }
         }

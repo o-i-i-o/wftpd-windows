@@ -1,24 +1,26 @@
 //! SFTP command dispatcher
 //!
-//! Implements handle_sftp_packet main dispatcher and handle_init initialization command
+//! Dispatches incoming SFTP packets to appropriate handler functions
 
 use crate::core::sftp_server::SftpState;
 
 impl SftpState {
-    pub async fn handle_sftp_packet(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+    pub async fn dispatch_packet(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
         if data.is_empty() {
-            return Ok(self.build_status_packet(0, 5, "Bad packet", ""));
+            tracing::warn!(
+                client_ip = %self.client_ip,
+                username = ?self.username,
+                action = "EMPTY_PACKET",
+                "SFTP: received empty packet"
+            );
+            return Ok(vec![]);
         }
 
-        if self.last_handle_cleanup.elapsed() > std::time::Duration::from_secs(60) {
-            self.cleanup_expired_handles().await;
-            self.last_handle_cleanup = std::time::Instant::now();
-        }
+        let cmd = data[0];
 
-        let msg_type = data[0];
-
-        match msg_type {
+        match cmd {
             1 => self.handle_init(data).await,
+            2 => self.handle_version(data).await,
             3 => self.handle_open(data).await,
             4 => self.handle_close(data).await,
             5 => self.handle_read(data).await,
@@ -37,42 +39,86 @@ impl SftpState {
             18 => self.handle_rename(data).await,
             19 => self.handle_readlink(data).await,
             20 => self.handle_symlink(data).await,
-            40 => self.handle_lock(data).await,
-            41 => self.handle_unlock(data).await,
             200 => self.handle_extended(data).await,
-            _ => Ok(self.build_status_packet(0, 8, "Unsupported operation", "")),
+            _ => {
+                tracing::debug!(
+                    client_ip = %self.client_ip,
+                    username = ?self.username,
+                    action = "UNKNOWN_CMD",
+                    cmd = cmd,
+                    "SFTP: unknown command"
+                );
+                if data.len() >= 5 {
+                    let id = self.parse_u32(data, 1)?;
+                    Ok(self.build_status_packet(id, 8, "Unsupported command", ""))
+                } else {
+                    Ok(vec![])
+                }
+            }
         }
     }
 
     pub async fn handle_init(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let version = if data.len() >= 5 {
-            u32::from_be_bytes([data[1], data[2], data[3], data[4]])
-        } else {
-            3
-        };
-
-        self.sftp_version = version.min(6);
-
-        self.refresh_permissions();
-
-        let mut payload = vec![2];
-        payload.extend_from_slice(&self.sftp_version.to_be_bytes());
-
-        let extensions: &[(&str, &str)] = &[
-            ("limits@openssh.com", "1"),
-            ("statvfs@openssh.com", "2"),
-            ("md5-hash@openssh.com", "1"),
-            ("sha256-hash@openssh.com", "2"),
-            ("hardlink@openssh.com", "1"),
-        ];
-
-        for (name, data_val) in extensions {
-            payload.extend_from_slice(&(name.len() as u32).to_be_bytes());
-            payload.extend_from_slice(name.as_bytes());
-            payload.extend_from_slice(&(data_val.len() as u32).to_be_bytes());
-            payload.extend_from_slice(data_val.as_bytes());
+        if data.len() < 5 {
+            tracing::warn!(
+                client_ip = %self.client_ip,
+                username = ?self.username,
+                action = "INIT_INVALID",
+                "SFTP INIT: packet too short"
+            );
+            return Ok(self.build_version_packet(3));
         }
 
-        Ok(self.build_packet(&payload))
+        let client_version = self.parse_u32(data, 1)?;
+
+        tracing::info!(
+            client_ip = %self.client_ip,
+            username = ?self.username,
+            action = "INIT",
+            client_version = client_version,
+            "SFTP INIT received"
+        );
+
+        if client_version < 3 {
+            tracing::warn!(
+                client_ip = %self.client_ip,
+                username = ?self.username,
+                action = "INIT_VERSION_TOO_LOW",
+                client_version = client_version,
+                "SFTP INIT: client version too low, minimum is 3"
+            );
+            return Ok(self.build_status_packet(0, 8, "Protocol version too old, minimum is 3", ""));
+        }
+
+        let server_version = client_version.min(6);
+
+        tracing::info!(
+            client_ip = %self.client_ip,
+            username = ?self.username,
+            action = "INIT_COMPLETE",
+            client_version = client_version,
+            server_version = server_version,
+            "SFTP version negotiated"
+        );
+
+        Ok(self.build_version_packet(server_version))
+    }
+
+    pub async fn handle_version(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+        if data.len() < 5 {
+            return Ok(vec![]);
+        }
+
+        let version = self.parse_u32(data, 1)?;
+
+        tracing::info!(
+            client_ip = %self.client_ip,
+            username = ?self.username,
+            action = "VERSION",
+            version = version,
+            "SFTP VERSION received"
+        );
+
+        Ok(vec![])
     }
 }

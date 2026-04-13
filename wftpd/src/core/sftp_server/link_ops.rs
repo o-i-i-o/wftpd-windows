@@ -7,8 +7,12 @@ use crate::core::sftp_server::SftpState;
 
 impl SftpState {
     pub async fn handle_readlink(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let path = self.parse_string(data, 5)?;
+
+        if !self.check_permission(|p| p.can_read || p.can_list) {
+            return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
+        }
 
         let full_path = match self.resolve_path_checked(id, &path) {
             Ok(p) => p,
@@ -33,7 +37,7 @@ impl SftpState {
     }
 
     pub async fn handle_symlink(&mut self, data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-        let id = self.parse_u32(data, 1);
+        let id = self.parse_u32(data, 1)?;
         let (target, target_len) = self.parse_string_with_len(data, 5)?;
         let link_pos = 5 + 4 + target_len;
         let link_path = self.parse_string(data, link_pos)?;
