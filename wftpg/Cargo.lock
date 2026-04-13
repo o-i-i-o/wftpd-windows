@@ -2700,6 +2700,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "regex"
+version = "1.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e10754a14b9137dd7b1e3e5b0493cc9171fdd105e0ab477f51b72e7f3ac0e276"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
 name = "regex-automata"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3804,7 +3816,7 @@ checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 
 [[package]]
 name = "wftpg"
-version = "3.3.7"
+version = "3.3.8"
 dependencies = [
  "anyhow",
  "argon2",
@@ -3818,6 +3830,7 @@ dependencies = [
  "ipnet",
  "notify",
  "parking_lot",
+ "regex",
  "rfd",
  "serde",
  "serde_json",

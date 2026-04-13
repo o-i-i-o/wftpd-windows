@@ -87,5 +87,19 @@
   "Network error": "Network error",
   "DNS resolution failed": "DNS resolution failed",
   "Host unreachable": "Host unreachable",
-  "Connection refused": "Connection refused"
+  "Connection refused": "Connection refused",
+  "User {0} logged in via {1}": "User {0} logged in via {1}",
+  "Client connected from {0}": "Client connected from {0}",
+  "SFTP server started on {0}": "SFTP server started on {0}",
+  "FTP server started on {0}": "FTP server started on {0}",
+  "SFTP server starting on {0}": "SFTP server starting on {0}",
+  "FTP server starting on {0}": "FTP server starting on {0}",
+  "Loaded existing SFTP host key: {0}": "Loaded existing SFTP host key: {0}",
+  "Service ready to accept connections on named pipe: {0}": "Service ready to accept connections on named pipe: {0}",
+  "SSH connection error from {0}: {1}": "SSH connection error from {0}: {1}",
+  "FTP server stopped": "FTP server stopped",
+  "SFTP server stopped": "SFTP server stopped",
+  "Services started successfully": "Services started successfully",
+  "SFTP session cleanup completed": "SFTP session cleanup completed",
+  "UPnP/IGD port mapping is disabled": "UPnP/IGD port mapping is disabled"
 }

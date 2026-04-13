@@ -141,5 +141,37 @@ pub fn map_log(msg: &str) -> String {
     {
         return translated.clone();
     }
+
+    if let Some(log_map) = state.log_map.get(&state.language) {
+        for (pattern, translation) in log_map.iter() {
+            if (pattern.contains("{0}") || pattern.contains("{1}") || pattern.contains("{2}"))
+                && let Some(translated) = match_parameterized_message(msg, pattern, translation)
+            {
+                return translated;
+            }
+        }
+    }
+
     msg.to_string()
+}
+
+fn match_parameterized_message(msg: &str, pattern: &str, translation: &str) -> Option<String> {
+    let mut regex_pattern = regex::escape(pattern);
+
+    let placeholder_count = pattern.matches('{').count();
+    for i in 0..placeholder_count {
+        regex_pattern = regex_pattern.replace(&format!("\\{{{}\\}}", i), "(.+?)");
+    }
+
+    let re = regex::Regex::new(&format!("^{}$", regex_pattern)).ok()?;
+    let caps = re.captures(msg)?;
+
+    let mut result = translation.to_string();
+    for i in 0..placeholder_count {
+        if let Some(matched) = caps.get(i + 1) {
+            result = result.replace(&format!("{{{}}}", i), matched.as_str());
+        }
+    }
+
+    Some(result)
 }

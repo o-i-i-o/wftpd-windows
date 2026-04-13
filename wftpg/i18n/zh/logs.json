@@ -87,5 +87,19 @@
   "Network error": "网络错误",
   "DNS resolution failed": "DNS 解析失败",
   "Host unreachable": "主机不可达",
-  "Connection refused": "连接被拒绝"
+  "Connection refused": "连接被拒绝",
+  "User {0} logged in via {1}": "用户 {0} 通过 {1} 登录",
+  "Client connected from {0}": "客户端从 {0} 连接",
+  "SFTP server started on {0}": "SFTP 服务器在 {0} 启动",
+  "FTP server started on {0}": "FTP 服务器在 {0} 启动",
+  "SFTP server starting on {0}": "SFTP 服务器正在 {0} 启动",
+  "FTP server starting on {0}": "FTP 服务器正在 {0} 启动",
+  "Loaded existing SFTP host key: {0}": "已加载现有 SFTP 主机密钥: {0}",
+  "Service ready to accept connections on named pipe: {0}": "服务已准备好在命名管道上接受连接: {0}",
+  "SSH connection error from {0}: {1}": "来自 {0} 的 SSH 连接错误: {1}",
+  "FTP server stopped": "FTP 服务器已停止",
+  "SFTP server stopped": "SFTP 服务器已停止",
+  "Services started successfully": "服务启动成功",
+  "SFTP session cleanup completed": "SFTP 会话清理完成",
+  "UPnP/IGD port mapping is disabled": "UPnP/IGD 端口映射已禁用"
 }

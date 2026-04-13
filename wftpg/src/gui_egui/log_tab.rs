@@ -596,17 +596,19 @@ impl LogTab {
                                         );
                                     });
                                     row.col(|ui| {
-                                        let msg = if let Some(user) = &entry.fields.username {
-                                            format!("[{}] {}", user, entry.fields.message)
-                                        } else {
-                                            entry.fields.message.clone()
-                                        };
-                                        let translated_msg = i18n::map_log(&msg);
+                                        let translated_msg = i18n::map_log(&entry.fields.message);
                                         ui.label(
                                             RichText::new(&translated_msg)
                                                 .size(styles::FONT_SIZE_MD)
                                                 .color(styles::TEXT_PRIMARY_COLOR),
                                         );
+                                        if let Some(user) = &entry.fields.username {
+                                            ui.label(
+                                                RichText::new(format!("({})", user))
+                                                    .size(styles::FONT_SIZE_SM)
+                                                    .color(styles::TEXT_MUTED_COLOR),
+                                            );
+                                        }
                                     });
                                 });
                                 body.row(2.0, |mut row| {
