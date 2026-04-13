@@ -9,10 +9,10 @@ use super::commands::FtpCommand;
 use super::session_state::{ControlStream, SessionState};
 
 /// Generate random u16 value
-fn random_u16() -> u16 {
+fn random_u16() -> anyhow::Result<u16> {
     let mut buf = [0u8; 2];
-    getrandom::fill(&mut buf).expect("Failed to generate random bytes");
-    u16::from_be_bytes(buf)
+    getrandom::fill(&mut buf)?;
+    Ok(u16::from_be_bytes(buf))
 }
 
 pub async fn handle_directory_command(
@@ -259,13 +259,7 @@ pub async fn handle_directory_command(
                     }
                 }
 
-                let is_symlink = dir_path.is_symlink();
-
-                let result = if is_symlink {
-                    std::fs::remove_dir(&dir_path)
-                } else {
-                    tokio::fs::remove_dir_all(&dir_path).await
-                };
+                let result = tokio::fs::remove_dir(&dir_path).await;
 
                 if result.is_ok() {
                     control_stream
@@ -556,10 +550,14 @@ pub async fn generate_unique_filename(
         .as_secs();
 
     for attempt in 0..max_attempts {
+        let rand_val = match random_u16() {
+            Ok(v) => v,
+            Err(e) => return Err(format!("Random generation error: {}", e)),
+        };
         let unique_name = if attempt == 0 {
-            format!("stou_{}_{:04x}", base_name, random_u16())
+            format!("stou_{}_{:04x}", base_name, rand_val)
         } else {
-            format!("stou_{}_{:04x}_{}", base_name, random_u16(), attempt)
+            format!("stou_{}_{:04x}_{}", base_name, rand_val, attempt)
         };
 
         let file_path = match state.resolve_path(&unique_name) {

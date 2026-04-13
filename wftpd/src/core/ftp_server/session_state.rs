@@ -16,15 +16,11 @@ use super::upnp_manager::UpnpManager;
 #[derive(Debug, Clone, PartialEq)]
 pub enum FileStructure {
     File,
-    Record,
-    Page,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransferModeType {
     Stream,
-    Block,
-    Compressed,
 }
 
 pub enum ControlStream {
@@ -65,13 +61,24 @@ impl ControlStream {
         &mut self,
         acceptor: &tokio_rustls::TlsAcceptor,
     ) -> AnyhowResult<()> {
-        if let ControlStream::Plain(stream_opt) = self
-            && let Some(stream) = stream_opt.take()
-        {
-            let tls_stream = acceptor.accept(stream).await?;
-            *self = ControlStream::Tls(Box::new(tls_stream));
+        let plain_stream = match self {
+            ControlStream::Plain(stream_opt) => stream_opt.take(),
+            ControlStream::Tls(_) => return Ok(()),
+        };
+
+        let stream = plain_stream
+            .ok_or_else(|| anyhow::anyhow!("No plain stream available for TLS upgrade"))?;
+
+        match acceptor.accept(stream).await {
+            Ok(tls_stream) => {
+                *self = ControlStream::Tls(Box::new(tls_stream));
+                Ok(())
+            }
+            Err(e) => {
+                *self = ControlStream::Plain(None);
+                Err(e.into())
+            }
         }
-        Ok(())
     }
 
     pub fn local_ip(&self) -> Option<std::net::IpAddr> {
@@ -158,7 +165,11 @@ impl SessionState {
 
         let client_ip_parts: Vec<&str> = self.client_ip.split('.').collect();
         if client_ip_parts.len() != 4 {
-            return true;
+            tracing::warn!(
+                "PORT security: non-IPv4 client '{}' cannot use PORT command, use EPRT instead",
+                self.client_ip
+            );
+            return false;
         }
 
         let port_ip_parts = &parts[0..4];

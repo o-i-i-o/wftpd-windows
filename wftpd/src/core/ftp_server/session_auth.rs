@@ -202,11 +202,8 @@ pub async fn handle_auth_command(
 
         MIC(data) => {
             if state.tls_enabled {
-                if let Some(data) = data {
-                    tracing::debug!(
-                        "MIC command received: {} (TLS already provides integrity)",
-                        data
-                    );
+                if data.is_some() {
+                    tracing::debug!("MIC command received (TLS already provides integrity)");
                     control_stream
                         .write_response(
                             b"200 MIC accepted - integrity provided by TLS\r\n",
@@ -227,11 +224,8 @@ pub async fn handle_auth_command(
 
         CONF(data) => {
             if state.tls_enabled {
-                if let Some(data) = data {
-                    tracing::debug!(
-                        "CONF command received: {} (TLS already provides confidentiality)",
-                        data
-                    );
+                if data.is_some() {
+                    tracing::debug!("CONF command received (TLS already provides confidentiality)");
                     control_stream
                         .write_response(
                             b"200 CONF accepted - confidentiality provided by TLS\r\n",
@@ -252,11 +246,8 @@ pub async fn handle_auth_command(
 
         ENC(data) => {
             if state.tls_enabled {
-                if let Some(data) = data {
-                    tracing::debug!(
-                        "ENC command received: {} (TLS already provides encryption)",
-                        data
-                    );
+                if data.is_some() {
+                    tracing::debug!("ENC command received (TLS already provides encryption)");
                     control_stream
                         .write_response(
                             b"200 ENC accepted - encryption provided by TLS\r\n",
@@ -360,6 +351,8 @@ pub async fn handle_auth_command(
                                         anon_home,
                                         e
                                     );
+                                    ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
+                                    state.login_attempts += 1;
                                     control_stream
                                         .write_response(
                                             b"550 Anonymous home directory not found\r\n",
@@ -373,6 +366,8 @@ pub async fn handle_auth_command(
                             tracing::error!(
                                 "PASS failed: anonymous access allowed but no anonymous_home configured"
                             );
+                            ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
+                            state.login_attempts += 1;
                             control_stream
                                 .write_response(
                                     b"530 Anonymous home directory not configured\r\n",
@@ -382,6 +377,8 @@ pub async fn handle_auth_command(
                             state.current_user = None;
                         }
                     } else {
+                        ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
+                        state.login_attempts += 1;
                         control_stream
                             .write_response(b"530 Anonymous access not allowed\r\n", "FTP response")
                             .await;

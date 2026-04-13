@@ -188,16 +188,12 @@ pub async fn handle_basic_command(
                             .write_response(b"200 Mode set to Stream\r\n", "FTP response")
                             .await;
                     }
-                    "B" => {
-                        state.transfer_mode_type = TransferModeType::Block;
+                    "B" | "C" => {
                         control_stream
-                            .write_response(b"200 Mode set to Block\r\n", "FTP response")
-                            .await;
-                    }
-                    "C" => {
-                        state.transfer_mode_type = TransferModeType::Compressed;
-                        control_stream
-                            .write_response(b"200 Mode set to Compressed\r\n", "FTP response")
+                            .write_response(
+                                b"504 Only Stream mode is supported\r\n",
+                                "FTP response",
+                            )
                             .await;
                     }
                     _ => {
@@ -225,16 +221,12 @@ pub async fn handle_basic_command(
                             .write_response(b"200 Structure set to File\r\n", "FTP response")
                             .await;
                     }
-                    "R" => {
-                        state.file_structure = FileStructure::Record;
+                    "R" | "P" => {
                         control_stream
-                            .write_response(b"200 Structure set to Record\r\n", "FTP response")
-                            .await;
-                    }
-                    "P" => {
-                        state.file_structure = FileStructure::Page;
-                        control_stream
-                            .write_response(b"200 Structure set to Page\r\n", "FTP response")
+                            .write_response(
+                                b"504 Only File structure is supported\r\n",
+                                "FTP response",
+                            )
                             .await;
                     }
                     _ => {

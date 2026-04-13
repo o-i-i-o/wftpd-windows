@@ -139,6 +139,30 @@ pub async fn handle_site_command(
                             let target = symlink_parts[0];
                             let link_name = symlink_parts[1];
 
+                            let target_path = match state.resolve_path(target) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    control_stream
+                                        .write_response(
+                                            format!("550 Symlink target invalid: {}\r\n", e)
+                                                .as_bytes(),
+                                            "FTP response",
+                                        )
+                                        .await;
+                                    return Ok(true);
+                                }
+                            };
+
+                            if !path_starts_with_ignore_case(&target_path, &state.home_dir) {
+                                control_stream
+                                    .write_response(
+                                        b"550 Symlink target must be within home directory\r\n",
+                                        "FTP response",
+                                    )
+                                    .await;
+                                return Ok(true);
+                            }
+
                             let link_path = match state.resolve_path(link_name) {
                                 Ok(p) => p,
                                 Err(e) => {
@@ -163,7 +187,7 @@ pub async fn handle_site_command(
                             {
                                 use std::os::windows::fs::symlink_file;
 
-                                match symlink_file(target, &link_path) {
+                                match symlink_file(&target_path, &link_path) {
                                     Ok(()) => {
                                         control_stream
                                             .write_response(
@@ -182,7 +206,7 @@ pub async fn handle_site_command(
                                             protocol = "FTP",
                                             "Created symlink: {} -> {}",
                                             link_path.display(),
-                                            target
+                                            target_path.display()
                                         );
                                     }
                                     Err(e) => {
@@ -207,7 +231,7 @@ pub async fn handle_site_command(
                             {
                                 use std::os::unix::fs::symlink;
 
-                                match symlink(target, &link_path) {
+                                match symlink(&target_path, &link_path) {
                                     Ok(()) => {
                                         control_stream
                                             .write_response(

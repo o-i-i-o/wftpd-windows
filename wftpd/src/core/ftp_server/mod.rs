@@ -285,8 +285,6 @@ impl FtpServer {
                                     continue;
                                 }
 
-                                let _user_manager = Arc::clone(&user_manager_spawn);
-                                let _quota_manager = Arc::clone(&quota_manager_spawn);
                                 let client_ip_clone = client_ip.clone();
 
                                 tracing::info!(

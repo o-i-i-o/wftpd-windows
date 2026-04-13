@@ -113,7 +113,7 @@ async fn run_session(
         super::session_state::SessionConfig::from_config(&cfg, &res.client_ip)
     };
 
-    let passive_timeout = session_config.idle_timeout;
+    let passive_timeout = session_config.connection_timeout;
 
     if !session_config.ip_allowed {
         tracing::warn!("Connection rejected from {} by IP filter", res.client_ip);
@@ -296,10 +296,10 @@ pub async fn dispatch_command(
         SITE(_) => {
             return handle_site_command(control_stream, cmd, state, ctx).await;
         }
-        Unknown(_) => {
+        Unknown(name) => {
             control_stream
                 .write_response(
-                    format!("202 Command not implemented: {}\r\n", "").as_bytes(),
+                    format!("202 Command not implemented: {}\r\n", name).as_bytes(),
                     "FTP response",
                 )
                 .await;

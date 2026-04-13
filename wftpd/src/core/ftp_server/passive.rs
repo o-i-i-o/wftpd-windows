@@ -13,10 +13,10 @@ use super::session_ip::{find_masq_ip, resolve_ip_for_pasv};
 use super::upnp_manager::UpnpManager;
 
 /// Get random u32 value (using getrandom crate)
-fn getrandom_u32() -> u32 {
+fn getrandom_u32() -> anyhow::Result<u32> {
     let mut buf = [0u8; 4];
-    getrandom::fill(&mut buf).expect("Failed to generate random bytes");
-    u32::from_be_bytes(buf)
+    getrandom::fill(&mut buf)?;
+    Ok(u32::from_be_bytes(buf))
 }
 
 pub struct PassiveListenerInfo {
@@ -89,7 +89,7 @@ impl PassiveManager {
         }
 
         // Generate random start position to avoid race conditions and predictability from sequential search
-        let start_offset = getrandom_u32() as usize % range_size;
+        let start_offset = getrandom_u32()? as usize % range_size;
 
         // Try the entire range at most once
         for i in 0..range_size {
@@ -166,10 +166,33 @@ impl PassiveManager {
             .get_mut(&port)
             .ok_or_else(|| anyhow::anyhow!("No listener found for port {}", port))?;
 
+        let created_at = info.created_at;
+        let timeout_secs = info.listener.local_addr().map(|_| 120u64).unwrap_or(60);
         let expected_client_ip = info.client_ip.clone();
 
         loop {
-            let (stream, peer_addr) = info.listener.accept().await?;
+            let elapsed = created_at.elapsed();
+            if elapsed.as_secs() > timeout_secs {
+                anyhow::bail!(
+                    "Passive listener on port {} timed out after {}s",
+                    port,
+                    timeout_secs
+                );
+            }
+            let remaining = std::time::Duration::from_secs(timeout_secs) - elapsed;
+
+            let accept_result = tokio::time::timeout(remaining, info.listener.accept()).await;
+            let (stream, peer_addr) = match accept_result {
+                Ok(Ok(result)) => result,
+                Ok(Err(e)) => return Err(e.into()),
+                Err(_) => {
+                    anyhow::bail!(
+                        "Passive listener on port {} timed out after {}s",
+                        port,
+                        timeout_secs
+                    );
+                }
+            };
             let peer_ip = peer_addr.ip();
 
             if Self::ip_matches_client(&peer_ip, &expected_client_ip) {
@@ -298,34 +321,6 @@ impl PassiveManager {
                 &config.client_ip,
             )
             .await?;
-
-        // EPSV doesn't need to return IP, but we can log for debugging
-        let _response_ip = if let Some(override_ip) = &config.passive_ip_override {
-            if !override_ip.is_empty() {
-                resolve_ip_for_pasv(
-                    override_ip.clone(),
-                    &config.client_ip,
-                    &config.server_local_ip,
-                )
-                .await
-            } else {
-                find_masq_ip(
-                    &config.masquerade_map,
-                    &config.masquerade_address,
-                    &config.server_local_ip,
-                    &config.client_ip,
-                )
-                .await
-            }
-        } else {
-            find_masq_ip(
-                &config.masquerade_map,
-                &config.masquerade_address,
-                &config.server_local_ip,
-                &config.client_ip,
-            )
-            .await
-        };
 
         Ok(passive_port)
     }
