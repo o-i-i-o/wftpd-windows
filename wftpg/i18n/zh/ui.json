@@ -361,7 +361,7 @@
   "about.version": "版本：{0}",
   "about.description": "SFTP/FTP 服务器管理工具",
   "about.author_info": "作者信息",
-  "about.author": "作者：吴伟福",
+  "about.author": "作者：吴威富",
   "about.email": "邮箱：boss@oi-io.cc",
   "about.tech_stack": "技术栈：Rust + egui",
   "about.notices_title": "重要提示",
