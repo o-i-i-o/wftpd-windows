@@ -310,6 +310,14 @@ impl FileLogTab {
         }
     }
 
+    fn clean_file_path(path: &str) -> String {
+        if let Some(stripped) = path.strip_prefix("\\\\?\\") {
+            stripped.to_string()
+        } else {
+            path.to_string()
+        }
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         styles::page_header(ui, "📁", &i18n::t("file_log.title"));
 
@@ -615,8 +623,9 @@ impl FileLogTab {
                             });
                             row.col(|ui| {
                                 let file_path = entry.fields.file_path.as_deref().unwrap_or("-");
+                                let cleaned_path = Self::clean_file_path(file_path);
                                 ui.label(
-                                    RichText::new(file_path)
+                                    RichText::new(&cleaned_path)
                                         .size(styles::FONT_SIZE_MD)
                                         .color(styles::TEXT_PRIMARY_COLOR),
                                 );
