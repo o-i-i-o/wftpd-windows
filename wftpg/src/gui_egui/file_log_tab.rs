@@ -304,6 +304,8 @@ impl FileLogTab {
             "RMDIR" => i18n::t("file_log.rmdir"),
             "RENAME" => i18n::t("file_log.rename"),
             "UPDATE" => i18n::t("file_log.update"),
+            "SYMLINK" => i18n::t("file_log.symlink"),
+            "APPEND" => i18n::t("file_log.append"),
             _ => op.to_string(),
         }
     }

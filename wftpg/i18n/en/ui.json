@@ -357,6 +357,8 @@
   "file_log.rmdir": "Delete Dir",
   "file_log.rename": "Rename",
   "file_log.update": "Update",
+  "file_log.symlink": "Symlink",
+  "file_log.append": "Append",
 
   "about.title": "About",
   "about.software_info": "Software Information",

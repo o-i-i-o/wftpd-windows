@@ -355,6 +355,8 @@
   "file_log.rmdir": "删除目录",
   "file_log.rename": "重命名",
   "file_log.update": "更新",
+  "file_log.symlink": "符号链接",
+  "file_log.append": "追加",
 
   "about.title": "关于",
   "about.software_info": "软件信息",
