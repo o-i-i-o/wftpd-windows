@@ -247,6 +247,8 @@
   "security.symlink_security_desc": "Control symlink usage, affects security",
   "security.allow_symlinks": "Allow Symlinks",
   "security.allow_symlinks_hint": "When disabled, symlink access will be blocked for security",
+  "security.max_login_attempts": "Max Login Attempts",
+  "security.max_login_attempts_hint": "Maximum number of login attempts before Fail2Ban triggers (0 = no limit)",
   "security.symlink_disabled_secure": "✓ Symlinks disabled, security enhanced",
   "security.symlink_enabled_warning": "⚠ Enabling symlinks may pose security risks",
   "security.ip_validation_error": "⚠ IP/CIDR Validation Errors:",
@@ -436,5 +438,17 @@
   "error.logger_error": "Logger error: {0}",
   "error.server_error": "Server error: {0}",
   "error.io_error": "IO error: {0}",
-  "error.other_error": "Other error: {0}"
+  "error.other_error": "Other error: {0}",
+  "permissions.read": "Read",
+  "permissions.write": "Write",
+  "permissions.delete": "Delete",
+  "permissions.list": "List",
+  "permissions.mkdir": "Mkdir",
+  "permissions.rmdir": "Rmdir",
+  "permissions.rename": "Rename",
+  "permissions.append": "Append",
+  "file_filter.cert": "Certificate files",
+  "file_filter.key": "Private key files",
+  "server.nat_ip_hint": "e.g. 203.0.113.50",
+  "server.nat_domain_hint": "e.g. ftp.example.com"
 }

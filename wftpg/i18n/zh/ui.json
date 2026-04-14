@@ -247,6 +247,8 @@
   "security.symlink_security_desc": "控制符号链接的使用，影响安全性",
   "security.allow_symlinks": "允许符号链接",
   "security.allow_symlinks_hint": "禁用后，符号链接访问将被阻止以提高安全性",
+  "security.max_login_attempts": "最大登录尝试次数",
+  "security.max_login_attempts_hint": "Fail2Ban 触发前的最大登录尝试次数（0 = 无限制）",
   "security.symlink_disabled_secure": "✓ 已禁用符号链接，提高安全性",
   "security.symlink_enabled_warning": "⚠ 启用符号链接可能存在安全风险",
   "security.ip_validation_error": "⚠ IP/CIDR 验证错误：",
@@ -434,5 +436,17 @@
   "error.logger_error": "日志错误：{0}",
   "error.server_error": "服务器错误：{0}",
   "error.io_error": "IO 错误：{0}",
-  "error.other_error": "其他错误：{0}"
+  "error.other_error": "其他错误：{0}",
+  "permissions.read": "读",
+  "permissions.write": "写",
+  "permissions.delete": "删",
+  "permissions.list": "列表",
+  "permissions.mkdir": "建目录",
+  "permissions.rmdir": "删目录",
+  "permissions.rename": "重命名",
+  "permissions.append": "追加",
+  "file_filter.cert": "证书文件",
+  "file_filter.key": "私钥文件",
+  "server.nat_ip_hint": "例如: 203.0.113.50",
+  "server.nat_domain_hint": "例如: ftp.example.com"
 }

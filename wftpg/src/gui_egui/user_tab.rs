@@ -59,7 +59,19 @@ impl UserTab {
         match self.user_manager.save(&Config::get_users_path()) {
             Ok(_) => {
                 tracing::info!("User config saved");
-                self.status_message = Some((i18n::t("users.user_saved"), true));
+                match crate::core::ipc::IpcClient::notify_reload() {
+                    Ok(response) if response.success => {
+                        self.status_message = Some((i18n::t("users.user_saved"), true));
+                    }
+                    Ok(response) => {
+                        tracing::warn!("Backend reload failed: {}", response.message);
+                        self.status_message = Some((i18n::t("users.user_saved"), true));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to notify backend reload: {}", e);
+                        self.status_message = Some((i18n::t("users.user_saved"), true));
+                    }
+                }
             }
             Err(e) => {
                 tracing::error!("Failed to save user config: {}", e);

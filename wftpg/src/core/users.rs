@@ -15,6 +15,7 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
 use chrono::{DateTime, Utc};
+use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -100,28 +101,28 @@ impl fmt::Display for Permissions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut perms = Vec::new();
         if self.can_read {
-            perms.push("读");
+            perms.push(crate::core::i18n::t("permissions.read"));
         }
         if self.can_write {
-            perms.push("写");
+            perms.push(crate::core::i18n::t("permissions.write"));
         }
         if self.can_delete {
-            perms.push("删");
+            perms.push(crate::core::i18n::t("permissions.delete"));
         }
         if self.can_list {
-            perms.push("列表");
+            perms.push(crate::core::i18n::t("permissions.list"));
         }
         if self.can_mkdir {
-            perms.push("建目录");
+            perms.push(crate::core::i18n::t("permissions.mkdir"));
         }
         if self.can_rmdir {
-            perms.push("删目录");
+            perms.push(crate::core::i18n::t("permissions.rmdir"));
         }
         if self.can_rename {
-            perms.push("重命名");
+            perms.push(crate::core::i18n::t("permissions.rename"));
         }
         if self.can_append {
-            perms.push("追加");
+            perms.push(crate::core::i18n::t("permissions.append"));
         }
         write!(f, "{}", perms.join(","))
     }
@@ -191,14 +192,12 @@ impl UserManager {
     ///
     /// 使用 Argon2 算法，自动生成随机盐值
     fn hash_password(password: &str) -> Result<String, UserError> {
-        // 生成随机盐值
-        let mut salt_bytes = [0u8; 16];
-        getrandom::fill(&mut salt_bytes)
-            .map_err(|e| UserError::PasswordHashFailed(e.to_string()))?;
-        let salt = SaltString::encode_b64(&salt_bytes)
-            .map_err(|e| UserError::PasswordHashFailed(e.to_string()))?;
+        use argon2::Params;
 
-        let argon2 = Argon2::default();
+        let salt = SaltString::generate(&mut SysRng);
+        let params = Params::new(65536, 3, 4, Some(32))
+            .map_err(|e| UserError::PasswordHashFailed(e.to_string()))?;
+        let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
         let hash = argon2
             .hash_password(password.as_bytes(), &salt)
             .map_err(|e| UserError::PasswordHashFailed(e.to_string()))?
@@ -248,7 +247,7 @@ impl UserManager {
         let home_dir = home_dir.trim();
         if home_dir.is_empty() {
             return Err(UserError::InvalidHomeDirectory(
-                "用户主目录不能为空".to_string(),
+                "User home directory cannot be empty".to_string(),
             ));
         }
 
@@ -268,7 +267,7 @@ impl UserManager {
         };
 
         self.users.insert(username.to_string(), user);
-        tracing::info!("用户已添加：{}", username);
+        tracing::info!("User added: {}", username);
         Ok(())
     }
 
@@ -282,25 +281,28 @@ impl UserManager {
         let path = std::path::Path::new(home_dir);
 
         if home_dir.trim().is_empty() {
-            anyhow::bail!("用户主目录不能为空");
+            anyhow::bail!("User home directory cannot be empty");
         }
 
         if path.exists() {
             if !path.is_dir() {
-                anyhow::bail!("用户主目录不是有效目录：{}", home_dir);
+                anyhow::bail!("User home directory is not a valid directory: {}", home_dir);
             }
             match path.canonicalize() {
                 Ok(_) => Ok(()),
-                Err(e) => anyhow::bail!("用户主目录路径无效 '{}': {}", home_dir, e),
+                Err(e) => {
+                    anyhow::bail!("User home directory path is invalid '{}': {}", home_dir, e)
+                }
             }
         } else {
-            // 目录不存在时尝试创建
             match std::fs::create_dir_all(path) {
                 Ok(_) => {
-                    tracing::info!("已创建用户主目录：{}", home_dir);
+                    tracing::info!("Created user home directory: {}", home_dir);
                     Ok(())
                 }
-                Err(e) => anyhow::bail!("无法创建用户主目录 '{}': {}", home_dir, e),
+                Err(e) => {
+                    anyhow::bail!("Failed to create user home directory '{}': {}", home_dir, e)
+                }
             }
         }
     }
@@ -310,7 +312,7 @@ impl UserManager {
         if self.users.remove(username).is_none() {
             return Err(UserError::UserNotFound(username.to_string()));
         }
-        tracing::info!("用户已删除：{}", username);
+        tracing::info!("User removed: {}", username);
         Ok(())
     }
 
@@ -322,7 +324,7 @@ impl UserManager {
             .ok_or_else(|| UserError::UserNotFound(username.to_string()))?;
 
         user.password_hash = Self::hash_password(new_password)?;
-        tracing::info!("用户密码已更新：{}", username);
+        tracing::info!("User password updated: {}", username);
         Ok(())
     }
 
@@ -336,7 +338,7 @@ impl UserManager {
         let home_dir = home_dir.trim();
         if home_dir.is_empty() {
             return Err(UserError::InvalidHomeDirectory(
-                "用户主目录不能为空".to_string(),
+                "User home directory cannot be empty".to_string(),
             ));
         }
 
@@ -344,7 +346,7 @@ impl UserManager {
             .map_err(|e| UserError::InvalidHomeDirectory(e.to_string()))?;
 
         user.home_dir = home_dir.to_string();
-        tracing::info!("用户主目录已更新：{} -> {}", username, home_dir);
+        tracing::info!("User home directory updated: {} -> {}", username, home_dir);
         Ok(())
     }
 
@@ -360,7 +362,7 @@ impl UserManager {
             .ok_or_else(|| UserError::UserNotFound(username.to_string()))?;
 
         user.permissions = permissions;
-        tracing::info!("用户权限已更新：{}", username);
+        tracing::info!("User permissions updated: {}", username);
         Ok(())
     }
 
@@ -372,7 +374,7 @@ impl UserManager {
             .ok_or_else(|| UserError::UserNotFound(username.to_string()))?;
 
         user.enabled = enabled;
-        tracing::info!("用户状态已更新：{} (enabled={})", username, enabled);
+        tracing::info!("User status updated: {} (enabled={})", username, enabled);
         Ok(())
     }
 
@@ -384,7 +386,11 @@ impl UserManager {
             .ok_or_else(|| UserError::UserNotFound(username.to_string()))?;
 
         user.is_admin = is_admin;
-        tracing::info!("用户管理员状态已更新：{} (is_admin={})", username, is_admin);
+        tracing::info!(
+            "User admin status updated: {} (is_admin={})",
+            username,
+            is_admin
+        );
         Ok(())
     }
 
@@ -403,17 +409,17 @@ impl UserManager {
             .ok_or_else(|| UserError::UserNotFound(username.to_string()))?;
 
         if !user.enabled {
-            tracing::warn!("用户已禁用：{}", username);
+            tracing::warn!("User disabled: {}", username);
             return Ok(false);
         }
 
         if Self::verify_password(password, &user.password_hash) {
             user.last_login = Some(Utc::now());
-            tracing::info!("用户认证成功：{}", username);
+            tracing::info!("User authenticated successfully: {}", username);
             return Ok(true);
         }
 
-        tracing::warn!("用户认证失败：{}", username);
+        tracing::warn!("User authentication failed: {}", username);
         Ok(false)
     }
 
@@ -440,7 +446,7 @@ impl UserManager {
         };
 
         self.users = manager.users;
-        tracing::info!("用户数据已从文件重新加载：{:?}", path);
+        tracing::info!("User data reloaded from file: {:?}", path);
         Ok(())
     }
 

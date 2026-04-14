@@ -220,7 +220,9 @@ impl IpcStream {
                 if !result.as_bool() {
                     attempts += 1;
                     if attempts >= MAX_ATTEMPTS {
-                        anyhow::bail!("命名管道服务不可用，服务可能未启动，请等待几秒后重试");
+                        anyhow::bail!(
+                            "Named pipe service unavailable, the service may not be started yet, please retry in a few seconds"
+                        );
                     }
                     std::thread::sleep(Duration::from_millis(200));
                     continue;
@@ -285,20 +287,18 @@ impl Read for &IpcStream {
                     let wait_result = WaitForSingleObject(event, timeout_ms);
 
                     if wait_result == WAIT_TIMEOUT {
-                        // 取消 IO 操作
                         let _ = CancelIo(self.handle);
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::TimedOut,
-                            "读取超时",
+                            "Read timed out",
                         ));
                     }
 
-                    // 获取结果
                     let mut actual_bytes: u32 = 0;
                     if GetOverlappedResult(self.handle, &overlapped, &mut actual_bytes, false)
                         .is_err()
                     {
-                        return Err(std::io::Error::other("重叠读取失败"));
+                        return Err(std::io::Error::other("Overlapped read failed"));
                     }
                     Ok(actual_bytes as usize)
                 }
@@ -339,20 +339,18 @@ impl Write for &IpcStream {
                     let wait_result = WaitForSingleObject(event, timeout_ms);
 
                     if wait_result == WAIT_TIMEOUT {
-                        // 取消 IO 操作
                         let _ = CancelIo(self.handle);
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::TimedOut,
-                            "写入超时",
+                            "Write timed out",
                         ));
                     }
 
-                    // 获取结果
                     let mut actual_bytes: u32 = 0;
                     if GetOverlappedResult(self.handle, &overlapped, &mut actual_bytes, false)
                         .is_err()
                     {
-                        return Err(std::io::Error::other("重叠写入失败"));
+                        return Err(std::io::Error::other("Overlapped write failed"));
                     }
                     Ok(actual_bytes as usize)
                 }

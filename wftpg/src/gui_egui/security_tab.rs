@@ -148,6 +148,8 @@ pub struct SecurityTab {
     denied_ips_text: String,
     // 符号链接安全
     allow_symlinks: bool,
+    // 登录安全
+    max_login_attempts_buf: String,
     // 状态和错误
     status_message: Option<(String, bool)>,
     validation_errors: Vec<ValidationError>,
@@ -155,6 +157,7 @@ pub struct SecurityTab {
     fail2ban_ban_time_error: Option<String>,
     max_connections_error: Option<String>,
     max_connections_per_ip_error: Option<String>,
+    max_login_attempts_error: Option<String>,
     save_sender: Option<mpsc::Sender<SaveResult>>,
     save_receiver: Option<mpsc::Receiver<SaveResult>>,
     is_saving: bool,
@@ -176,6 +179,8 @@ impl SecurityTab {
         let denied_ips_text = cfg.security.denied_ips.join("\n");
         // 符号链接安全
         let allow_symlinks = cfg.security.allow_symlinks;
+        // 登录安全
+        let max_login_attempts_buf = cfg.security.max_login_attempts.to_string();
         drop(cfg);
 
         let (tx, rx) = mpsc::channel();
@@ -190,12 +195,14 @@ impl SecurityTab {
             allowed_ips_text,
             denied_ips_text,
             allow_symlinks,
+            max_login_attempts_buf,
             status_message: None,
             validation_errors: Vec::new(),
             fail2ban_threshold_error: None,
             fail2ban_ban_time_error: None,
             max_connections_error: None,
             max_connections_per_ip_error: None,
+            max_login_attempts_error: None,
             save_sender: Some(tx),
             save_receiver: Some(rx),
             is_saving: false,
@@ -209,6 +216,7 @@ impl SecurityTab {
         self.fail2ban_ban_time_error = None;
         self.max_connections_error = None;
         self.max_connections_per_ip_error = None;
+        self.max_login_attempts_error = None;
 
         let mut valid = true;
 
@@ -249,6 +257,16 @@ impl SecurityTab {
             }
         } else {
             self.max_connections_per_ip_error = Some(i18n::t("security.enter_valid_number"));
+            valid = false;
+        }
+
+        if let Ok(v) = self.max_login_attempts_buf.parse::<u32>() {
+            if v == 0 {
+                self.max_login_attempts_error = Some(i18n::t("security.must_greater_0"));
+                valid = false;
+            }
+        } else {
+            self.max_login_attempts_error = Some(i18n::t("security.enter_valid_number"));
             valid = false;
         }
 
@@ -298,6 +316,9 @@ impl SecurityTab {
 
         // 符号链接安全
         cfg.security.allow_symlinks = self.allow_symlinks;
+        if let Ok(v) = self.max_login_attempts_buf.parse::<u32>() {
+            cfg.security.max_login_attempts = v;
+        }
     }
 
     fn save_async(&mut self, ctx: &egui::Context) {
@@ -716,6 +737,39 @@ impl SecurityTab {
                         RichText::new(i18n::t("security.symlink_enabled_warning"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::WARNING_COLOR),
+                    );
+                });
+            }
+        });
+
+        ui.add_space(styles::SPACING_MD);
+
+        styles::card_frame().show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            Self::section_header(ui, "🔐", &i18n::t("security.login_security"));
+
+            let label_width = (ui.available_width() * 0.2).clamp(100.0, 160.0);
+
+            styles::form_row(
+                ui,
+                &i18n::t("security.max_login_attempts"),
+                label_width,
+                |ui| {
+                    ui.add_sized(
+                        [120.0, 24.0],
+                        egui::TextEdit::singleline(&mut self.max_login_attempts_buf),
+                    )
+                    .on_hover_text(i18n::t("security.max_login_attempts_hint"));
+                },
+            );
+
+            if let Some(err) = &self.max_login_attempts_error {
+                ui.horizontal(|ui| {
+                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                    ui.label(
+                        RichText::new(err)
+                            .size(styles::FONT_SIZE_SM)
+                            .color(styles::DANGER_COLOR),
                     );
                 });
             }

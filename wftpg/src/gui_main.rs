@@ -8,7 +8,6 @@ use tracing_subscriber::layer::SubscriberExt;
 
 use wftpg::core::config::Config;
 use wftpg::core::config_manager::ConfigManager;
-use wftpg::core::config_watcher::ConfigWatcher;
 use wftpg::core::i18n;
 use wftpg::core::server_manager::ServerManager;
 use wftpg::gui_egui::{
@@ -140,7 +139,6 @@ struct WftpgApp {
     init_receiver: Option<mpsc::Receiver<Result<InitResult, String>>>,
     init_start_time: Instant,
     cached_styles: CachedStyles,
-    config_watcher: Option<ConfigWatcher>,
     pending_unset_topmost: bool,
     language: i18n::Language,
 }
@@ -201,7 +199,6 @@ impl WftpgApp {
             init_receiver: Some(init_rx),
             init_start_time: Instant::now(),
             cached_styles: CachedStyles::new(),
-            config_watcher: None,
             pending_unset_topmost: false,
             language,
         }
@@ -227,16 +224,6 @@ impl WftpgApp {
         })
     }
 
-    /// 初始化配置文件监听器
-    fn init_config_watcher(&mut self) {
-        let config_path = Config::get_config_path();
-        self.config_watcher = Some(ConfigWatcher::new(
-            &config_path,
-            self.config_manager.clone(),
-        ));
-        tracing::info!("Configuration watcher initialized");
-    }
-
     fn check_init_result(&mut self, ctx: &egui::Context) {
         if self.init_start_time.elapsed() >= Duration::from_secs(INIT_TIMEOUT_SECS) {
             self.init_receiver = None;
@@ -256,7 +243,6 @@ impl WftpgApp {
                 Ok(init_result) => {
                     self.show_service_install_dialog = init_result.show_service_dialog;
                     self.init_state = InitState::Ready;
-                    self.init_config_watcher();
 
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                     ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
@@ -462,13 +448,6 @@ impl App for WftpgApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut Frame) {
         let ctx = ui.ctx().clone();
 
-        // 检查配置文件变更并自动重载
-        if let Some(watcher) = &mut self.config_watcher
-            && watcher.check_and_reload()
-        {
-            tracing::info!("Configuration auto-reloaded, refreshing UI...");
-        }
-
         // 如果标记了需要取消置顶，在检测到用户交互时执行
         if self.pending_unset_topmost {
             // 检测是否有输入事件（鼠标或键盘）
@@ -479,7 +458,7 @@ impl App for WftpgApp {
                     egui::WindowLevel::Normal,
                 ));
                 self.pending_unset_topmost = false;
-                tracing::debug!("窗口已降级为普通窗口（用户交互后）");
+                tracing::debug!("Window downgraded to normal (after user interaction)");
             }
         }
 
@@ -650,10 +629,10 @@ fn setup_fonts(ctx: &egui::Context) {
                 if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
                     family.push((*name).into());
                 }
-                tracing::info!("成功加载字体：{}", name);
+                tracing::info!("Font loaded successfully: {}", name);
             }
             Err(e) => {
-                tracing::warn!("加载字体 {} 失败：{}", path, e);
+                tracing::warn!("Failed to load font {}: {}", path, e);
             }
         }
     }
@@ -671,7 +650,7 @@ fn load_icon() -> IconData {
                     let rgba = image.rgba_data().to_vec();
                     let width = entry.width();
                     let height = entry.height();
-                    tracing::info!("成功加载内嵌图标: {}x{}", width, height);
+                    tracing::info!("Embedded icon loaded successfully: {}x{}", width, height);
                     return IconData {
                         rgba,
                         width,
@@ -679,11 +658,11 @@ fn load_icon() -> IconData {
                     };
                 }
             }
-            tracing::warn!("内嵌图标中没有可解码的图像");
+            tracing::warn!("No decodable image found in embedded icon");
             create_default_icon()
         }
         Err(e) => {
-            tracing::error!("解析内嵌图标文件失败: {}", e);
+            tracing::error!("Failed to parse embedded icon file: {}", e);
             create_default_icon()
         }
     }
@@ -748,7 +727,7 @@ fn main() -> eframe::Result<()> {
     #[cfg(windows)]
     {
         if !admin::ensure_admin_or_restart() {
-            tracing::error!("程序需要管理员权限才能运行");
+            tracing::error!("Administrator privileges are required to run this program");
             std::process::exit(1);
         }
     }

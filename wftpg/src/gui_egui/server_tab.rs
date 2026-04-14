@@ -213,14 +213,17 @@ impl ServerTab {
     fn pick_cert_file(title: &str) -> Option<std::path::PathBuf> {
         rfd::FileDialog::new()
             .set_title(title)
-            .add_filter("证书文件", &["pem", "crt", "cer"])
+            .add_filter(
+                &crate::core::i18n::t("file_filter.cert"),
+                &["pem", "crt", "cer"],
+            )
             .pick_file()
     }
 
     fn pick_key_file(title: &str) -> Option<std::path::PathBuf> {
         rfd::FileDialog::new()
             .set_title(title)
-            .add_filter("私钥文件", &["pem", "key"])
+            .add_filter(&crate::core::i18n::t("file_filter.key"), &["pem", "key"])
             .pick_file()
     }
 
@@ -590,7 +593,7 @@ impl ServerTab {
                             ui.add(
                                 egui::TextEdit::singleline(&mut passive_ip)
                                     .desired_width(ui.available_width())
-                                    .hint_text("例如: 203.0.113.50")
+                                    .hint_text(i18n::t("server.nat_ip_hint"))
                                     .font(egui::FontId::new(
                                         styles::FONT_SIZE_MD,
                                         egui::FontFamily::Proportional,
@@ -625,7 +628,7 @@ impl ServerTab {
                             ui.add(
                                 egui::TextEdit::singleline(&mut masq_addr)
                                     .desired_width(ui.available_width())
-                                    .hint_text("例如: ftp.example.com")
+                                    .hint_text(i18n::t("server.nat_domain_hint"))
                                     .font(egui::FontId::new(
                                         styles::FONT_SIZE_MD,
                                         egui::FontFamily::Proportional,

@@ -10,9 +10,9 @@ use std::time::Duration;
 
 use windows::Win32::Foundation::*;
 use windows::Win32::Storage::FileSystem::*;
-use windows::Win32::System::IO::*;
+use windows::Win32::System::IO::{CancelIo, *};
 use windows::Win32::System::Pipes::*;
-use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+use windows::Win32::System::Threading::{CreateEventW, INFINITE, WaitForSingleObject};
 
 pub const PIPE_NAME: &str = "wftpd";
 
@@ -123,6 +123,8 @@ impl IpcServerInner {
 
             Ok(IpcStream {
                 handle: current_handle,
+                read_timeout: std::cell::RefCell::new(None),
+                write_timeout: std::cell::RefCell::new(None),
             })
         }
     }
@@ -193,6 +195,8 @@ impl IpcServerInner {
 
             Ok(Some(IpcStream {
                 handle: current_handle,
+                read_timeout: std::cell::RefCell::new(None),
+                write_timeout: std::cell::RefCell::new(None),
             }))
         }
     }
@@ -211,6 +215,8 @@ impl Drop for IpcServerInner {
 
 pub struct IpcStream {
     handle: HANDLE,
+    read_timeout: std::cell::RefCell<Option<Duration>>,
+    write_timeout: std::cell::RefCell<Option<Duration>>,
 }
 
 unsafe impl Send for IpcStream {}
@@ -258,19 +264,69 @@ impl IpcStream {
                 );
             }
 
-            Ok(IpcStream { handle })
+            Ok(IpcStream {
+                handle,
+                read_timeout: std::cell::RefCell::new(None),
+                write_timeout: std::cell::RefCell::new(None),
+            })
         }
+    }
+
+    pub fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        *self.read_timeout.borrow_mut() = timeout;
+        Ok(())
+    }
+
+    pub fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        *self.write_timeout.borrow_mut() = timeout;
+        Ok(())
     }
 }
 
 impl Read for &IpcStream {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         unsafe {
+            let event = CreateEventW(None, true, false, None).map_err(std::io::Error::other)?;
+
+            let mut overlapped = OVERLAPPED {
+                hEvent: event,
+                ..Default::default()
+            };
+
             let mut bytes_read: u32 = 0;
-            let result = ReadFile(self.handle, Some(buf), Some(&mut bytes_read), None);
+            let result = ReadFile(
+                self.handle,
+                Some(buf),
+                Some(&mut bytes_read),
+                Some(&mut overlapped),
+            );
 
             match result {
                 Ok(()) => Ok(bytes_read as usize),
+                Err(e) if e.code() == ERROR_IO_PENDING.to_hresult() => {
+                    let timeout_ms = self
+                        .read_timeout
+                        .borrow()
+                        .map(|d| d.as_millis() as u32)
+                        .unwrap_or(INFINITE);
+                    let wait_result = WaitForSingleObject(event, timeout_ms);
+
+                    if wait_result == WAIT_TIMEOUT {
+                        let _ = CancelIo(self.handle);
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "Read timed out",
+                        ));
+                    }
+
+                    let mut actual_bytes: u32 = 0;
+                    if GetOverlappedResult(self.handle, &overlapped, &mut actual_bytes, false)
+                        .is_err()
+                    {
+                        return Err(std::io::Error::other("Overlapped read failed"));
+                    }
+                    Ok(actual_bytes as usize)
+                }
                 Err(e) => Err(std::io::Error::other(e)),
             }
         }
@@ -280,11 +336,47 @@ impl Read for &IpcStream {
 impl Write for &IpcStream {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         unsafe {
+            let event = CreateEventW(None, true, false, None).map_err(std::io::Error::other)?;
+
+            let mut overlapped = OVERLAPPED {
+                hEvent: event,
+                ..Default::default()
+            };
+
             let mut bytes_written: u32 = 0;
-            let result = WriteFile(self.handle, Some(buf), Some(&mut bytes_written), None);
+            let result = WriteFile(
+                self.handle,
+                Some(buf),
+                Some(&mut bytes_written),
+                Some(&mut overlapped),
+            );
 
             match result {
                 Ok(()) => Ok(bytes_written as usize),
+                Err(e) if e.code() == ERROR_IO_PENDING.to_hresult() => {
+                    let timeout_ms = self
+                        .write_timeout
+                        .borrow()
+                        .map(|d| d.as_millis() as u32)
+                        .unwrap_or(INFINITE);
+                    let wait_result = WaitForSingleObject(event, timeout_ms);
+
+                    if wait_result == WAIT_TIMEOUT {
+                        let _ = CancelIo(self.handle);
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "Write timed out",
+                        ));
+                    }
+
+                    let mut actual_bytes: u32 = 0;
+                    if GetOverlappedResult(self.handle, &overlapped, &mut actual_bytes, false)
+                        .is_err()
+                    {
+                        return Err(std::io::Error::other("Overlapped write failed"));
+                    }
+                    Ok(actual_bytes as usize)
+                }
                 Err(e) => Err(std::io::Error::other(e)),
             }
         }

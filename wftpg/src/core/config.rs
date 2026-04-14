@@ -8,23 +8,32 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::core::error::ConfigError;
 
-/// 主配置结构
-///
-/// 包含所有服务器配置项，支持 TOML 格式序列化和反序列化
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    pub server: ServerConfig,
+    #[serde(skip)]
+    pub server: Arc<ServerConfig>,
     pub ftp: FtpConfig,
     pub sftp: SftpConfig,
     pub security: SecurityConfig,
     pub logging: LoggingConfig,
 }
 
-// 移除 Clone 的手动实现，使用派生的 Clone
+impl Clone for Config {
+    fn clone(&self) -> Self {
+        Config {
+            server: Arc::clone(&self.server),
+            ftp: self.ftp.clone(),
+            sftp: self.sftp.clone(),
+            security: self.security.clone(),
+            logging: self.logging.clone(),
+        }
+    }
+}
 
 /// 服务器配置
 ///
@@ -295,6 +304,12 @@ pub struct SecurityConfig {
     // 符号链接安全配置
     #[serde(default = "default_allow_symlinks")]
     pub allow_symlinks: bool,
+    #[serde(default = "default_max_login_attempts")]
+    pub max_login_attempts: u32,
+}
+
+fn default_max_login_attempts() -> u32 {
+    5
 }
 
 fn default_fail2ban_ban_time() -> u64 {
@@ -361,7 +376,7 @@ impl Default for Config {
             .to_string();
 
         Config {
-            server: ServerConfig::new(),
+            server: Arc::new(ServerConfig::new()),
             ftp: FtpConfig {
                 enabled: true,
                 bind_ip: "0.0.0.0".to_string(),
@@ -410,6 +425,7 @@ impl Default for Config {
                 fail2ban_threshold: 5,
                 fail2ban_ban_time: 3600,
                 allow_symlinks: false,
+                max_login_attempts: 5,
             },
             logging: LoggingConfig {
                 log_dir,
@@ -436,7 +452,11 @@ impl Config {
 
         let content = fs::read_to_string(path).map_err(ConfigError::ReadFailed)?;
 
-        let config: Config = toml::from_str(&content).map_err(ConfigError::ParseFailed)?;
+        let mut config: Config = toml::from_str(&content).map_err(ConfigError::ParseFailed)?;
+        config.server = Arc::new(ServerConfig::new());
+
+        config.ftp.bind_ip = Self::normalize_bind_ip(&config.ftp.bind_ip);
+        config.sftp.bind_ip = Self::normalize_bind_ip(&config.sftp.bind_ip);
 
         Ok(config)
     }
@@ -451,10 +471,13 @@ impl Config {
         if self.ftp.allow_anonymous {
             match &self.ftp.anonymous_home {
                 None => {
-                    warnings.push("匿名用户已启用，但未配置匿名用户主目录".to_string());
+                    warnings.push(
+                        "Anonymous user enabled but no home directory configured".to_string(),
+                    );
                 }
                 Some(anon_home) => {
-                    if let Err(e) = Self::validate_home_path(anon_home, "FTP 匿名用户主目录")
+                    if let Err(e) =
+                        Self::validate_home_path(anon_home, "FTP anonymous home directory")
                     {
                         warnings.push(e);
                     }
@@ -463,21 +486,20 @@ impl Config {
         }
 
         if self.ftp.ftps.enabled {
-            // 证书会自动生成，不需要检查是否存在
             if let Some(cert_path) = &self.ftp.ftps.cert_path {
                 if cert_path.is_empty() {
-                    warnings.push("FTPS 已启用，但未配置证书路径".to_string());
+                    warnings.push("FTPS enabled but certificate path is empty".to_string());
                 }
             } else {
-                warnings.push("FTPS 已启用，但未配置证书路径".to_string());
+                warnings.push("FTPS enabled but certificate path not configured".to_string());
             }
 
             if let Some(key_path) = &self.ftp.ftps.key_path {
                 if key_path.is_empty() {
-                    warnings.push("FTPS 已启用，但未配置私钥路径".to_string());
+                    warnings.push("FTPS enabled but private key path is empty".to_string());
                 }
             } else {
-                warnings.push("FTPS 已启用，但未配置私钥路径".to_string());
+                warnings.push("FTPS enabled but private key path not configured".to_string());
             }
         }
 
@@ -485,16 +507,16 @@ impl Config {
             let log_dir = &self.logging.log_dir;
             let log_path = Path::new(log_dir);
             if !log_path.exists() {
-                warnings.push(format!("日志目录不存在: {}", log_dir));
+                warnings.push(format!("Log directory does not exist: {}", log_dir));
             } else {
                 match fs::metadata(log_path) {
                     Ok(m) => {
                         if m.permissions().readonly() {
-                            warnings.push(format!("日志目录不可写: {}", log_dir));
+                            warnings.push(format!("Log directory is not writable: {}", log_dir));
                         }
                     }
                     Err(e) => {
-                        warnings.push(format!("无法访问日志目录 '{}': {}", log_dir, e));
+                        warnings.push(format!("Cannot access log directory '{}': {}", log_dir, e));
                     }
                 }
             }
@@ -503,17 +525,16 @@ impl Config {
         warnings
     }
 
-    /// 验证用户主目录路径
     fn validate_home_path(path: &str, name: &str) -> Result<(), String> {
         let p = Path::new(path);
         if !p.exists() {
-            return Err(format!("{}不存在：{}", name, path));
+            return Err(format!("{} does not exist: {}", name, path));
         }
         if !p.is_dir() {
-            return Err(format!("{}不是目录：{}", name, path));
+            return Err(format!("{} is not a directory: {}", name, path));
         }
         if p.canonicalize().is_err() {
-            return Err(format!("{}路径无法规范化：{}", name, path));
+            return Err(format!("{} path cannot be canonicalized: {}", name, path));
         }
         Ok(())
     }
@@ -537,6 +558,65 @@ impl Config {
 
     pub fn get_users_path() -> PathBuf {
         get_program_data_path().join("users.json")
+    }
+
+    fn normalize_bind_ip(ip: &str) -> String {
+        let trimmed = ip.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            return trimmed.to_string();
+        }
+        if trimmed.contains(':') && trimmed.matches(':').count() > 1 {
+            format!("[{}]", trimmed)
+        } else {
+            trimmed.to_string()
+        }
+    }
+
+    pub fn validate(&self) -> std::result::Result<(), String> {
+        if self.ftp.enabled && self.ftp.port == 0 {
+            return Err("FTP port cannot be 0".to_string());
+        }
+
+        if self.sftp.enabled && self.sftp.port == 0 {
+            return Err("SFTP port cannot be 0".to_string());
+        }
+
+        if self.ftp.passive_ports.0 > self.ftp.passive_ports.1 {
+            return Err(format!(
+                "Invalid passive port range: {} > {}",
+                self.ftp.passive_ports.0, self.ftp.passive_ports.1
+            ));
+        }
+
+        if self.security.max_connections == 0 {
+            return Err("max_connections must be greater than 0".to_string());
+        }
+
+        if self.security.max_connections_per_ip == 0 {
+            return Err("max_connections_per_ip must be greater than 0".to_string());
+        }
+
+        if self.security.fail2ban_enabled && self.security.fail2ban_threshold == 0 {
+            return Err("fail2ban_threshold must be greater than 0 when enabled".to_string());
+        }
+
+        if self.security.fail2ban_enabled && self.security.fail2ban_ban_time == 0 {
+            return Err("fail2ban_ban_time must be greater than 0 when enabled".to_string());
+        }
+
+        if self.security.max_login_attempts == 0 {
+            return Err("max_login_attempts must be greater than 0".to_string());
+        }
+
+        if self.logging.max_log_size < 1024 * 1024 {
+            return Err("max_log_size must be at least 1MB".to_string());
+        }
+
+        if self.logging.max_log_files == 0 {
+            return Err("max_log_files must be greater than 0".to_string());
+        }
+
+        Ok(())
     }
 
     /// 检查 IP 地址是否在允许列表中

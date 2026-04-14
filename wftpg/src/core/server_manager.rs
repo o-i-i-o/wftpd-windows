@@ -104,14 +104,20 @@ impl ServerManager {
     /// 安装服务
     pub fn install_service(&self) -> Result<()> {
         unsafe {
-            let exe_path = std::env::current_exe().context("无法获取当前程序路径")?;
+            let exe_path =
+                std::env::current_exe().context("Failed to get current executable path")?;
 
-            let exe_dir = exe_path.parent().context("无法获取程序目录")?;
+            let exe_dir = exe_path
+                .parent()
+                .context("Failed to get executable directory")?;
 
             let service_exe = exe_dir.join("wftpd.exe");
 
             if !service_exe.exists() {
-                anyhow::bail!("找不到后端服务程序: {}", service_exe.display());
+                anyhow::bail!(
+                    "Backend service executable not found: {}",
+                    service_exe.display()
+                );
             }
 
             let exe_path_str = service_exe.to_string_lossy().to_string();
@@ -131,7 +137,7 @@ impl ServerManager {
 
             let manager =
                 OpenSCManagerW(None, None, SC_MANAGER_CONNECT | SC_MANAGER_CREATE_SERVICE)
-                    .context("无法打开服务控制管理器")?;
+                    .context("Failed to open service control manager")?;
 
             let service = CreateServiceW(
                 manager,
@@ -148,21 +154,20 @@ impl ServerManager {
                 None,
                 None,
             )
-            .context("无法创建服务")?;
+            .context("Failed to create service")?;
 
             let _ = CloseServiceHandle(service);
             let _ = CloseServiceHandle(manager);
 
-            tracing::info!("服务安装成功：{}", SERVICE_NAME);
+            tracing::info!("Service installed successfully: {}", SERVICE_NAME);
             Ok(())
         }
     }
 
-    /// 卸载服务
     pub fn uninstall_service(&self) -> Result<()> {
         unsafe {
-            let manager =
-                OpenSCManagerW(None, None, SC_MANAGER_CONNECT).context("无法打开服务控制管理器")?;
+            let manager = OpenSCManagerW(None, None, SC_MANAGER_CONNECT)
+                .context("Failed to open service control manager")?;
 
             let service_name_wide: Vec<u16> = SERVICE_NAME
                 .encode_utf16()
@@ -173,23 +178,22 @@ impl ServerManager {
                 PCWSTR(service_name_wide.as_ptr()),
                 SERVICE_ALL_ACCESS,
             )
-            .context("无法打开服务")?;
+            .context("Failed to open service")?;
 
-            DeleteService(service).context("无法删除服务")?;
+            DeleteService(service).context("Failed to delete service")?;
 
             let _ = CloseServiceHandle(service);
             let _ = CloseServiceHandle(manager);
 
-            tracing::info!("服务卸载成功：{}", SERVICE_NAME);
+            tracing::info!("Service uninstalled successfully: {}", SERVICE_NAME);
             Ok(())
         }
     }
 
-    /// 启动服务
     pub fn start_service(&self) -> Result<()> {
         unsafe {
-            let manager =
-                OpenSCManagerW(None, None, SC_MANAGER_CONNECT).context("无法打开服务控制管理器")?;
+            let manager = OpenSCManagerW(None, None, SC_MANAGER_CONNECT)
+                .context("Failed to open service control manager")?;
 
             let service_name_wide: Vec<u16> = SERVICE_NAME
                 .encode_utf16()
@@ -200,11 +204,11 @@ impl ServerManager {
                 PCWSTR(service_name_wide.as_ptr()),
                 SERVICE_START | SERVICE_QUERY_STATUS,
             )
-            .context("无法打开服务")?;
+            .context("Failed to open service")?;
 
             let _ = CloseServiceHandle(manager);
 
-            StartServiceW(service, None).context("无法启动服务")?;
+            StartServiceW(service, None).context("Failed to start service")?;
 
             let mut status = SERVICE_STATUS::default();
             for _ in 0..SERVICE_WAIT_MAX_ATTEMPTS {
@@ -214,7 +218,9 @@ impl ServerManager {
                     }
                     if status.dwCurrentState == SERVICE_STOPPED {
                         let _ = CloseServiceHandle(service);
-                        anyhow::bail!("服务启动后立即停止，请检查服务配置");
+                        anyhow::bail!(
+                            "Service stopped immediately after start, check service configuration"
+                        );
                     }
                 }
                 std::thread::sleep(std::time::Duration::from_millis(SERVICE_WAIT_INTERVAL_MS));
@@ -222,16 +228,15 @@ impl ServerManager {
 
             let _ = CloseServiceHandle(service);
 
-            tracing::info!("服务启动成功：{}", SERVICE_NAME);
+            tracing::info!("Service started successfully: {}", SERVICE_NAME);
             Ok(())
         }
     }
 
-    /// 停止服务
     pub fn stop_service(&self) -> Result<()> {
         unsafe {
-            let manager =
-                OpenSCManagerW(None, None, SC_MANAGER_CONNECT).context("无法打开服务控制管理器")?;
+            let manager = OpenSCManagerW(None, None, SC_MANAGER_CONNECT)
+                .context("Failed to open service control manager")?;
 
             let service_name_wide: Vec<u16> = SERVICE_NAME
                 .encode_utf16()
@@ -242,12 +247,13 @@ impl ServerManager {
                 PCWSTR(service_name_wide.as_ptr()),
                 SERVICE_STOP | SERVICE_QUERY_STATUS,
             )
-            .context("无法打开服务")?;
+            .context("Failed to open service")?;
 
             let _ = CloseServiceHandle(manager);
 
             let mut status = SERVICE_STATUS::default();
-            ControlService(service, SERVICE_CONTROL_STOP, &mut status).context("无法停止服务")?;
+            ControlService(service, SERVICE_CONTROL_STOP, &mut status)
+                .context("Failed to stop service")?;
 
             for _ in 0..SERVICE_WAIT_MAX_ATTEMPTS {
                 if QueryServiceStatus(service, &mut status).is_ok()
@@ -260,7 +266,7 @@ impl ServerManager {
 
             let _ = CloseServiceHandle(service);
 
-            tracing::info!("服务停止成功：{}", SERVICE_NAME);
+            tracing::info!("Service stopped successfully: {}", SERVICE_NAME);
             Ok(())
         }
     }

@@ -18,15 +18,35 @@ pub enum PathResolveError {
 impl std::fmt::Display for PathResolveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PathResolveError::PathEscape => write!(f, "路径越界访问"),
-            PathResolveError::NotADirectory => write!(f, "路径不是目录"),
-            PathResolveError::NotFound => write!(f, "路径不存在"),
-            PathResolveError::PathTooDeep => write!(f, "路径深度超过最大限制"),
-            PathResolveError::HomeDirectoryNotFound => write!(f, "主目录不存在"),
-            PathResolveError::CanonicalizeFailed => write!(f, "路径规范化失败"),
-            PathResolveError::InvalidPath => write!(f, "无效路径"),
-            PathResolveError::SymlinkNotAllowed => write!(f, "不允许符号链接"),
-            PathResolveError::PathNotUnderHome => write!(f, "路径不在主目录下"),
+            PathResolveError::PathEscape => {
+                write!(f, "{}", crate::core::i18n::t("error.path_escape"))
+            }
+            PathResolveError::NotADirectory => {
+                write!(f, "{}", crate::core::i18n::t("error.path_not_directory"))
+            }
+            PathResolveError::NotFound => {
+                write!(f, "{}", crate::core::i18n::t("error.path_not_found"))
+            }
+            PathResolveError::PathTooDeep => {
+                write!(f, "{}", crate::core::i18n::t("error.path_too_deep"))
+            }
+            PathResolveError::HomeDirectoryNotFound => {
+                write!(f, "{}", crate::core::i18n::t("error.home_not_found"))
+            }
+            PathResolveError::CanonicalizeFailed => write!(
+                f,
+                "{}",
+                crate::core::i18n::t("error.path_canonicalize_failed")
+            ),
+            PathResolveError::InvalidPath => {
+                write!(f, "{}", crate::core::i18n::t("error.path_invalid"))
+            }
+            PathResolveError::SymlinkNotAllowed => {
+                write!(f, "{}", crate::core::i18n::t("error.symlink_not_allowed"))
+            }
+            PathResolveError::PathNotUnderHome => {
+                write!(f, "{}", crate::core::i18n::t("error.path_not_under_home"))
+            }
         }
     }
 }
@@ -384,6 +404,7 @@ pub fn safe_resolve_path(
     cwd: &str,
     home_dir: &str,
     path: &str,
+    allow_symlinks: bool,
 ) -> Result<PathBuf, PathResolveError> {
     let input_desc = format!("cwd={}, home={}, path={}", cwd, home_dir, path);
 
@@ -399,15 +420,12 @@ pub fn safe_resolve_path(
 
     let resolved = resolve_path_internal(cwd, &home_canon, path)?;
 
-    // 首先尝试验证路径，禁止符号链接
-    match canonicalize_and_validate(&resolved, &home_canon, &input_desc, false) {
+    match canonicalize_and_validate(&resolved, &home_canon, &input_desc, allow_symlinks) {
         Ok(canon) => Ok(canon),
         Err(PathResolveError::SymlinkNotAllowed) => {
-            // 路径包含符号链接，验证符号链接目标是否在主目录内
             validate_symlink_chain(&resolved, &home_canon, &input_desc)
         }
         Err(PathResolveError::CanonicalizeFailed) => {
-            // 路径不存在，验证父目录是否存在且安全，然后返回解析后的路径
             tracing::debug!(
                 "safe_resolve_path: Path does not exist, validating parent directory - resolved: {:?}, input: {:?}",
                 resolved,
@@ -567,8 +585,9 @@ pub fn safe_resolve_path_with_cwd(
     cwd: &str,
     home_dir: &str,
     path: &str,
+    allow_symlinks: bool,
 ) -> Result<PathBuf, PathResolveError> {
-    safe_resolve_path(cwd, home_dir, path)
+    safe_resolve_path(cwd, home_dir, path, allow_symlinks)
 }
 
 pub fn safe_resolve_path_no_symlink(

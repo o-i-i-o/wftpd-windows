@@ -443,7 +443,7 @@ impl TracingLogger {
             .filename_prefix("wftpg")
             .filename_suffix("log")
             .build(&path)
-            .map_err(|e| format!("创建日志文件失败: {}", e))?;
+            .map_err(|e| format!("Failed to create log file: {}", e))?;
 
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
@@ -453,7 +453,7 @@ impl TracingLogger {
             .filename_prefix("file-ops")
             .filename_suffix("log")
             .build(&path)
-            .map_err(|e| format!("创建文件操作日志文件失败: {}", e))?;
+            .map_err(|e| format!("Failed to create file operation log file: {}", e))?;
 
         let (file_op_non_blocking, file_op_guard) =
             tracing_appender::non_blocking(file_op_appender);
@@ -498,7 +498,7 @@ impl TracingLogger {
             .with(file_op_fmt_layer);
 
         tracing::subscriber::set_global_default(subscriber)
-            .map_err(|e| format!("设置 tracing 日志失败：{}", e))?;
+            .map_err(|e| format!("Failed to set up tracing logger: {}", e))?;
 
         // 记录初始化参数，便于调试
         tracing::debug!(
@@ -649,7 +649,7 @@ macro_rules! file_op_log {
             file_size = $file_size,
             protocol = %$protocol,
             success = true,
-            "文件上传成功"
+            "File uploaded successfully"
         )
     };
     (update, $username:expr, $client_ip:expr, $file_path:expr, $file_size:expr, $protocol:expr) => {
@@ -662,7 +662,7 @@ macro_rules! file_op_log {
             file_size = $file_size,
             protocol = %$protocol,
             success = true,
-            "文件更新成功"
+            "File updated successfully"
         )
     };
     (download, $username:expr, $client_ip:expr, $file_path:expr, $file_size:expr, $protocol:expr) => {
@@ -675,7 +675,7 @@ macro_rules! file_op_log {
             file_size = $file_size,
             protocol = %$protocol,
             success = true,
-            "文件下载成功"
+            "File downloaded successfully"
         )
     };
     (delete, $username:expr, $client_ip:expr, $file_path:expr, $protocol:expr) => {
@@ -688,7 +688,7 @@ macro_rules! file_op_log {
             file_size = 0u64,
             protocol = %$protocol,
             success = true,
-            "文件删除成功"
+            "File deleted successfully"
         )
     };
     (rename, $username:expr, $client_ip:expr, $old_path:expr, $new_path:expr, $protocol:expr) => {
@@ -701,7 +701,7 @@ macro_rules! file_op_log {
             file_size = 0u64,
             protocol = %$protocol,
             success = true,
-            "文件重命名成功"
+            "File renamed successfully"
         )
     };
     (move, $username:expr, $client_ip:expr, $old_path:expr, $new_path:expr, $protocol:expr) => {
@@ -714,7 +714,7 @@ macro_rules! file_op_log {
             file_size = 0u64,
             protocol = %$protocol,
             success = true,
-            "文件移动成功"
+            "File moved successfully"
         )
     };
     (mkdir, $username:expr, $client_ip:expr, $dir_path:expr, $protocol:expr) => {
@@ -727,7 +727,7 @@ macro_rules! file_op_log {
             file_size = 0u64,
             protocol = %$protocol,
             success = true,
-            "目录创建成功"
+            "Directory created successfully"
         )
     };
     (rmdir, $username:expr, $client_ip:expr, $dir_path:expr, $protocol:expr) => {
@@ -740,7 +740,7 @@ macro_rules! file_op_log {
             file_size = 0u64,
             protocol = %$protocol,
             success = true,
-            "目录删除成功"
+            "Directory deleted successfully"
         )
     };
     (failed, $username:expr, $client_ip:expr, $operation:expr, $file_path:expr, $protocol:expr, $error:expr) => {
@@ -753,7 +753,7 @@ macro_rules! file_op_log {
             file_size = 0u64,
             protocol = %$protocol,
             success = false,
-            "操作失败: {}",
+            "Operation failed: {}",
             $error
         )
     };

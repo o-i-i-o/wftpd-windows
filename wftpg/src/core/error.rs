@@ -7,22 +7,22 @@ use thiserror::Error;
 /// 配置相关错误
 #[derive(Error, Debug)]
 pub enum ConfigError {
-    #[error("配置文件读取失败：{0}")]
+    #[error("Configuration file read failed: {0}")]
     ReadFailed(#[source] std::io::Error),
 
-    #[error("配置文件解析失败：{0}")]
+    #[error("Configuration file parse failed: {0}")]
     ParseFailed(#[from] toml::de::Error),
 
-    #[error("配置文件序列化失败：{0}")]
+    #[error("Configuration file serialize failed: {0}")]
     SerializeFailed(#[from] toml::ser::Error),
 
-    #[error("配置文件写入失败：{0}")]
+    #[error("Configuration file write failed: {0}")]
     WriteFailed(#[source] std::io::Error),
 
-    #[error("配置路径无效：{0}")]
+    #[error("Invalid configuration path: {0}")]
     InvalidPath(String),
 
-    #[error("配置验证失败：{0}")]
+    #[error("Configuration validation failed: {0}")]
     ValidationError(String),
 }
 
@@ -37,169 +37,167 @@ impl From<std::io::Error> for ConfigError {
 /// 用户管理相关错误
 #[derive(Error, Debug)]
 pub enum UserError {
-    #[error("用户文件读取失败：{0}")]
+    #[error("User file read failed: {0}")]
     ReadFailed(#[from] std::io::Error),
 
-    #[error("用户文件解析失败：{0}")]
+    #[error("User file parse failed: {0}")]
     ParseFailed(#[from] serde_json::Error),
 
-    #[error("用户不存在：{0}")]
+    #[error("User not found: {0}")]
     UserNotFound(String),
 
-    #[error("用户已存在：{0}")]
+    #[error("User already exists: {0}")]
     UserAlreadyExists(String),
 
-    #[error("密码哈希失败：{0}")]
+    #[error("Password hash failed: {0}")]
     PasswordHashFailed(String),
 
-    #[error("密码验证失败")]
+    #[error("Password verification failed")]
     PasswordVerificationFailed,
 
-    #[error("用户主目录无效：{0}")]
+    #[error("Invalid user home directory: {0}")]
     InvalidHomeDirectory(String),
 
-    #[error("用户已禁用：{0}")]
+    #[error("User disabled: {0}")]
     UserDisabled(String),
 }
 
 /// 路径处理相关错误
 #[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathError {
-    #[error("路径越界访问")]
+    #[error("Path escape detected")]
     PathEscape,
 
-    #[error("路径不是目录")]
+    #[error("Path is not a directory")]
     NotADirectory,
 
-    #[error("路径不存在")]
+    #[error("Path not found")]
     NotFound,
 
-    #[error("路径深度超过最大限制")]
+    #[error("Path depth exceeds maximum limit")]
     PathTooDeep,
 
-    #[error("主目录不存在")]
+    #[error("Home directory not found")]
     HomeDirectoryNotFound,
 
-    #[error("路径规范化失败")]
+    #[error("Path canonicalization failed")]
     CanonicalizeFailed,
 
-    #[error("无效路径")]
+    #[error("Invalid path")]
     InvalidPath,
 
-    #[error("不允许符号链接")]
+    #[error("Symlinks not allowed")]
     SymlinkNotAllowed,
 
-    #[error("路径不在主目录下")]
+    #[error("Path not under home directory")]
     PathNotUnderHome,
 }
 
 /// IPC 通信相关错误
 #[derive(Error, Debug)]
 pub enum IpcError {
-    #[error("IPC 连接失败：{0}")]
+    #[error("IPC connection failed: {0}")]
     ConnectionFailed(String),
 
-    #[error("IPC 消息发送失败：{0}")]
+    #[error("IPC message send failed: {0}")]
     SendFailed(String),
 
-    #[error("IPC 消息接收失败：{0}")]
+    #[error("IPC message receive failed: {0}")]
     ReceiveFailed(String),
 
-    #[error("IPC 消息解析失败：{0}")]
+    #[error("IPC message parse failed: {0}")]
     ParseFailed(#[from] serde_json::Error),
 
-    #[error("IPC 超时：{0}")]
+    #[error("IPC timeout: {0}")]
     Timeout(String),
 
-    #[error("IPC 消息过大：{0}")]
+    #[error("IPC message too large: {0}")]
     MessageTooLarge(usize),
 }
 
 /// Windows 服务管理相关错误
 #[derive(Error, Debug)]
 pub enum ServiceError {
-    #[error("服务控制管理器打开失败：{0}")]
+    #[error("Failed to open service control manager: {0}")]
     SCMOpenFailed(String),
 
-    #[error("服务创建失败：{0}")]
+    #[error("Failed to create service: {0}")]
     ServiceCreateFailed(String),
 
-    #[error("服务打开失败：{0}")]
+    #[error("Failed to open service: {0}")]
     ServiceOpenFailed(String),
 
-    #[error("服务查询失败：{0}")]
+    #[error("Failed to query service: {0}")]
     ServiceQueryFailed(String),
 
-    #[error("服务启动失败：{0}")]
+    #[error("Failed to start service: {0}")]
     ServiceStartFailed(String),
 
-    #[error("服务停止失败：{0}")]
+    #[error("Failed to stop service: {0}")]
     ServiceStopFailed(String),
 
-    #[error("服务删除失败：{0}")]
+    #[error("Failed to delete service: {0}")]
     ServiceDeleteFailed(String),
 
-    #[error("服务未找到：{0}")]
+    #[error("Service not found: {0}")]
     ServiceNotFound(String),
 
-    #[error("Windows API 错误：{0}")]
+    #[error("Windows API error: {0}")]
     WindowsApiError(String),
 }
 
 /// 日志相关错误
 #[derive(Error, Debug)]
 pub enum LoggerError {
-    #[error("日志目录创建失败：{0}")]
+    #[error("Log directory creation failed: {0}")]
     LogDirCreateFailed(String),
 
-    #[error("日志文件创建失败：{0}")]
+    #[error("Log file creation failed: {0}")]
     LogFileCreateFailed(String),
 
-    #[error("日志初始化失败：{0}")]
+    #[error("Logger initialization failed: {0}")]
     InitFailed(String),
 }
 
-/// 服务器管理相关错误
 #[derive(Error, Debug)]
 pub enum ServerError {
-    #[error("服务未安装：{0}")]
+    #[error("Service not installed: {0}")]
     ServiceNotInstalled(String),
 
-    #[error("服务未运行：{0}")]
+    #[error("Service not running: {0}")]
     ServiceNotRunning(String),
 
-    #[error("服务操作失败：{0}")]
+    #[error("Service operation failed: {0}")]
     OperationFailed(String),
 }
 
-/// 应用程序通用错误类型
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("配置错误：{0}")]
+    #[error("Configuration error: {0}")]
     Config(#[from] ConfigError),
 
-    #[error("用户错误：{0}")]
+    #[error("User error: {0}")]
     User(#[from] UserError),
 
-    #[error("路径错误：{0}")]
+    #[error("Path error: {0}")]
     Path(#[from] PathError),
 
-    #[error("IPC 错误：{0}")]
+    #[error("IPC error: {0}")]
     Ipc(#[from] IpcError),
 
-    #[error("服务错误：{0}")]
+    #[error("Service error: {0}")]
     Service(#[from] ServiceError),
 
-    #[error("日志错误：{0}")]
+    #[error("Logger error: {0}")]
     Logger(#[from] LoggerError),
 
-    #[error("服务器错误：{0}")]
+    #[error("Server error: {0}")]
     Server(#[from] ServerError),
 
-    #[error("IO 错误：{0}")]
+    #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("其他错误：{0}")]
+    #[error("Other error: {0}")]
     Other(String),
 }
 
@@ -228,10 +226,10 @@ mod tests {
             std::io::ErrorKind::NotFound,
             "file not found",
         ));
-        assert!(err.to_string().contains("配置文件读取失败"));
+        assert!(err.to_string().contains("Configuration file read failed"));
 
         let err = UserError::UserNotFound("test".to_string());
-        assert_eq!(err.to_string(), "用户不存在：test");
+        assert_eq!(err.to_string(), "User not found: test");
     }
 
     #[test]
