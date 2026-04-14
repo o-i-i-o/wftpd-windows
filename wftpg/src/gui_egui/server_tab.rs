@@ -214,7 +214,7 @@ impl ServerTab {
         rfd::FileDialog::new()
             .set_title(title)
             .add_filter(
-                &crate::core::i18n::t("file_filter.cert"),
+                crate::core::i18n::t("file_filter.cert"),
                 &["pem", "crt", "cer"],
             )
             .pick_file()
@@ -223,7 +223,7 @@ impl ServerTab {
     fn pick_key_file(title: &str) -> Option<std::path::PathBuf> {
         rfd::FileDialog::new()
             .set_title(title)
-            .add_filter(&crate::core::i18n::t("file_filter.key"), &["pem", "key"])
+            .add_filter(crate::core::i18n::t("file_filter.key"), &["pem", "key"])
             .pick_file()
     }
 

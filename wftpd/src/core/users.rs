@@ -5,7 +5,7 @@
 use anyhow::{Context, Result};
 use argon2::{
     Argon2,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
+    password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -149,12 +149,11 @@ impl UserManager {
     fn hash_password(password: &str) -> Result<String> {
         use argon2::Params;
 
-        let salt = SaltString::generate(&mut OsRng);
         let params = Params::new(65536, 3, 4, Some(32))
             .map_err(|e| anyhow::anyhow!("Failed to create Argon2 params: {}", e))?;
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
         let hash = argon2
-            .hash_password(password.as_bytes(), &salt)
+            .hash_password(password.as_bytes())
             .map_err(|e| anyhow::anyhow!("Failed to hash password: {}", e))?
             .to_string();
         Ok(hash)
