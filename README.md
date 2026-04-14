@@ -59,6 +59,7 @@ cargo build --release
 1. 将 `wftpg.exe` 和 `wftpd.exe` 放在同一目录
 2. 以管理员身份运行 `wftpg.exe`
 3. 在"系统服务"标签页点击"安装服务"
+4. 提供了安装脚本 `install.cmd`，用于安装程序。
 
 ## GUI 界面功能
 
@@ -167,11 +168,10 @@ $response = $ftp.GetResponse()
 
 ### 配置热加载
 
-修改配置文件后无需重启服务：
-1. 编辑 `C:\ProgramData\wftpg\config.toml`
-2. 保存文件
-3. GUI 会自动检测并重载配置
-4. 或者通过命名管道发送 reload 命令
+GUI修改配置文件后无需重启服务：
+1. 保存配置，GUI通过命名管道发送 reload 命令热重载配置
+2. 如果手动修改了配置文件，需要重启服务才能生效 
+3. 涉及绑定地址、绑定端口等配置项，需要重启服务才能生效。
 
 ### 日志查看
 
@@ -179,70 +179,6 @@ $response = $ftp.GetResponse()
 - **文件位置**: `C:\ProgramData\wftpg\logs\`
   - `wftpg_gui.log` - GUI 日志
   - `wftpd_service.log` - 服务日志
-
-## 项目结构
-
-```
-wftpg-egui/
-├── wftpg/                      # GUI 管理工具（前端）
-│   ├── src/
-│   │   ├── core/               # 核心功能模块（前端）
-│   │   │   ├── config.rs           # 配置管理
-│   │   │   ├── users.rs            # 用户管理
-│   │   │   ├── config_manager.rs   # 配置管理器
-│   │   │   ├── config_watcher.rs   # 配置文件监听器
-│   │   │   ├── server_manager.rs   # 服务管理
-│   │   │   ├── ipc.rs              # IPC 通信
-│   │   │   ├── windows_ipc.rs      # Windows 命名管道
-│   │   │   ├── logger.rs           # 日志系统
-│   │   │   ├── path_utils.rs       # 路径处理
-│   │   │   └── error.rs            # 错误处理
-│   │   ├── gui_egui/           # GUI 界面模块
-│   │   │   ├── server_tab.rs     # 服务器配置界面
-│   │   │   ├── user_tab.rs       # 用户管理界面
-│   │   │   ├── security_tab.rs   # 安全设置界面
-│   │   │   ├── service_tab.rs    # 系统服务界面
-│   │   │   ├── log_tab.rs        # 运行日志界面
-│   │   │   ├── file_log_tab.rs   # 文件日志界面
-│   │   │   ├── about_tab.rs      # 关于界面
-│   │   │   └── styles.rs         # UI 样式
-│   │   ├── gui_main.rs         # GUI 程序入口
-│   │   └── lib.rs              # 库入口
-│   ├── ui/                     # 界面资源（图标等）
-│   └── Cargo.toml
-│
-├── wftpd/                      # 后台服务程序（守护进程）
-│   ├── src/
-│   │   ├── core/               # 核心功能模块（后端）
-│   │   │   ├── config.rs           # 配置管理
-│   │   │   ├── users.rs            # 用户管理
-│   │   │   ├── ftp_server/         # FTP 服务器实现
-│   │   │   │   ├── commands.rs     # FTP 命令处理
-│   │   │   │   ├── session.rs      # FTP 会话管理
-│   │   │   │   ├── transfer.rs     # 文件传输
-│   │   │   │   ├── passive.rs      # 被动模式
-│   │   │   │   ├── ftpos_listener.rs # FTPS 监听
-│   │   │   │   └── tls.rs          # TLS 支持
-│   │   │   ├── sftp_server.rs      # SFTP 服务器实现
-│   │   │   ├── server_manager.rs   # 服务管理
-│   │   │   ├── quota.rs            # 配额管理
-│   │   │   ├── rate_limiter.rs     # 速率限制
-│   │   │   ├── cert_gen.rs         # SSL 证书生成
-│   │   │   ├── ipc.rs              # IPC 通信
-│   │   │   ├── windows_ipc.rs      # Windows 命名管道
-│   │   │   ├── logger.rs           # 日志系统
-│   │   │   └── path_utils.rs       # 路径处理
-│   │   ├── service_main.rs     # 服务程序入口
-│   │   └── lib.rs              # 库入口
-│   ├── ui/                     # 界面资源
-│   └── Cargo.toml
-│
-├── .github/
-│   └── workflows/
-│       └── ci.yml              # GitHub Actions CI 配置
-├── test_*.py                   # Python 测试脚本
-└── README.md
-```
 
 ## 技术栈
 
@@ -339,11 +275,6 @@ WFTPG 采用前后端分离的双进程架构：
 - 禁止隐藏告警，禁止使用 `#[allow(dead_code)]`
 - 错误处理使用 `anyhow::Result` 或自定义错误类型
 
-### 版本管理
-- 版本号格式：`X.Y.Z`（主版本。次版本。补丁版本）
-- 每次补丁更新递增 Z 值
-- 使用 Git 标签标记发布版本：`git tag v3.2.15`
-
 ### 提交规范
 - 使用清晰的提交信息
 - 功能变更添加 `[Feature]` 前缀
@@ -364,19 +295,6 @@ WFTPG 采用前后端分离的双进程架构：
 - ✅ Clippy 代码质量检查
 - ✅ 自动化测试运行
 - ✅ 版本发布和打包
-
-### 触发条件
-
-- **Push**: 推送到 `main` 或 `master` 分支
-- **Pull Request**: 创建或更新 PR
-- **Tag**: 创建 `v*` 格式的标签时自动发布
-
-### 发布流程
-
-当创建以 `v` 开头的标签（如 `v3.2.15`）时，CI 将自动：
-1. 构建 release 版本
-2. 打包为 ZIP 文件（包含 wftpg.exe、wftpd.exe、安装.cmd、卸载.cmd）
-3. 创建 GitHub Release 并上传构建产物
 
 ## 常见问题 (FAQ)
 
@@ -413,6 +331,7 @@ A: 支持所有标准 FTP/SFTP 客户端：
 - Cyberduck
 - 命令行 sftp/ftp
 - 操作系统文件管理器
+- UOS客户端文件管理过于老旧，还在考虑是否实现兼容**
 
 ## 故障排查
 
