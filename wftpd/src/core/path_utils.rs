@@ -824,4 +824,207 @@ mod tests {
             assert!(result.to_string_lossy().ends_with("file.txt"));
         }
     }
+
+    #[test]
+    fn test_normalize_windows_path() {
+        let path = Path::new(r"\\?\C:\Users\test");
+        let normalized = normalize_windows_path(path);
+        assert_eq!(normalized, PathBuf::from("C:\\Users\\test"));
+
+        let path2 = Path::new("C:\\Users\\test");
+        let normalized2 = normalize_windows_path(path2);
+        assert_eq!(normalized2, PathBuf::from("C:\\Users\\test"));
+    }
+
+    #[test]
+    fn test_path_starts_with_ignore_case() {
+        let path = Path::new("C:\\Users\\Test");
+        assert!(path_starts_with_ignore_case(path, "C:\\Users"));
+        assert!(path_starts_with_ignore_case(path, "c:\\users"));
+        assert!(!path_starts_with_ignore_case(path, "D:\\Data"));
+    }
+
+    #[test]
+    fn test_paths_equal_ignore_case() {
+        assert!(paths_equal_ignore_case("C:\\Users\\Test", "c:\\users\\test"));
+        assert!(!paths_equal_ignore_case("C:\\Users", "D:\\Users"));
+    }
+
+    #[test]
+    fn test_to_ftp_path_root() {
+        let home = Path::new("C:\\share_test");
+        assert_eq!(to_ftp_path(Path::new("C:\\share_test"), home).unwrap(), "/");
+    }
+
+    #[test]
+    fn test_to_ftp_path_not_under_home() {
+        let home = Path::new("C:\\share_test");
+        let result = to_ftp_path(Path::new("D:\\other"), home);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_is_absolute_ftp_path_edge_cases() {
+        assert!(!is_absolute_ftp_path(""));
+        assert!(is_absolute_ftp_path("/"));
+        assert!(is_absolute_ftp_path("\\"));
+        assert!(!is_absolute_ftp_path("relative"));
+    }
+
+    #[test]
+    fn test_is_valid_path_component_windows_reserved() {
+        assert!(!is_valid_path_component(std::ffi::OsStr::new("CON")));
+        assert!(!is_valid_path_component(std::ffi::OsStr::new("PRN")));
+        assert!(!is_valid_path_component(std::ffi::OsStr::new("AUX")));
+        assert!(!is_valid_path_component(std::ffi::OsStr::new("NUL")));
+        assert!(!is_valid_path_component(std::ffi::OsStr::new("COM1")));
+        assert!(!is_valid_path_component(std::ffi::OsStr::new("LPT1")));
+        assert!(is_valid_path_component(std::ffi::OsStr::new("con1")));
+    }
+
+    #[test]
+    fn test_is_valid_path_component_invalid_chars() {
+        assert!(!is_valid_path_component(std::ffi::OsStr::new("file<name")));
+        assert!(!is_valid_path_component(std::ffi::OsStr::new("file>name")));
+        assert!(!is_valid_path_component(std::ffi::OsStr::new("file\"name")));
+        assert!(!is_valid_path_component(std::ffi::OsStr::new("file|name")));
+        assert!(!is_valid_path_component(std::ffi::OsStr::new("file?name")));
+        assert!(!is_valid_path_component(std::ffi::OsStr::new("file*name")));
+    }
+
+    #[test]
+    fn test_is_valid_path_component_empty() {
+        assert!(!is_valid_path_component(std::ffi::OsStr::new("")));
+        assert!(!is_valid_path_component(std::ffi::OsStr::new("  ")));
+    }
+
+    #[test]
+    fn test_path_resolve_error_display() {
+        assert_eq!(
+            format!("{}", PathResolveError::PathEscape),
+            "Path escape detected"
+        );
+        assert_eq!(
+            format!("{}", PathResolveError::NotADirectory),
+            "Path is not a directory"
+        );
+        assert_eq!(
+            format!("{}", PathResolveError::NotFound),
+            "Path not found"
+        );
+        assert_eq!(
+            format!("{}", PathResolveError::PathTooDeep),
+            "Path depth exceeds maximum limit"
+        );
+        assert_eq!(
+            format!("{}", PathResolveError::HomeDirectoryNotFound),
+            "Home directory not found"
+        );
+        assert_eq!(
+            format!("{}", PathResolveError::CanonicalizeFailed),
+            "Path canonicalization failed"
+        );
+        assert_eq!(
+            format!("{}", PathResolveError::InvalidPath),
+            "Invalid path"
+        );
+        assert_eq!(
+            format!("{}", PathResolveError::SymlinkNotAllowed),
+            "Symlinks not allowed"
+        );
+        assert_eq!(
+            format!("{}", PathResolveError::PathNotUnderHome),
+            "Path not under home directory"
+        );
+    }
+
+    #[test]
+    fn test_path_resolve_error_debug() {
+        let err = PathResolveError::PathEscape;
+        assert!(format!("{:?}", err).contains("PathEscape"));
+    }
+
+    #[test]
+    fn test_path_resolve_error_clone_copy() {
+        let err = PathResolveError::InvalidPath;
+        let cloned = err.clone();
+        assert_eq!(err, cloned);
+
+        let copied = err;
+        assert_eq!(err, copied);
+    }
+
+    #[test]
+    fn test_resolve_path_internal_empty_path() {
+        let home = PathBuf::from("C:\\share_test");
+        if home.exists() {
+            let home_canon = home.canonicalize().unwrap();
+            let result = resolve_path_internal("", &home_canon, "").unwrap();
+            assert_eq!(result, home_canon);
+        }
+    }
+
+    #[test]
+    fn test_resolve_path_internal_dot_path() {
+        let home = PathBuf::from("C:\\share_test");
+        if home.exists() {
+            let home_canon = home.canonicalize().unwrap();
+            let result = resolve_path_internal("", &home_canon, ".").unwrap();
+            assert_eq!(result, home_canon);
+        }
+    }
+
+    #[test]
+    fn test_resolve_path_internal_absolute_with_backslash() {
+        let home = PathBuf::from("C:\\share_test");
+        if home.exists() {
+            let home_canon = home.canonicalize().unwrap();
+            let result = resolve_path_internal("", &home_canon, "\\subdir\\file.txt").unwrap();
+            assert!(result.to_string_lossy().contains("subdir"));
+        }
+    }
+
+    #[test]
+    fn test_build_safe_path_normal() {
+        let home = PathBuf::from("C:\\share_test");
+        if home.exists() {
+            let home_canon = home.canonicalize().unwrap();
+            let resolved = home_canon.join("subdir").join("file.txt");
+            let result = build_safe_path(&home_canon, &resolved, "test").unwrap();
+            assert!(result.to_string_lossy().contains("subdir"));
+        }
+    }
+
+    #[test]
+    fn test_build_safe_path_parent_escape() {
+        let home = PathBuf::from("C:\\share_test");
+        if home.exists() {
+            let home_canon = home.canonicalize().unwrap();
+            let resolved = home_canon.join("..").join("..");
+            let result = build_safe_path(&home_canon, &resolved, "test");
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn test_build_safe_path_too_deep() {
+        let home = PathBuf::from("C:\\share_test");
+        if home.exists() {
+            let home_canon = home.canonicalize().unwrap();
+            let mut resolved = home_canon.clone();
+            for _ in 0..70 {
+                resolved = resolved.join("a");
+            }
+            let result = build_safe_path(&home_canon, &resolved, "test");
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn test_validate_existing_path_not_found() {
+        let home = PathBuf::from("C:\\share_test");
+        let nonexistent = PathBuf::from("C:\\share_test\\nonexistent_file_12345.txt");
+        let result = validate_existing_path(&nonexistent, &home);
+        assert!(result.is_err());
+    }
 }

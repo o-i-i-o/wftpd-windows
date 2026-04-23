@@ -746,3 +746,267 @@ fn ip_matches_cidr(ip: &str, cidr: &str) -> Result<bool> {
 
     Ok(ip == cidr)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_server_config_connection_counting() {
+        let config = ServerConfig::new();
+
+        assert_eq!(config.get_global_count(), 0);
+        assert_eq!(config.get_ip_count("192.168.1.1"), 0);
+
+        assert!(config.try_register("192.168.1.1", 10, 5));
+        assert_eq!(config.get_global_count(), 1);
+        assert_eq!(config.get_ip_count("192.168.1.1"), 1);
+
+        assert!(config.try_register("192.168.1.1", 10, 5));
+        assert_eq!(config.get_ip_count("192.168.1.1"), 2);
+
+        assert!(config.try_register("192.168.1.2", 10, 5));
+        assert_eq!(config.get_global_count(), 3);
+
+        config.unregister("192.168.1.1");
+        assert_eq!(config.get_ip_count("192.168.1.1"), 1);
+        assert_eq!(config.get_global_count(), 2);
+
+        config.unregister("192.168.1.1");
+        assert_eq!(config.get_ip_count("192.168.1.1"), 0);
+
+        config.decrement_ip("192.168.1.2");
+        assert_eq!(config.get_ip_count("192.168.1.2"), 0);
+    }
+
+    #[test]
+    fn test_server_config_limits() {
+        let config = ServerConfig::new();
+
+        assert!(config.try_register("192.168.1.1", 2, 1));
+        assert!(!config.try_register("192.168.1.1", 2, 1));
+
+        assert!(config.try_register("192.168.1.2", 2, 5));
+        assert!(!config.try_register("192.168.1.3", 2, 5));
+    }
+
+    #[test]
+    fn test_server_config_unregister_underflow() {
+        let config = ServerConfig::new();
+        config.unregister("192.168.1.1");
+        assert_eq!(config.get_global_count(), 0);
+    }
+
+    #[test]
+    fn test_server_config_get_counts() {
+        let config = ServerConfig::new();
+        config.try_register("192.168.1.1", 100, 10);
+        config.try_register("192.168.1.1", 100, 10);
+
+        let (global, per_ip) = config.get_counts("192.168.1.1");
+        assert_eq!(global, 2);
+        assert_eq!(per_ip, 2);
+    }
+
+    #[test]
+    fn test_server_config_get_all_ip_counts() {
+        let config = ServerConfig::new();
+        config.try_register("192.168.1.1", 100, 10);
+        config.try_register("192.168.1.2", 100, 10);
+
+        let counts = config.get_all_ip_counts();
+        assert_eq!(counts.len(), 2);
+        assert_eq!(counts.get("192.168.1.1"), Some(&1));
+        assert_eq!(counts.get("192.168.1.2"), Some(&1));
+    }
+
+    #[test]
+    fn test_config_default_values() {
+        let config = Config::default();
+
+        assert!(config.ftp.enabled);
+        assert_eq!(config.ftp.port, 21);
+        assert_eq!(config.ftp.bind_ip, "0.0.0.0");
+        assert_eq!(config.ftp.passive_ports.0, 50000);
+        assert_eq!(config.ftp.passive_ports.1, 50100);
+        assert_eq!(config.ftp.connection_timeout, 300);
+        assert_eq!(config.ftp.idle_timeout, 600);
+        assert!(!config.ftp.allow_anonymous);
+
+        assert!(config.sftp.enabled);
+        assert_eq!(config.sftp.port, 2222);
+        assert_eq!(config.sftp.bind_ip, "0.0.0.0");
+        assert_eq!(config.sftp.max_auth_attempts, 3);
+        assert_eq!(config.sftp.auth_timeout, 60);
+
+        assert_eq!(config.security.max_connections, 100);
+        assert_eq!(config.security.max_connections_per_ip, 10);
+        assert!(!config.security.fail2ban_enabled);
+        assert_eq!(config.security.max_login_attempts, 5);
+        assert!(!config.security.allow_symlinks);
+
+        assert_eq!(config.logging.max_log_size, 10 * 1024 * 1024);
+        assert_eq!(config.logging.max_log_files, 10);
+    }
+
+    #[test]
+    fn test_config_normalize_bind_ip() {
+        assert_eq!(Config::normalize_bind_ip("0.0.0.0"), "0.0.0.0");
+        assert_eq!(Config::normalize_bind_ip("[::]"), "[::]");
+        assert_eq!(Config::normalize_bind_ip("::1"), "[::1]");
+        assert_eq!(Config::normalize_bind_ip("2001:db8::1"), "[2001:db8::1]");
+        assert_eq!(Config::normalize_bind_ip("192.168.1.1"), "192.168.1.1");
+        assert_eq!(Config::normalize_bind_ip("  0.0.0.0  "), "0.0.0.0");
+    }
+
+    #[test]
+    fn test_config_validate_pass() {
+        let config = Config::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_validate_ftp_port_zero() {
+        let mut config = Config::default();
+        config.ftp.port = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validate_sftp_port_zero() {
+        let mut config = Config::default();
+        config.sftp.port = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validate_invalid_passive_range() {
+        let mut config = Config::default();
+        config.ftp.passive_ports = (50100, 50000);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validate_zero_max_connections() {
+        let mut config = Config::default();
+        config.security.max_connections = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validate_zero_max_per_ip() {
+        let mut config = Config::default();
+        config.security.max_connections_per_ip = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validate_fail2ban_threshold_zero() {
+        let mut config = Config::default();
+        config.security.fail2ban_enabled = true;
+        config.security.fail2ban_threshold = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validate_fail2ban_ban_time_zero() {
+        let mut config = Config::default();
+        config.security.fail2ban_enabled = true;
+        config.security.fail2ban_ban_time = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validate_log_size_too_small() {
+        let mut config = Config::default();
+        config.logging.max_log_size = 1024;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validate_zero_log_files() {
+        let mut config = Config::default();
+        config.logging.max_log_files = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validate_invalid_cidr() {
+        let mut config = Config::default();
+        config.security.allowed_ips = vec!["invalid-cidr".to_string()];
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_is_ip_allowed() {
+        let mut config = Config::default();
+        config.security.allowed_ips = vec!["192.168.1.0/24".to_string()];
+        config.security.denied_ips = vec![];
+
+        assert!(config.is_ip_allowed("192.168.1.100"));
+        assert!(!config.is_ip_allowed("10.0.0.1"));
+    }
+
+    #[test]
+    fn test_config_is_ip_allowed_denied() {
+        let mut config = Config::default();
+        config.security.allowed_ips = vec!["0.0.0.0/0".to_string()];
+        config.security.denied_ips = vec!["10.0.0.0/8".to_string()];
+
+        assert!(!config.is_ip_allowed("10.0.0.1"));
+        assert!(config.is_ip_allowed("192.168.1.1"));
+    }
+
+    #[test]
+    fn test_config_check_connection_limits() {
+        let config = Config::default();
+        assert!(config.check_connection_limits("192.168.1.1"));
+    }
+
+    #[test]
+    fn test_ip_matches_cidr_exact() {
+        assert!(ip_matches_cidr("192.168.1.1", "192.168.1.1").unwrap());
+        assert!(!ip_matches_cidr("192.168.1.1", "192.168.1.2").unwrap());
+    }
+
+    #[test]
+    fn test_ip_matches_cidr_ipv4_net() {
+        assert!(ip_matches_cidr("192.168.1.1", "192.168.1.0/24").unwrap());
+        assert!(!ip_matches_cidr("192.168.2.1", "192.168.1.0/24").unwrap());
+    }
+
+    #[test]
+    fn test_ip_matches_cidr_wildcard() {
+        assert!(ip_matches_cidr("192.168.1.1", "0.0.0.0/0").unwrap());
+        assert!(ip_matches_cidr("::1", "::/0").unwrap());
+    }
+
+    #[test]
+    fn test_ip_matches_cidr_ipv6() {
+        assert!(ip_matches_cidr("2001:db8::1", "2001:db8::/32").unwrap());
+        assert!(!ip_matches_cidr("2001:db9::1", "2001:db8::/32").unwrap());
+    }
+
+    #[test]
+    fn test_config_clone() {
+        let config = Config::default();
+        let cloned = config.clone();
+        assert_eq!(config.ftp.port, cloned.ftp.port);
+        assert_eq!(config.sftp.port, cloned.sftp.port);
+    }
+
+    #[test]
+    fn test_ftps_config_default() {
+        let ftps = FtpsConfig::default();
+        assert!(!ftps.enabled);
+        assert!(!ftps.require_ssl);
+        assert!(!ftps.implicit_ssl);
+        assert_eq!(ftps.implicit_ssl_port, 990);
+    }
+
+    #[test]
+    fn test_server_config_default() {
+        let config = ServerConfig::default();
+        assert_eq!(config.get_global_count(), 0);
+    }
+}

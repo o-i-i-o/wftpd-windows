@@ -174,3 +174,99 @@ impl RateLimitConfig {
         RateLimiter::new(self.speed_limit_kbps)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_limiter_unlimited() {
+        let limiter = RateLimiter::new(0);
+        assert!(limiter.is_unlimited());
+        assert_eq!(limiter.bytes_per_second, u64::MAX);
+    }
+
+    #[test]
+    fn test_rate_limiter_limited() {
+        let limiter = RateLimiter::new(1024);
+        assert!(!limiter.is_unlimited());
+        assert_eq!(limiter.bytes_per_second, 1024 * 1024);
+    }
+
+    #[test]
+    fn test_rate_limiter_initial_tokens() {
+        let limiter = RateLimiter::new(1024);
+        let tokens = limiter.get_available_tokens();
+        assert!(tokens > 0);
+        assert!(tokens <= BUCKET_CAPACITY);
+    }
+
+    #[test]
+    fn test_rate_limit_config_new() {
+        let config = RateLimitConfig::new(1024);
+        assert_eq!(config.speed_limit_kbps, 1024);
+    }
+
+    #[test]
+    fn test_rate_limit_config_unlimited() {
+        let config = RateLimitConfig::unlimited();
+        assert_eq!(config.speed_limit_kbps, 0);
+    }
+
+    #[test]
+    fn test_rate_limit_config_create_limiter() {
+        let config = RateLimitConfig::new(512);
+        let limiter = config.create_limiter();
+        assert!(!limiter.is_unlimited());
+    }
+
+    #[test]
+    fn test_transfer_rate_tracker_new() {
+        let tracker = TransferRateTracker::new();
+        assert_eq!(tracker.get_total_bytes(), 0);
+        assert_eq!(tracker.get_rate_kbps(), 0);
+    }
+
+    #[test]
+    fn test_transfer_rate_tracker_add_bytes() {
+        let mut tracker = TransferRateTracker::new();
+        tracker.add_bytes(1024);
+        assert_eq!(tracker.get_total_bytes(), 1024);
+    }
+
+    #[test]
+    fn test_transfer_rate_tracker_elapsed() {
+        let tracker = TransferRateTracker::new();
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(tracker.get_elapsed_secs() >= 0);
+    }
+
+    #[test]
+    fn test_transfer_rate_tracker_default() {
+        let tracker: TransferRateTracker = Default::default();
+        assert_eq!(tracker.get_total_bytes(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_acquire_unlimited() {
+        let limiter = RateLimiter::new(0);
+        limiter.acquire(1024 * 1024).await;
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_acquire_small_amount() {
+        let limiter = RateLimiter::new(10240);
+        limiter.acquire(100).await;
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_refill() {
+        let limiter = RateLimiter::new(1024);
+        let initial = limiter.get_available_tokens();
+
+        limiter.try_refill();
+
+        let after = limiter.get_available_tokens();
+        assert!(after >= initial || after == BUCKET_CAPACITY);
+    }
+}

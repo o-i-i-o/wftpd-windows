@@ -375,3 +375,353 @@ impl UserManager {
         self.users.values_mut()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn create_temp_users_file() -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("users.json");
+        (dir, path)
+    }
+
+    #[test]
+    fn test_user_manager_new() {
+        let manager = UserManager::new();
+        assert_eq!(manager.user_count(), 0);
+        assert!(manager.get_all_users().is_empty());
+    }
+
+    #[test]
+    fn test_user_manager_default() {
+        let manager: UserManager = Default::default();
+        assert_eq!(manager.user_count(), 0);
+    }
+
+    #[test]
+    fn test_add_user() {
+        let mut manager = UserManager::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let home = temp_dir.path().to_string_lossy().to_string();
+
+        manager.add_user("testuser", "password123", &home, false).unwrap();
+        assert_eq!(manager.user_count(), 1);
+
+        let user = manager.get_user("testuser").unwrap();
+        assert_eq!(user.username, "testuser");
+        assert_eq!(user.home_dir, home);
+        assert!(user.enabled);
+        assert!(!user.is_admin);
+    }
+
+    #[test]
+    fn test_add_user_duplicate() {
+        let mut manager = UserManager::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let home = temp_dir.path().to_string_lossy().to_string();
+
+        manager.add_user("testuser", "password123", &home, false).unwrap();
+        let result = manager.add_user("testuser", "password456", &home, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_add_user_empty_home() {
+        let mut manager = UserManager::new();
+        let result = manager.add_user("testuser", "password123", "", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_remove_user() {
+        let mut manager = UserManager::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let home = temp_dir.path().to_string_lossy().to_string();
+
+        manager.add_user("testuser", "password123", &home, false).unwrap();
+        assert_eq!(manager.user_count(), 1);
+
+        manager.remove_user("testuser").unwrap();
+        assert_eq!(manager.user_count(), 0);
+    }
+
+    #[test]
+    fn test_remove_user_not_found() {
+        let mut manager = UserManager::new();
+        let result = manager.remove_user("nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_authenticate_success() {
+        let mut manager = UserManager::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let home = temp_dir.path().to_string_lossy().to_string();
+
+        manager.add_user("testuser", "password123", &home, false).unwrap();
+        let result = manager.authenticate("testuser", "password123").unwrap();
+        assert!(result);
+
+        let user = manager.get_user("testuser").unwrap();
+        assert!(user.last_login.is_some());
+    }
+
+    #[test]
+    fn test_authenticate_wrong_password() {
+        let mut manager = UserManager::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let home = temp_dir.path().to_string_lossy().to_string();
+
+        manager.add_user("testuser", "password123", &home, false).unwrap();
+        let result = manager.authenticate("testuser", "wrongpassword").unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_authenticate_user_not_found() {
+        let mut manager = UserManager::new();
+        let result = manager.authenticate("nonexistent", "password");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_authenticate_disabled_user() {
+        let mut manager = UserManager::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let home = temp_dir.path().to_string_lossy().to_string();
+
+        manager.add_user("testuser", "password123", &home, false).unwrap();
+        manager.set_user_enabled("testuser", false).unwrap();
+
+        let result = manager.authenticate("testuser", "password123").unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_update_password() {
+        let mut manager = UserManager::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let home = temp_dir.path().to_string_lossy().to_string();
+
+        manager.add_user("testuser", "oldpassword", &home, false).unwrap();
+        manager.update_password("testuser", "newpassword").unwrap();
+
+        let result = manager.authenticate("testuser", "newpassword").unwrap();
+        assert!(result);
+
+        let result = manager.authenticate("testuser", "oldpassword").unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_update_password_user_not_found() {
+        let mut manager = UserManager::new();
+        let result = manager.update_password("nonexistent", "newpassword");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_update_home_dir() {
+        let mut manager = UserManager::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let home = temp_dir.path().to_string_lossy().to_string();
+        let new_home = temp_dir.path().join("newhome").to_string_lossy().to_string();
+
+        manager.add_user("testuser", "password123", &home, false).unwrap();
+        manager.update_home_dir("testuser", &new_home).unwrap();
+
+        let user = manager.get_user("testuser").unwrap();
+        assert_eq!(user.home_dir, new_home);
+    }
+
+    #[test]
+    fn test_update_permissions() {
+        let mut manager = UserManager::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let home = temp_dir.path().to_string_lossy().to_string();
+
+        manager.add_user("testuser", "password123", &home, false).unwrap();
+
+        let new_perms = Permissions {
+            can_read: true,
+            can_write: false,
+            can_delete: false,
+            can_list: true,
+            can_mkdir: false,
+            can_rmdir: false,
+            can_rename: false,
+            can_append: false,
+            quota_mb: Some(100),
+            speed_limit_kbps: Some(1024),
+        };
+
+        manager.update_permissions("testuser", new_perms).unwrap();
+
+        let user = manager.get_user("testuser").unwrap();
+        assert!(user.permissions.can_read);
+        assert!(!user.permissions.can_write);
+        assert_eq!(user.permissions.quota_mb, Some(100));
+        assert_eq!(user.permissions.speed_limit_kbps, Some(1024));
+    }
+
+    #[test]
+    fn test_set_user_enabled() {
+        let mut manager = UserManager::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let home = temp_dir.path().to_string_lossy().to_string();
+
+        manager.add_user("testuser", "password123", &home, false).unwrap();
+        manager.set_user_enabled("testuser", false).unwrap();
+
+        let user = manager.get_user("testuser").unwrap();
+        assert!(!user.enabled);
+    }
+
+    #[test]
+    fn test_set_user_admin() {
+        let mut manager = UserManager::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let home = temp_dir.path().to_string_lossy().to_string();
+
+        manager.add_user("testuser", "password123", &home, false).unwrap();
+        manager.set_user_admin("testuser", true).unwrap();
+
+        let user = manager.get_user("testuser").unwrap();
+        assert!(user.is_admin);
+    }
+
+    #[test]
+    fn test_permissions_full() {
+        let perms = Permissions::full();
+        assert!(perms.can_read);
+        assert!(perms.can_write);
+        assert!(perms.can_delete);
+        assert!(perms.can_list);
+        assert!(perms.can_mkdir);
+        assert!(perms.can_rmdir);
+        assert!(perms.can_rename);
+        assert!(perms.can_append);
+        assert!(perms.quota_mb.is_none());
+        assert!(perms.speed_limit_kbps.is_none());
+    }
+
+    #[test]
+    fn test_permissions_display() {
+        let perms = Permissions::full();
+        let display = perms.to_string();
+        assert!(display.contains("read"));
+        assert!(display.contains("write"));
+        assert!(display.contains("delete"));
+    }
+
+    #[test]
+    fn test_permissions_default() {
+        let perms = Permissions::default();
+        assert!(!perms.can_read);
+        assert!(!perms.can_write);
+    }
+
+    #[test]
+    fn test_user_manager_load_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("users.json");
+
+        let manager = UserManager::load(&path).unwrap();
+        assert_eq!(manager.user_count(), 0);
+    }
+
+    #[test]
+    fn test_user_manager_load_invalid_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("users.json");
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(b"invalid json").unwrap();
+        drop(file);
+
+        let manager = UserManager::load(&path).unwrap();
+        assert_eq!(manager.user_count(), 0);
+    }
+
+    #[test]
+    fn test_user_manager_save_and_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("users.json");
+        let home = dir.path().to_string_lossy().to_string();
+
+        {
+            let mut manager = UserManager::new();
+            manager.add_user("user1", "pass1", &home, false).unwrap();
+            manager.add_user("user2", "pass2", &home, true).unwrap();
+            manager.save(&path).unwrap();
+        }
+
+        let loaded = UserManager::load(&path).unwrap();
+        assert_eq!(loaded.user_count(), 2);
+        assert!(loaded.get_user("user1").is_some());
+        assert!(loaded.get_user("user2").is_some());
+
+        let user2 = loaded.get_user("user2").unwrap();
+        assert!(user2.is_admin);
+    }
+
+    #[test]
+    fn test_user_manager_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("users.json");
+        let home = dir.path().to_string_lossy().to_string();
+
+        let mut manager = UserManager::new();
+        manager.add_user("user1", "pass1", &home, false).unwrap();
+        manager.save(&path).unwrap();
+
+        let mut manager2 = UserManager::new();
+        manager2.reload(&path).unwrap();
+        assert_eq!(manager2.user_count(), 1);
+    }
+
+    #[test]
+    fn test_get_all_users() {
+        let mut manager = UserManager::new();
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().to_string_lossy().to_string();
+
+        manager.add_user("user1", "pass1", &home, false).unwrap();
+        manager.add_user("user2", "pass2", &home, false).unwrap();
+
+        let users = manager.get_all_users();
+        assert_eq!(users.len(), 2);
+    }
+
+    #[test]
+    fn test_iter_users() {
+        let mut manager = UserManager::new();
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().to_string_lossy().to_string();
+
+        manager.add_user("user1", "pass1", &home, false).unwrap();
+        manager.add_user("user2", "pass2", &home, false).unwrap();
+
+        let count = manager.iter_users().count();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_user_serialization() {
+        let user = User {
+            username: "test".to_string(),
+            password_hash: "hash".to_string(),
+            home_dir: "/home/test".to_string(),
+            permissions: Permissions::full(),
+            created_at: Utc::now(),
+            last_login: None,
+            enabled: true,
+            is_admin: false,
+        };
+
+        let json = serde_json::to_string(&user).unwrap();
+        assert!(json.contains("test"));
+        assert!(json.contains("hash"));
+    }
+}
