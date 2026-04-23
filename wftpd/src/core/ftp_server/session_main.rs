@@ -238,6 +238,14 @@ async fn run_session(
         }
     }
 
+    tracing::info!(
+        client_ip = %res.client_ip,
+        username = ?state.current_user.as_deref(),
+        action = "DISCONNECT",
+        protocol = "FTP",
+        "Client disconnected from {}", res.client_ip
+    );
+
     Ok(())
 }
 

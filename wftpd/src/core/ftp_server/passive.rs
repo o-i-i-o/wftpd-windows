@@ -82,7 +82,10 @@ impl PassiveManager {
             bind_ip
         };
 
-        // Calculate available port range size
+        if port_max < port_min {
+            anyhow::bail!("Invalid port range: {}-{} (max < min)", port_min, port_max);
+        }
+
         let range_size = (port_max - port_min + 1) as usize;
         if range_size == 0 {
             anyhow::bail!("Invalid port range: {}-{}", port_min, port_max);
@@ -160,14 +163,13 @@ impl PassiveManager {
         )
     }
 
-    pub async fn accept_with_validation(&mut self, port: u16) -> Result<tokio::net::TcpStream> {
+    pub async fn accept_with_validation(&mut self, port: u16, timeout_secs: u64) -> Result<tokio::net::TcpStream> {
         let info = self
             .listeners
             .get_mut(&port)
             .ok_or_else(|| anyhow::anyhow!("No listener found for port {}", port))?;
 
         let created_at = info.created_at;
-        let timeout_secs = info.listener.local_addr().map(|_| 120u64).unwrap_or(60);
         let expected_client_ip = info.client_ip.clone();
 
         loop {
@@ -329,5 +331,179 @@ impl PassiveManager {
 impl Default for PassiveManager {
     fn default() -> Self {
         Self::new(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ip_matches_client_exact_ipv4() {
+        let peer: IpAddr = "192.168.1.100".parse().unwrap();
+        assert!(PassiveManager::ip_matches_client(&peer, "192.168.1.100"));
+    }
+
+    #[test]
+    fn test_ip_matches_client_mismatched_ipv4() {
+        let peer: IpAddr = "192.168.1.100".parse().unwrap();
+        assert!(!PassiveManager::ip_matches_client(&peer, "10.0.0.1"));
+    }
+
+    #[test]
+    fn test_ip_matches_client_ipv4_mapped_to_ipv6() {
+        let peer: IpAddr = "192.168.1.100".parse().unwrap();
+        let expected = "::ffff:192.168.1.100";
+        assert!(PassiveManager::ip_matches_client(&peer, expected));
+    }
+
+    #[test]
+    fn test_ip_matches_client_ipv6_mapped_to_ipv4() {
+        let peer: IpAddr = "::ffff:192.168.1.100".parse().unwrap();
+        assert!(PassiveManager::ip_matches_client(&peer, "192.168.1.100"));
+    }
+
+    #[test]
+    fn test_ip_matches_client_ipv6_exact() {
+        let peer: IpAddr = "::1".parse().unwrap();
+        assert!(PassiveManager::ip_matches_client(&peer, "::1"));
+    }
+
+    #[test]
+    fn test_ip_matches_client_ipv6_mismatch() {
+        let peer: IpAddr = "::1".parse().unwrap();
+        assert!(!PassiveManager::ip_matches_client(&peer, "::2"));
+    }
+
+    #[test]
+    fn test_ip_matches_client_invalid_expected() {
+        let peer: IpAddr = "192.168.1.100".parse().unwrap();
+        assert!(!PassiveManager::ip_matches_client(&peer, "not-an-ip"));
+    }
+
+    #[tokio::test]
+    async fn test_passive_manager_new() {
+        let mgr = PassiveManager::new(None);
+        assert!(mgr.listeners.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_passive_manager_default() {
+        let mgr = PassiveManager::default();
+        assert!(mgr.listeners.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_try_bind_port_success() {
+        let mut mgr = PassiveManager::new(None);
+        let port = mgr.try_bind_port(50000, 50100, "127.0.0.1", "127.0.0.1").await;
+        assert!(port.is_ok());
+        let p = port.unwrap();
+        assert!((50000..=50100).contains(&p));
+        assert!(mgr.listeners.contains_key(&p));
+    }
+
+    #[tokio::test]
+    async fn test_try_bind_port_same_port_twice() {
+        let mut mgr = PassiveManager::new(None);
+        let port1 = mgr.try_bind_port(50200, 50300, "127.0.0.1", "127.0.0.1").await;
+        assert!(port1.is_ok());
+        let port2 = mgr.try_bind_port(50200, 50300, "127.0.0.1", "127.0.0.1").await;
+        assert!(port2.is_ok());
+        assert_ne!(port1.unwrap(), port2.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_remove_listener() {
+        let mut mgr = PassiveManager::new(None);
+        let port = mgr.try_bind_port(50300, 50400, "127.0.0.1", "127.0.0.1").await.unwrap();
+        assert!(mgr.listeners.contains_key(&port));
+        assert!(mgr.remove_listener(port));
+        assert!(!mgr.listeners.contains_key(&port));
+    }
+
+    #[tokio::test]
+    async fn test_remove_nonexistent_listener() {
+        let mut mgr = PassiveManager::new(None);
+        assert!(!mgr.remove_listener(65535));
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_expired() {
+        let mut mgr = PassiveManager::new(None);
+        let port = mgr.try_bind_port(50400, 50500, "127.0.0.1", "127.0.0.1").await.unwrap();
+
+        if let Some(info) = mgr.listeners.get_mut(&port) {
+            info.created_at = std::time::Instant::now() - std::time::Duration::from_secs(3600);
+        }
+
+        mgr.cleanup_expired(120);
+        assert!(!mgr.listeners.contains_key(&port));
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_not_expired() {
+        let mut mgr = PassiveManager::new(None);
+        let port = mgr.try_bind_port(50500, 50600, "127.0.0.1", "127.0.0.1").await.unwrap();
+
+        mgr.cleanup_expired(3600);
+        assert!(mgr.listeners.contains_key(&port));
+    }
+
+    #[tokio::test]
+    async fn test_accept_with_validation_timeout() {
+        let mut mgr = PassiveManager::new(None);
+        let port = mgr.try_bind_port(50600, 50700, "127.0.0.1", "127.0.0.1").await.unwrap();
+
+        let result = mgr.accept_with_validation(port, 1).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_accept_with_validation_no_listener() {
+        let mut mgr = PassiveManager::new(None);
+        let result = mgr.accept_with_validation(65535, 30).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_pasv_config_ipv6_rejected() {
+        let mut mgr = PassiveManager::new(None);
+        let config = PasvConfig {
+            client_ip: "::1".to_string(),
+            server_local_ip: "::1".to_string(),
+            bind_ip: "::".to_string(),
+            port_range: (50700, 50800),
+            masquerade_address: None,
+            passive_ip_override: None,
+            masquerade_map: HashMap::new(),
+            listener_timeout_secs: 30,
+        };
+        let result = mgr.handle_pasv(&config).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_epsv_config_ipv6_ok() {
+        let mut mgr = PassiveManager::new(None);
+        let config = PasvConfig {
+            client_ip: "::1".to_string(),
+            server_local_ip: "::1".to_string(),
+            bind_ip: "::1".to_string(),
+            port_range: (50800, 50900),
+            masquerade_address: None,
+            passive_ip_override: None,
+            masquerade_map: HashMap::new(),
+            listener_timeout_secs: 30,
+        };
+        let result = mgr.handle_epsv(&config).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_try_bind_port_invalid_range() {
+        let mut mgr = PassiveManager::new(None);
+        let result = mgr.try_bind_port(100, 99, "127.0.0.1", "127.0.0.1").await;
+        assert!(result.is_err());
     }
 }

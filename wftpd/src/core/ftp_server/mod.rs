@@ -5,6 +5,8 @@
 mod cert_gen;
 mod commands;
 mod passive;
+mod pooled;
+pub mod reply;
 pub mod session;
 pub mod session_auth;
 pub mod session_cmds;

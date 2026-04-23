@@ -38,6 +38,13 @@ impl DataStream {
             DataStream::Tls(s) => s.write_all(buf).await,
         }
     }
+
+    pub async fn shutdown(&mut self) -> std::io::Result<()> {
+        match self {
+            DataStream::Plain(s) => s.shutdown().await,
+            DataStream::Tls(s) => s.shutdown().await,
+        }
+    }
 }
 
 pub async fn get_data_connection(
@@ -63,7 +70,7 @@ pub async fn get_data_connection(
     );
 
     let tcp_stream = if passive_mode {
-        match passive_manager.accept_with_validation(port).await {
+        match passive_manager.accept_with_validation(port, 30).await {
             Ok(stream) => stream,
             Err(e) => {
                 tracing::error!("Failed to accept validated passive connection: {}", e);

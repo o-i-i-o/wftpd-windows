@@ -13,7 +13,7 @@ use crate::core::quota::QuotaManager;
 use crate::core::users::UserManager;
 
 use super::commands::FtpCommand;
-use super::session_state::{ControlStream, SessionState};
+use super::session_state::{ControlStream, FtpSessionState, SessionState};
 use super::tls::TlsConfig;
 
 pub struct CommandContext<'a> {
@@ -274,26 +274,68 @@ pub async fn handle_auth_command(
                 return Ok(true);
             }
 
-            let username_lower = username.to_lowercase();
-            if username_lower == "anonymous" || username_lower == "ftp" {
-                if *ctx.allow_anonymous {
-                    state.current_user = Some("anonymous".to_string());
-                    control_stream
-                        .write_response(
-                            b"331 Anonymous login okay, send email as password\r\n",
-                            "FTP response",
-                        )
-                        .await;
-                } else {
-                    control_stream
-                        .write_response(b"530 Anonymous access not allowed\r\n", "FTP response")
-                        .await;
+            match state.ftp_state {
+                FtpSessionState::New => {
+                    let username_lower = username.to_lowercase();
+                    if username_lower == "anonymous" || username_lower == "ftp" {
+                        if *ctx.allow_anonymous {
+                            state.current_user = Some("anonymous".to_string());
+                            state.authenticated = false;
+                            state.ftp_state = FtpSessionState::WaitPass;
+                            control_stream
+                                .write_response(
+                                    b"331 Anonymous login okay, send email as password\r\n",
+                                    "FTP response",
+                                )
+                                .await;
+                        } else {
+                            control_stream
+                                .write_response(b"530 Anonymous access not allowed\r\n", "FTP response")
+                                .await;
+                        }
+                    } else {
+                        state.current_user = Some(username.to_string());
+                        state.authenticated = false;
+                        state.ftp_state = FtpSessionState::WaitPass;
+                        control_stream
+                            .write_response(b"331 User name okay, need password\r\n", "FTP response")
+                            .await;
+                    }
                 }
-            } else {
-                state.current_user = Some(username.to_string());
-                control_stream
-                    .write_response(b"331 User name okay, need password\r\n", "FTP response")
-                    .await;
+                FtpSessionState::WaitPass | FtpSessionState::WaitCmd => {
+                    state.authenticated = false;
+                    state.cwd = String::new();
+                    state.home_dir = String::new();
+                    state.rest_offset = 0;
+                    state.rename_from = None;
+                    state.login_attempts = 0;
+
+                    let username_lower = username.to_lowercase();
+                    if username_lower == "anonymous" || username_lower == "ftp" {
+                        if *ctx.allow_anonymous {
+                            state.current_user = Some("anonymous".to_string());
+                            state.ftp_state = FtpSessionState::WaitPass;
+                            control_stream
+                                .write_response(
+                                    b"331 Anonymous login okay, send email as password\r\n",
+                                    "FTP response",
+                                )
+                                .await;
+                        } else {
+                            state.current_user = None;
+                            state.ftp_state = FtpSessionState::New;
+                            control_stream
+                                .write_response(b"530 Anonymous access not allowed\r\n", "FTP response")
+                                .await;
+                        }
+                    } else {
+                        state.current_user = Some(username.to_string());
+                        state.ftp_state = FtpSessionState::WaitPass;
+                        control_stream
+                            .write_response(b"331 User name okay, need password\r\n", "FTP response")
+                            .await;
+                    }
+                }
             }
         }
 
@@ -305,176 +347,205 @@ pub async fn handle_auth_command(
                 return Ok(true);
             }
 
-            let max_attempts = {
-                let cfg = ctx.config.lock();
-                cfg.security.max_login_attempts
-            };
-            if max_attempts > 0 && state.login_attempts >= max_attempts {
-                control_stream
-                    .write_response(b"530 Too many login attempts\r\n", "FTP response")
-                    .await;
-                tracing::warn!(
-                    client_ip = %ctx.client_ip,
-                    action = "LOGIN_REJECTED",
-                    protocol = "FTP",
-                    "Too many login attempts from {}", ctx.client_ip
-                );
-                return Ok(false);
-            }
+            match state.ftp_state {
+                FtpSessionState::New => {
+                    control_stream
+                        .write_response(
+                            b"503 Login with USER first\r\n",
+                            "FTP response",
+                        )
+                        .await;
+                }
+                FtpSessionState::WaitPass => {
+                    let max_attempts = {
+                        let cfg = ctx.config.lock();
+                        cfg.security.max_login_attempts
+                    };
+                    if max_attempts > 0 && state.login_attempts >= max_attempts {
+                        control_stream
+                            .write_response(b"530 Too many login attempts\r\n", "FTP response")
+                            .await;
+                        tracing::warn!(
+                            client_ip = %ctx.client_ip,
+                            action = "LOGIN_REJECTED",
+                            protocol = "FTP",
+                            "Too many login attempts from {}", ctx.client_ip
+                        );
+                        return Ok(false);
+                    }
 
-            if let Some(ref username) = state.current_user {
-                if username == "anonymous" {
-                    if *ctx.allow_anonymous {
-                        if let Some(anon_home) = ctx.anonymous_home {
-                            match PathBuf::from(anon_home).canonicalize() {
-                                Ok(home_canon) => {
-                                    state.cwd = home_canon.to_string_lossy().to_string();
-                                    state.home_dir = state.cwd.clone();
-                                    state.authenticated = true;
-                                    control_stream
-                                        .write_response(
-                                            b"230 Anonymous user logged in\r\n",
-                                            "FTP response",
-                                        )
-                                        .await;
-                                    tracing::info!(
-                                        client_ip = %ctx.client_ip,
-                                        username = "anonymous",
-                                        action = "LOGIN",
-                                        protocol = "FTP",
-                                        "Anonymous user logged in"
-                                    );
-                                }
-                                Err(e) => {
+                    if let Some(ref username) = state.current_user {
+                        if username == "anonymous" {
+                            if *ctx.allow_anonymous {
+                                if let Some(anon_home) = ctx.anonymous_home {
+                                    match PathBuf::from(anon_home).canonicalize() {
+                                        Ok(home_canon) => {
+                                            state.cwd = home_canon.to_string_lossy().to_string();
+                                            state.home_dir = state.cwd.clone();
+                                            state.authenticated = true;
+                                            state.ftp_state = FtpSessionState::WaitCmd;
+                                            control_stream
+                                                .write_response(
+                                                    b"230 Anonymous user logged in\r\n",
+                                                    "FTP response",
+                                                )
+                                                .await;
+                                            tracing::info!(
+                                                client_ip = %ctx.client_ip,
+                                                username = "anonymous",
+                                                action = "LOGIN",
+                                                protocol = "FTP",
+                                                "Anonymous user logged in"
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::error!(
+                                                "PASS failed: cannot canonicalize anonymous home directory '{}': {}",
+                                                anon_home,
+                                                e
+                                            );
+                                            ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
+                                            state.login_attempts += 1;
+                                            control_stream
+                                                .write_response(
+                                                    b"550 Anonymous home directory not found\r\n",
+                                                    "FTP response",
+                                                )
+                                                .await;
+                                            state.current_user = None;
+                                            state.ftp_state = FtpSessionState::New;
+                                        }
+                                    }
+                                } else {
                                     tracing::error!(
-                                        "PASS failed: cannot canonicalize anonymous home directory '{}': {}",
-                                        anon_home,
-                                        e
+                                        "PASS failed: anonymous access allowed but no anonymous_home configured"
                                     );
                                     ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
                                     state.login_attempts += 1;
                                     control_stream
                                         .write_response(
-                                            b"550 Anonymous home directory not found\r\n",
+                                            b"530 Anonymous home directory not configured\r\n",
                                             "FTP response",
                                         )
                                         .await;
                                     state.current_user = None;
+                                    state.ftp_state = FtpSessionState::New;
                                 }
+                            } else {
+                                ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
+                                state.login_attempts += 1;
+                                control_stream
+                                    .write_response(b"530 Anonymous access not allowed\r\n", "FTP response")
+                                    .await;
+                                state.current_user = None;
+                                state.ftp_state = FtpSessionState::New;
                             }
                         } else {
-                            tracing::error!(
-                                "PASS failed: anonymous access allowed but no anonymous_home configured"
-                            );
-                            ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
-                            state.login_attempts += 1;
-                            control_stream
-                                .write_response(
-                                    b"530 Anonymous home directory not configured\r\n",
-                                    "FTP response",
-                                )
-                                .await;
-                            state.current_user = None;
-                        }
-                    } else {
-                        ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
-                        state.login_attempts += 1;
-                        control_stream
-                            .write_response(b"530 Anonymous access not allowed\r\n", "FTP response")
-                            .await;
-                    }
-                } else {
-                    let password = password.as_deref().unwrap_or("");
-                    let (auth_result, home_dir_opt) = {
-                        let mut users = ctx.user_manager.lock();
-                        if users.get_user(username).is_none() {
-                            let _ = users.reload(&Config::get_users_path());
-                        }
-                        let result = users.authenticate(username, password);
-                        let home = users.get_user(username).map(|u| u.home_dir.clone());
-                        (result, home)
-                    };
+                            let password = password.as_deref().unwrap_or("");
+                            let (auth_result, home_dir_opt) = {
+                                let mut users = ctx.user_manager.lock();
+                                if users.get_user(username).is_none() {
+                                    let _ = users.reload(&Config::get_users_path());
+                                }
+                                let result = users.authenticate(username, password);
+                                let home = users.get_user(username).map(|u| u.home_dir.clone());
+                                (result, home)
+                            };
 
-                    match auth_result {
-                        Ok(true) => {
-                            ctx.fail2ban_manager.reset_failures(ctx.client_ip).await;
+                            match auth_result {
+                                Ok(true) => {
+                                    ctx.fail2ban_manager.reset_failures(ctx.client_ip).await;
 
-                            state.authenticated = true;
-                            if let Some(home_dir) = home_dir_opt {
-                                match PathBuf::from(&home_dir).canonicalize() {
-                                    Ok(home_canon) => {
-                                        state.cwd = home_canon.to_string_lossy().to_string();
-                                        state.home_dir = state.cwd.clone();
+                                    state.authenticated = true;
+                                    state.ftp_state = FtpSessionState::WaitCmd;
+                                    if let Some(home_dir) = home_dir_opt {
+                                        match PathBuf::from(&home_dir).canonicalize() {
+                                            Ok(home_canon) => {
+                                                state.cwd = home_canon.to_string_lossy().to_string();
+                                                state.home_dir = state.cwd.clone();
+                                            }
+                                            Err(e) => {
+                                                tracing::error!(
+                                                    "PASS failed: cannot canonicalize user home directory '{}': {}",
+                                                    home_dir,
+                                                    e
+                                                );
+                                                control_stream
+                                                    .write_response(
+                                                        b"550 Home directory not found\r\n",
+                                                        "FTP response",
+                                                    )
+                                                    .await;
+                                                state.authenticated = false;
+                                                state.current_user = None;
+                                                state.ftp_state = FtpSessionState::New;
+                                                return Ok(true);
+                                            }
+                                        }
                                     }
-                                    Err(e) => {
-                                        tracing::error!(
-                                            "PASS failed: cannot canonicalize user home directory '{}': {}",
-                                            home_dir,
-                                            e
-                                        );
-                                        control_stream
-                                            .write_response(
-                                                b"550 Home directory not found\r\n",
-                                                "FTP response",
-                                            )
-                                            .await;
-                                        state.authenticated = false;
-                                        state.current_user = None;
-                                        return Ok(true);
-                                    }
+                                    control_stream
+                                        .write_response(b"230 User logged in\r\n", "FTP response")
+                                        .await;
+                                    tracing::info!(
+                                        client_ip = %ctx.client_ip,
+                                        username = %username,
+                                        action = "LOGIN",
+                                        protocol = "FTP",
+                                        "User {} logged in", username
+                                    );
+                                }
+                                Ok(false) => {
+                                    ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
+                                    state.login_attempts += 1;
+
+                                    tracing::warn!(
+                                        client_ip = %ctx.client_ip,
+                                        username = %username,
+                                        action = "AUTH_FAIL",
+                                        protocol = "FTP",
+                                        "Authentication failed for user {}", username
+                                    );
+                                    state.current_user = None;
+                                    state.ftp_state = FtpSessionState::New;
+                                    control_stream
+                                        .write_response(
+                                            b"530 Not logged in, user cannot be authenticated\r\n",
+                                            "FTP response",
+                                        )
+                                        .await;
+                                }
+                                Err(e) => {
+                                    ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
+                                    state.login_attempts += 1;
+
+                                    tracing::error!(
+                                        client_ip = %ctx.client_ip,
+                                        username = %username,
+                                        action = "AUTH_ERROR",
+                                        "Authentication error for user {}: {}", username, e
+                                    );
+                                    state.current_user = None;
+                                    state.ftp_state = FtpSessionState::New;
+                                    control_stream
+                                        .write_response(b"530 Not logged in\r\n", "FTP response")
+                                        .await;
                                 }
                             }
-                            control_stream
-                                .write_response(b"230 User logged in\r\n", "FTP response")
-                                .await;
-                            tracing::info!(
-                                client_ip = %ctx.client_ip,
-                                username = %username,
-                                action = "LOGIN",
-                                protocol = "FTP",
-                                "User {} logged in", username
-                            );
                         }
-                        Ok(false) => {
-                            ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
-                            state.login_attempts += 1;
-
-                            tracing::warn!(
-                                client_ip = %ctx.client_ip,
-                                username = %username,
-                                action = "AUTH_FAIL",
-                                protocol = "FTP",
-                                "Authentication failed for user {}", username
-                            );
-                            state.current_user = None;
-                            control_stream
-                                .write_response(
-                                    b"530 Not logged in, user cannot be authenticated\r\n",
-                                    "FTP response",
-                                )
-                                .await;
-                        }
-                        Err(e) => {
-                            ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
-                            state.login_attempts += 1;
-
-                            tracing::error!(
-                                client_ip = %ctx.client_ip,
-                                username = %username,
-                                action = "AUTH_ERROR",
-                                "Authentication error for user {}: {}", username, e
-                            );
-                            state.current_user = None;
-                            control_stream
-                                .write_response(b"530 Not logged in\r\n", "FTP response")
-                                .await;
-                        }
+                    } else {
+                        control_stream
+                            .write_response(b"503 Login with USER first\r\n", "FTP response")
+                            .await;
                     }
                 }
-            } else {
-                control_stream
-                    .write_response(b"530 Please login with USER and PASS\r\n", "FTP response")
-                    .await;
+                FtpSessionState::WaitCmd => {
+                    control_stream
+                        .write_response(
+                            b"503 Already logged in. Use a new connection to re-authenticate\r\n",
+                            "FTP response",
+                        )
+                        .await;
+                }
             }
         }
 

@@ -333,6 +333,34 @@ pub async fn handle_list_command(
                 PathBuf::from(&state.cwd)
             };
 
+            let mut data_stream = match transfer::get_data_connection(
+                state.passive_mode,
+                state.data_port,
+                &state.data_addr,
+                ctx.client_ip,
+                &mut state.passive_manager,
+                state.data_protection,
+                ctx.tls_config.acceptor.as_deref(),
+            )
+            .await
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("LIST/NLST: Failed to get data connection: {}", e);
+                    if state.passive_mode
+                        && let Some(port) = state.data_port
+                    {
+                        state.passive_manager.remove_listener(port);
+                    }
+                    state.data_port = None;
+                    state.data_addr = None;
+                    control_stream
+                        .write_response(b"425 Can't open data connection\r\n", "FTP response")
+                        .await;
+                    return Ok(true);
+                }
+            };
+
             control_stream
                 .write_response(b"150 Here comes the directory listing\r\n", "FTP response")
                 .await;
@@ -344,31 +372,21 @@ pub async fn handle_list_command(
             let is_ascii = state.transfer_mode == "ascii";
             let mut transfer_ok = false;
 
-            if let Ok(mut data_stream) = transfer::get_data_connection(
-                state.passive_mode,
-                state.data_port,
-                &state.data_addr,
-                ctx.client_ip,
-                &mut state.passive_manager,
-                state.data_protection,
-                ctx.tls_config.acceptor.as_deref(),
+            let is_nlst = matches!(cmd, NLST(_));
+            match transfer::send_directory_listing(
+                &mut data_stream,
+                &list_path,
+                &current_username,
+                is_nlst,
+                is_ascii,
             )
             .await
             {
-                let is_nlst = matches!(cmd, NLST(_));
-                match transfer::send_directory_listing(
-                    &mut data_stream,
-                    &list_path,
-                    &current_username,
-                    is_nlst,
-                    is_ascii,
-                )
-                .await
-                {
-                    Ok(()) => transfer_ok = true,
-                    Err(e) => tracing::warn!("LIST/NLST transfer error: {}", e),
-                }
+                Ok(()) => transfer_ok = true,
+                Err(e) => tracing::warn!("LIST/NLST transfer error: {}", e),
             }
+
+            let _ = data_stream.shutdown().await;
 
             if state.passive_mode
                 && let Some(port) = state.data_port
@@ -469,17 +487,7 @@ pub async fn handle_list_command(
                         .await;
                 }
             } else {
-                control_stream
-                    .write_response(b"150 Here comes the directory listing\r\n", "FTP response")
-                    .await;
-
-                let mlst_owner = state
-                    .current_user
-                    .clone()
-                    .unwrap_or_else(|| "anonymous".to_string());
-                let mut transfer_ok = false;
-
-                if let Ok(mut data_stream) = transfer::get_data_connection(
+                let mut data_stream = match transfer::get_data_connection(
                     state.passive_mode,
                     state.data_port,
                     &state.data_addr,
@@ -490,13 +498,41 @@ pub async fn handle_list_command(
                 )
                 .await
                 {
-                    match transfer::send_mlsd_listing(&mut data_stream, &target_path, &mlst_owner)
-                        .await
-                    {
-                        Ok(()) => transfer_ok = true,
-                        Err(e) => tracing::warn!("MLSD transfer error: {}", e),
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!("MLSD: Failed to get data connection: {}", e);
+                        if state.passive_mode
+                            && let Some(port) = state.data_port
+                        {
+                            state.passive_manager.remove_listener(port);
+                        }
+                        state.data_port = None;
+                        state.data_addr = None;
+                        control_stream
+                            .write_response(b"425 Can't open data connection\r\n", "FTP response")
+                            .await;
+                        return Ok(true);
                     }
+                };
+
+                control_stream
+                    .write_response(b"150 Here comes the directory listing\r\n", "FTP response")
+                    .await;
+
+                let mlst_owner = state
+                    .current_user
+                    .clone()
+                    .unwrap_or_else(|| "anonymous".to_string());
+                let mut transfer_ok = false;
+
+                match transfer::send_mlsd_listing(&mut data_stream, &target_path, &mlst_owner)
+                    .await
+                {
+                    Ok(()) => transfer_ok = true,
+                    Err(e) => tracing::warn!("MLSD transfer error: {}", e),
                 }
+
+                let _ = data_stream.shutdown().await;
 
                 if state.passive_mode
                     && let Some(port) = state.data_port
@@ -620,6 +656,34 @@ pub async fn handle_retrieve_command(
                     .await;
             }
 
+            let mut data_stream = match transfer::get_data_connection(
+                state.passive_mode,
+                state.data_port,
+                &state.data_addr,
+                ctx.client_ip,
+                &mut state.passive_manager,
+                state.data_protection,
+                ctx.tls_config.acceptor.as_deref(),
+            )
+            .await
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("RETR: Failed to get data connection: {}", e);
+                    if state.passive_mode
+                        && let Some(port) = state.data_port
+                    {
+                        state.passive_manager.remove_listener(port);
+                    }
+                    state.data_port = None;
+                    state.data_addr = None;
+                    control_stream
+                        .write_response(b"425 Can't open data connection\r\n", "FTP response")
+                        .await;
+                    return Ok(true);
+                }
+            };
+
             control_stream
                 .write_response(
                     format!(
@@ -636,32 +700,22 @@ pub async fn handle_retrieve_command(
                 speed_limit_kbps.map(|limit| std::sync::Arc::new(RateLimiter::new(limit)));
             let mut transfer_ok = false;
 
-            if let Ok(mut data_stream) = transfer::get_data_connection(
-                state.passive_mode,
-                state.data_port,
-                &state.data_addr,
-                ctx.client_ip,
-                &mut state.passive_manager,
-                state.data_protection,
-                ctx.tls_config.acceptor.as_deref(),
+            let abort = Arc::clone(&state.abort_flag);
+            match transfer::send_file_with_limits(
+                &mut data_stream,
+                &file_path,
+                state.rest_offset,
+                abort,
+                is_ascii,
+                rate_limiter.as_deref(),
             )
             .await
             {
-                let abort = Arc::clone(&state.abort_flag);
-                match transfer::send_file_with_limits(
-                    &mut data_stream,
-                    &file_path,
-                    state.rest_offset,
-                    abort,
-                    is_ascii,
-                    rate_limiter.as_deref(),
-                )
-                .await
-                {
-                    Ok(()) => transfer_ok = true,
-                    Err(e) => tracing::warn!("RETR transfer error: {}", e),
-                }
+                Ok(()) => transfer_ok = true,
+                Err(e) => tracing::warn!("RETR transfer error: {}", e),
             }
+
+            let _ = data_stream.shutdown().await;
 
             if state.passive_mode
                 && let Some(port) = state.data_port
@@ -807,6 +861,35 @@ pub async fn handle_store_command(
                 }
 
                 let file_existed = file_path.exists();
+
+                let mut data_stream = match transfer::get_data_connection(
+                    state.passive_mode,
+                    state.data_port,
+                    &state.data_addr,
+                    ctx.client_ip,
+                    &mut state.passive_manager,
+                    state.data_protection,
+                    ctx.tls_config.acceptor.as_deref(),
+                )
+                .await
+                {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!("STOR: Failed to get data connection: {}", e);
+                        if state.passive_mode
+                            && let Some(port) = state.data_port
+                        {
+                            state.passive_manager.remove_listener(port);
+                        }
+                        state.data_port = None;
+                        state.data_addr = None;
+                        control_stream
+                            .write_response(b"425 Can't open data connection\r\n", "FTP response")
+                            .await;
+                        return Ok(true);
+                    }
+                };
+
                 control_stream
                     .write_response(
                         b"150 Opening BINARY mode data connection\r\n",
@@ -820,42 +903,27 @@ pub async fn handle_store_command(
                 let rate_limiter: Option<std::sync::Arc<RateLimiter>> =
                     speed_limit_kbps.map(|limit| std::sync::Arc::new(RateLimiter::new(limit)));
 
-                if let Ok(mut data_stream) = transfer::get_data_connection(
-                    state.passive_mode,
-                    state.data_port,
-                    &state.data_addr,
-                    ctx.client_ip,
-                    &mut state.passive_manager,
-                    state.data_protection,
-                    ctx.tls_config.acceptor.as_deref(),
+                let abort = Arc::clone(&state.abort_flag);
+                let result = transfer::receive_file_with_limits(
+                    &mut data_stream,
+                    &file_path,
+                    state.rest_offset,
+                    abort,
+                    is_ascii,
+                    rate_limiter.as_deref(),
                 )
-                .await
-                {
-                    let abort = Arc::clone(&state.abort_flag);
-                    let result = transfer::receive_file_with_limits(
-                        &mut data_stream,
-                        &file_path,
-                        state.rest_offset,
-                        abort,
-                        is_ascii,
-                        rate_limiter.as_deref(),
-                    )
-                    .await;
-                    match result {
-                        Ok(written) => {
-                            transfer_success = true;
-                            total_written = written;
-                        }
-                        Err(e) => {
-                            tracing::error!("STOR transfer error: {}", e);
-                        }
+                .await;
+                match result {
+                    Ok(written) => {
+                        transfer_success = true;
+                        total_written = written;
                     }
-                } else {
-                    tracing::error!(
-                        "STOR failed to get data connection for file: {}",
-                        file_path.display()
-                    );
+                    Err(e) => {
+                        tracing::error!("STOR transfer error: {}", e);
+                    }
                 }
+
+                let _ = data_stream.shutdown().await;
 
                 if state.passive_mode
                     && let Some(port) = state.data_port
@@ -970,17 +1038,8 @@ pub async fn handle_store_command(
                         .await;
                     return Ok(true);
                 }
-                control_stream
-                    .write_response(
-                        b"150 Opening BINARY mode data connection for append\r\n",
-                        "FTP response",
-                    )
-                    .await;
 
-                let is_ascii = state.transfer_mode == "ascii";
-                let mut transfer_ok = false;
-
-                if let Ok(mut data_stream) = transfer::get_data_connection(
+                let mut data_stream = match transfer::get_data_connection(
                     state.passive_mode,
                     state.data_port,
                     &state.data_addr,
@@ -991,19 +1050,47 @@ pub async fn handle_store_command(
                 )
                 .await
                 {
-                    let abort = Arc::clone(&state.abort_flag);
-                    match transfer::receive_file_append(
-                        &mut data_stream,
-                        &file_path,
-                        abort,
-                        is_ascii,
-                    )
-                    .await
-                    {
-                        Ok(_) => transfer_ok = true,
-                        Err(e) => tracing::warn!("APPE transfer error: {}", e),
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!("APPE: Failed to get data connection: {}", e);
+                        if state.passive_mode
+                            && let Some(port) = state.data_port
+                        {
+                            state.passive_manager.remove_listener(port);
+                        }
+                        state.data_port = None;
+                        state.data_addr = None;
+                        control_stream
+                            .write_response(b"425 Can't open data connection\r\n", "FTP response")
+                            .await;
+                        return Ok(true);
                     }
+                };
+
+                control_stream
+                    .write_response(
+                        b"150 Opening BINARY mode data connection for append\r\n",
+                        "FTP response",
+                    )
+                    .await;
+
+                let is_ascii = state.transfer_mode == "ascii";
+                let mut transfer_ok = false;
+
+                let abort = Arc::clone(&state.abort_flag);
+                match transfer::receive_file_append(
+                    &mut data_stream,
+                    &file_path,
+                    abort,
+                    is_ascii,
+                )
+                .await
+                {
+                    Ok(_) => transfer_ok = true,
+                    Err(e) => tracing::warn!("APPE transfer error: {}", e),
                 }
+
+                let _ = data_stream.shutdown().await;
 
                 if state.passive_mode
                     && let Some(port) = state.data_port
@@ -1077,17 +1164,7 @@ pub async fn handle_store_command(
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "unknown".to_string());
 
-            control_stream
-                .write_response(
-                    format!("150 FILE: {}\r\n", unique_name).as_bytes(),
-                    "FTP response",
-                )
-                .await;
-
-            let is_ascii = state.transfer_mode == "ascii";
-            let mut transfer_ok = false;
-
-            if let Ok(mut data_stream) = transfer::get_data_connection(
+            let mut data_stream = match transfer::get_data_connection(
                 state.passive_mode,
                 state.data_port,
                 &state.data_addr,
@@ -1098,13 +1175,40 @@ pub async fn handle_store_command(
             )
             .await
             {
-                let abort = Arc::clone(&state.abort_flag);
-                match transfer::receive_file(&mut data_stream, &file_path, 0, abort, is_ascii).await
-                {
-                    Ok(_) => transfer_ok = true,
-                    Err(e) => tracing::warn!("STOU transfer error: {}", e),
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("STOU: Failed to get data connection: {}", e);
+                    if state.passive_mode
+                        && let Some(port) = state.data_port
+                    {
+                        state.passive_manager.remove_listener(port);
+                    }
+                    state.data_port = None;
+                    state.data_addr = None;
+                    control_stream
+                        .write_response(b"425 Can't open data connection\r\n", "FTP response")
+                        .await;
+                    return Ok(true);
                 }
+            };
+
+            control_stream
+                .write_response(
+                    format!("150 FILE: {}\r\n", unique_name).as_bytes(),
+                    "FTP response",
+                )
+                .await;
+
+            let is_ascii = state.transfer_mode == "ascii";
+            let mut transfer_ok = false;
+
+            let abort = Arc::clone(&state.abort_flag);
+            match transfer::receive_file(&mut data_stream, &file_path, 0, abort, is_ascii).await {
+                Ok(_) => transfer_ok = true,
+                Err(e) => tracing::warn!("STOU transfer error: {}", e),
             }
+
+            let _ = data_stream.shutdown().await;
 
             if state.passive_mode
                 && let Some(port) = state.data_port

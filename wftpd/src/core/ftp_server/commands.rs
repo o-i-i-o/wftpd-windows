@@ -128,3 +128,284 @@ impl FtpCommand {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_user() {
+        match FtpCommand::parse("USER", Some("testuser")) {
+            FtpCommand::USER(u) => assert_eq!(u, "testuser"),
+            other => panic!("Expected USER, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_user_no_arg() {
+        match FtpCommand::parse("USER", None) {
+            FtpCommand::USER(u) => assert_eq!(u, ""),
+            other => panic!("Expected USER, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_pass() {
+        match FtpCommand::parse("PASS", Some("secret")) {
+            FtpCommand::PASS(Some(p)) => assert_eq!(p, "secret"),
+            other => panic!("Expected PASS(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_pass_no_arg() {
+        match FtpCommand::parse("PASS", None) {
+            FtpCommand::PASS(None) => {}
+            other => panic!("Expected PASS(None), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_quit() {
+        assert!(matches!(FtpCommand::parse("QUIT", None), FtpCommand::QUIT));
+    }
+
+    #[test]
+    fn test_parse_syst() {
+        assert!(matches!(FtpCommand::parse("SYST", None), FtpCommand::SYST));
+    }
+
+    #[test]
+    fn test_parse_feat() {
+        assert!(matches!(FtpCommand::parse("FEAT", None), FtpCommand::FEAT));
+    }
+
+    #[test]
+    fn test_parse_noop() {
+        assert!(matches!(FtpCommand::parse("NOOP", None), FtpCommand::NOOP));
+    }
+
+    #[test]
+    fn test_parse_pwd() {
+        assert!(matches!(FtpCommand::parse("PWD", None), FtpCommand::PWD));
+    }
+
+    #[test]
+    fn test_parse_cwd() {
+        match FtpCommand::parse("CWD", Some("/home")) {
+            FtpCommand::CWD(Some(p)) => assert_eq!(p, "/home"),
+            other => panic!("Expected CWD(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_cdup() {
+        assert!(matches!(FtpCommand::parse("CDUP", None), FtpCommand::CDUP));
+    }
+
+    #[test]
+    fn test_parse_type() {
+        match FtpCommand::parse("TYPE", Some("I")) {
+            FtpCommand::TYPE(Some(t)) => assert_eq!(t, "I"),
+            other => panic!("Expected TYPE(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_pasv() {
+        assert!(matches!(FtpCommand::parse("PASV", None), FtpCommand::PASV));
+    }
+
+    #[test]
+    fn test_parse_epsv() {
+        assert!(matches!(FtpCommand::parse("EPSV", None), FtpCommand::EPSV));
+    }
+
+    #[test]
+    fn test_parse_port() {
+        match FtpCommand::parse("PORT", Some("192,168,1,1,4,1")) {
+            FtpCommand::PORT(Some(p)) => assert_eq!(p, "192,168,1,1,4,1"),
+            other => panic!("Expected PORT(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_opts_with_value() {
+        match FtpCommand::parse("OPTS", Some("UTF8 ON")) {
+            FtpCommand::OPTS(Some(opt), Some(val)) => {
+                assert_eq!(opt, "UTF8");
+                assert_eq!(val, "ON");
+            }
+            other => panic!("Expected OPTS(Some, Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_opts_without_value() {
+        match FtpCommand::parse("OPTS", Some("UTF8")) {
+            FtpCommand::OPTS(Some(opt), None) => assert_eq!(opt, "UTF8"),
+            other => panic!("Expected OPTS(Some, None), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_opts_no_arg() {
+        match FtpCommand::parse("OPTS", None) {
+            FtpCommand::OPTS(None, None) => {}
+            other => panic!("Expected OPTS(None, None), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_rest() {
+        match FtpCommand::parse("REST", Some("1024")) {
+            FtpCommand::REST(Some(r)) => assert_eq!(r, "1024"),
+            other => panic!("Expected REST(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_retr() {
+        match FtpCommand::parse("RETR", Some("file.txt")) {
+            FtpCommand::RETR(Some(f)) => assert_eq!(f, "file.txt"),
+            other => panic!("Expected RETR(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_stor() {
+        match FtpCommand::parse("STOR", Some("upload.txt")) {
+            FtpCommand::STOR(Some(f)) => assert_eq!(f, "upload.txt"),
+            other => panic!("Expected STOR(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_list() {
+        match FtpCommand::parse("LIST", Some("-la")) {
+            FtpCommand::LIST(Some(a)) => assert_eq!(a, "-la"),
+            other => panic!("Expected LIST(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_list_no_arg() {
+        match FtpCommand::parse("LIST", None) {
+            FtpCommand::LIST(None) => {}
+            other => panic!("Expected LIST(None), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_mkd_xmkd() {
+        assert!(matches!(FtpCommand::parse("MKD", Some("dir")), FtpCommand::MKD(Some(_))));
+        assert!(matches!(FtpCommand::parse("XMKD", Some("dir")), FtpCommand::MKD(Some(_))));
+    }
+
+    #[test]
+    fn test_parse_rmd_xrmd() {
+        assert!(matches!(FtpCommand::parse("RMD", Some("dir")), FtpCommand::RMD(Some(_))));
+        assert!(matches!(FtpCommand::parse("XRMD", Some("dir")), FtpCommand::RMD(Some(_))));
+    }
+
+    #[test]
+    fn test_parse_rnfr_rnto() {
+        assert!(matches!(FtpCommand::parse("RNFR", Some("old")), FtpCommand::RNFR(Some(_))));
+        assert!(matches!(FtpCommand::parse("RNTO", Some("new")), FtpCommand::RNTO(Some(_))));
+    }
+
+    #[test]
+    fn test_parse_dele() {
+        match FtpCommand::parse("DELE", Some("file.txt")) {
+            FtpCommand::DELE(Some(f)) => assert_eq!(f, "file.txt"),
+            other => panic!("Expected DELE(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_size() {
+        match FtpCommand::parse("SIZE", Some("file.txt")) {
+            FtpCommand::SIZE(Some(f)) => assert_eq!(f, "file.txt"),
+            other => panic!("Expected SIZE(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_stou() {
+        assert!(matches!(FtpCommand::parse("STOU", None), FtpCommand::STOU));
+    }
+
+    #[test]
+    fn test_parse_abor() {
+        assert!(matches!(FtpCommand::parse("ABOR", None), FtpCommand::ABOR));
+    }
+
+    #[test]
+    fn test_parse_rein() {
+        assert!(matches!(FtpCommand::parse("REIN", None), FtpCommand::REIN));
+    }
+
+    #[test]
+    fn test_parse_auth() {
+        match FtpCommand::parse("AUTH", Some("TLS")) {
+            FtpCommand::AUTH(Some(a)) => assert_eq!(a, "TLS"),
+            other => panic!("Expected AUTH(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_pbsz() {
+        match FtpCommand::parse("PBSZ", Some("0")) {
+            FtpCommand::PBSZ(Some(p)) => assert_eq!(p, "0"),
+            other => panic!("Expected PBSZ(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_prot() {
+        match FtpCommand::parse("PROT", Some("P")) {
+            FtpCommand::PROT(Some(p)) => assert_eq!(p, "P"),
+            other => panic!("Expected PROT(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_unknown() {
+        match FtpCommand::parse("XYZZY", None) {
+            FtpCommand::Unknown(cmd) => assert_eq!(cmd, "XYZZY"),
+            other => panic!("Expected Unknown, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_mlsd() {
+        match FtpCommand::parse("MLSD", Some("/data")) {
+            FtpCommand::MLSD(Some(p)) => assert_eq!(p, "/data"),
+            other => panic!("Expected MLSD(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_mlst() {
+        match FtpCommand::parse("MLST", Some("file.txt")) {
+            FtpCommand::MLST(Some(p)) => assert_eq!(p, "file.txt"),
+            other => panic!("Expected MLST(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_appe() {
+        match FtpCommand::parse("APPE", Some("log.txt")) {
+            FtpCommand::APPE(Some(f)) => assert_eq!(f, "log.txt"),
+            other => panic!("Expected APPE(Some), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_site() {
+        match FtpCommand::parse("SITE", Some("HELP")) {
+            FtpCommand::SITE(Some(s)) => assert_eq!(s, "HELP"),
+            other => panic!("Expected SITE(Some), got {:?}", other),
+        }
+    }
+}

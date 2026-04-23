@@ -10,6 +10,7 @@ use anyhow::Result as AnyhowResult;
 use crate::core::path_utils::{PathResolveError, safe_resolve_path};
 
 use super::passive::PassiveManager;
+use super::reply::Reply;
 use super::tls::{AsyncTlsTcpStream, TlsConfig};
 use super::upnp_manager::UpnpManager;
 
@@ -21,6 +22,13 @@ pub enum FileStructure {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransferModeType {
     Stream,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FtpSessionState {
+    New,
+    WaitPass,
+    WaitCmd,
 }
 
 pub enum ControlStream {
@@ -54,6 +62,15 @@ impl ControlStream {
     pub async fn write_response(&mut self, buf: &[u8], context: &str) {
         if let Err(e) = self.write_all(buf).await {
             tracing::warn!("Failed to write FTP response ({}): {}", context, e);
+        }
+    }
+
+    pub async fn send_reply(&mut self, reply: &Reply) {
+        let data = reply.to_bytes();
+        if !data.is_empty()
+            && let Err(e) = self.write_all(&data).await
+        {
+            tracing::warn!("Failed to send FTP reply: {:?}", e);
         }
     }
 
@@ -93,6 +110,146 @@ impl ControlStream {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_state() -> SessionState {
+        SessionState::new("192.168.1.100", "192.168.1.1", true, None)
+    }
+
+    #[test]
+    fn test_ftp_session_state_initial() {
+        let state = create_test_state();
+        assert_eq!(state.ftp_state, FtpSessionState::New);
+        assert!(!state.authenticated);
+        assert!(state.current_user.is_none());
+        assert_eq!(state.login_attempts, 0);
+    }
+
+    #[test]
+    fn test_ftp_session_state_transitions() {
+        let mut state = create_test_state();
+        assert_eq!(state.ftp_state, FtpSessionState::New);
+
+        state.ftp_state = FtpSessionState::WaitPass;
+        assert_eq!(state.ftp_state, FtpSessionState::WaitPass);
+
+        state.ftp_state = FtpSessionState::WaitCmd;
+        assert_eq!(state.ftp_state, FtpSessionState::WaitCmd);
+    }
+
+    #[test]
+    fn test_ftp_session_state_equality() {
+        assert_eq!(FtpSessionState::New, FtpSessionState::New);
+        assert_eq!(FtpSessionState::WaitPass, FtpSessionState::WaitPass);
+        assert_eq!(FtpSessionState::WaitCmd, FtpSessionState::WaitCmd);
+        assert_ne!(FtpSessionState::New, FtpSessionState::WaitPass);
+        assert_ne!(FtpSessionState::WaitPass, FtpSessionState::WaitCmd);
+        assert_ne!(FtpSessionState::New, FtpSessionState::WaitCmd);
+    }
+
+    #[test]
+    fn test_validate_port_ip_valid() {
+        let state = create_test_state();
+        assert!(state.validate_port_ip("192,168,1,100,4,1"));
+    }
+
+    #[test]
+    fn test_validate_port_ip_wrong_ip() {
+        let state = create_test_state();
+        assert!(!state.validate_port_ip("10,0,0,1,4,1"));
+    }
+
+    #[test]
+    fn test_validate_port_ip_partial_mismatch() {
+        let state = create_test_state();
+        assert!(!state.validate_port_ip("192,168,1,200,4,1"));
+    }
+
+    #[test]
+    fn test_validate_port_ip_too_few_parts() {
+        let state = create_test_state();
+        assert!(!state.validate_port_ip("192,168,1,100"));
+    }
+
+    #[test]
+    fn test_validate_port_ip_too_many_parts() {
+        let state = create_test_state();
+        assert!(!state.validate_port_ip("192,168,1,100,4,1,2"));
+    }
+
+    #[test]
+    fn test_validate_port_ip_empty() {
+        let state = create_test_state();
+        assert!(!state.validate_port_ip(""));
+    }
+
+    #[test]
+    fn test_validate_eprt_ip_matching_ipv4() {
+        let state = create_test_state();
+        assert!(state.validate_eprt_ip("192.168.1.100"));
+    }
+
+    #[test]
+    fn test_validate_eprt_ip_mismatched_ipv4() {
+        let state = create_test_state();
+        assert!(!state.validate_eprt_ip("10.0.0.1"));
+    }
+
+    #[test]
+    fn test_validate_eprt_ip_invalid_ip() {
+        let state = create_test_state();
+        assert!(!state.validate_eprt_ip("not-an-ip"));
+    }
+
+    #[test]
+    fn test_validate_eprt_ip_ipv6_matching() {
+        let state = SessionState::new("::1", "::1", true, None);
+        assert!(state.validate_eprt_ip("::1"));
+    }
+
+    #[test]
+    fn test_validate_eprt_ip_ipv6_mismatch() {
+        let state = SessionState::new("::1", "::1", true, None);
+        assert!(!state.validate_eprt_ip("::2"));
+    }
+
+    #[test]
+    fn test_validate_eprt_ip_version_mismatch() {
+        let state = create_test_state();
+        assert!(!state.validate_eprt_ip("::1"));
+    }
+
+    #[test]
+    fn test_file_structure_default() {
+        let state = create_test_state();
+        assert_eq!(state.file_structure, FileStructure::File);
+    }
+
+    #[test]
+    fn test_transfer_mode_type_default() {
+        let state = create_test_state();
+        assert_eq!(state.transfer_mode_type, TransferModeType::Stream);
+    }
+
+    #[test]
+    fn test_session_state_default_values() {
+        let state = create_test_state();
+        assert_eq!(state.transfer_mode, "binary");
+        assert_eq!(state.encoding, "UTF-8");
+        assert!(state.passive_mode);
+        assert_eq!(state.rest_offset, 0);
+        assert!(state.rename_from.is_none());
+        assert!(!state.tls_enabled);
+        assert!(!state.data_protection);
+        assert!(!state.pbsz_set);
+        assert!(state.allow_symlinks);
+        assert!(state.data_port.is_none());
+        assert!(state.data_addr.is_none());
+    }
+}
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub struct SessionState {
@@ -118,6 +275,7 @@ pub struct SessionState {
     pub file_structure: FileStructure,
     pub transfer_mode_type: TransferModeType,
     pub allow_symlinks: bool,
+    pub ftp_state: FtpSessionState,
 }
 
 impl SessionState {
@@ -150,6 +308,7 @@ impl SessionState {
             file_structure: FileStructure::File,
             transfer_mode_type: TransferModeType::Stream,
             allow_symlinks,
+            ftp_state: FtpSessionState::New,
         }
     }
 
@@ -266,11 +425,15 @@ pub struct SessionConfig {
 
 impl SessionConfig {
     pub fn from_config(config: &crate::core::config::Config, client_ip: &str) -> Self {
-        let tls_config = TlsConfig::new(
-            config.ftp.ftps.cert_path.as_deref(),
-            config.ftp.ftps.key_path.as_deref(),
-            config.ftp.ftps.require_ssl,
-        );
+        let tls_config = if config.ftp.ftps.enabled {
+            TlsConfig::new(
+                config.ftp.ftps.cert_path.as_deref(),
+                config.ftp.ftps.key_path.as_deref(),
+                config.ftp.ftps.require_ssl,
+            )
+        } else {
+            TlsConfig { acceptor: None }
+        };
 
         SessionConfig {
             welcome_msg: config.ftp.welcome_message.clone(),

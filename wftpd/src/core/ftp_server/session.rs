@@ -10,7 +10,7 @@ pub use super::session_ip::{
 pub use super::session_main::{dispatch_command, handle_session, handle_session_tls};
 pub use super::session_site::handle_site_command;
 pub use super::session_state::{
-    ControlStream, FileStructure, SessionConfig, SessionState, TransferModeType,
+    ControlStream, FileStructure, FtpSessionState, SessionConfig, SessionState, TransferModeType,
 };
 pub use super::session_xfer::{
     handle_fileinfo_command, handle_list_command, handle_retrieve_command, handle_store_command,

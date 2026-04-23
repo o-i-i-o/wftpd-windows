@@ -309,6 +309,8 @@ pub async fn handle_basic_command(
             state.tls_enabled = tls_was_enabled;
             state.data_protection = tls_config_preserved;
             state.pbsz_set = false;
+            state.ftp_state = super::session_state::FtpSessionState::New;
+            state.login_attempts = 0;
 
             control_stream
                 .write_response(b"220 Service ready for new user\r\n", "FTP response")

@@ -913,3 +913,231 @@ impl SftpState {
         attrs
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_sftp_state() -> SftpState {
+        SftpState::new(
+            "C:\\sftp_test".to_string(),
+            Some("testuser".to_string()),
+            Arc::new(Mutex::new(UserManager::new())),
+            Arc::new(QuotaManager::new(&get_program_data_path())),
+            "127.0.0.1".to_string(),
+        )
+    }
+
+    #[test]
+    fn test_sftp_state_initial() {
+        let state = create_test_sftp_state();
+        assert_eq!(state.home_dir, "C:\\sftp_test");
+        assert_eq!(state.cwd, "C:\\sftp_test");
+        assert_eq!(state.username, Some("testuser".to_string()));
+        assert!(state.handles.is_empty());
+        assert_eq!(state.next_handle_id, 0);
+        assert_eq!(state.sftp_version, 3);
+        assert!(state.buffer.is_empty());
+        assert!(state.locked_files.is_empty());
+        assert_eq!(state.client_ip, "127.0.0.1");
+    }
+
+    #[test]
+    fn test_parse_u32_valid() {
+        let state = create_test_sftp_state();
+        let data: Vec<u8> = 0x12345678u32.to_be_bytes().to_vec();
+        let result = state.parse_u32(&data, 0);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0x12345678);
+    }
+
+    #[test]
+    fn test_parse_u32_insufficient_data() {
+        let state = create_test_sftp_state();
+        let data = [0x00, 0x01, 0x02];
+        let result = state.parse_u32(&data, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_u32_offset_out_of_bounds() {
+        let state = create_test_sftp_state();
+        let data = [0x00; 8];
+        let result = state.parse_u32(&data, 6);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_u64_valid() {
+        let state = create_test_sftp_state();
+        let data: Vec<u8> = 0x0102030405060708u64.to_be_bytes().to_vec();
+        let result = state.parse_u64(&data, 0);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0x0102030405060708);
+    }
+
+    #[test]
+    fn test_parse_u64_insufficient_data() {
+        let state = create_test_sftp_state();
+        let data = [0x00; 4];
+        let result = state.parse_u64(&data, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_string_valid() {
+        let state = create_test_sftp_state();
+        let mut data = Vec::new();
+        let test_str = "hello";
+        data.extend_from_slice(&(test_str.len() as u32).to_be_bytes());
+        data.extend_from_slice(test_str.as_bytes());
+        let result = state.parse_string(&data, 0);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_parse_string_empty() {
+        let state = create_test_sftp_state();
+        let data: Vec<u8> = 0u32.to_be_bytes().to_vec();
+        let result = state.parse_string(&data, 0);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "");
+    }
+
+    #[test]
+    fn test_parse_string_truncated() {
+        let state = create_test_sftp_state();
+        let mut data = Vec::new();
+        data.extend_from_slice(&100u32.to_be_bytes());
+        data.extend_from_slice(b"short");
+        let result = state.parse_string(&data, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_string_with_len_valid() {
+        let state = create_test_sftp_state();
+        let mut data = Vec::new();
+        let test_str = "world";
+        data.extend_from_slice(&(test_str.len() as u32).to_be_bytes());
+        data.extend_from_slice(test_str.as_bytes());
+        let result = state.parse_string_with_len(&data, 0);
+        assert!(result.is_ok());
+        let (s, len) = result.unwrap();
+        assert_eq!(s, "world");
+        assert_eq!(len, 5);
+    }
+
+    #[test]
+    fn test_generate_handle_sequential() {
+        let mut state = create_test_sftp_state();
+        let h1 = state.generate_handle();
+        let h2 = state.generate_handle();
+        let h3 = state.generate_handle();
+        assert_eq!(h1, "h00000000");
+        assert_eq!(h2, "h00000001");
+        assert_eq!(h3, "h00000002");
+    }
+
+    #[test]
+    fn test_generate_handle_wrapping() {
+        let mut state = create_test_sftp_state();
+        state.next_handle_id = u32::MAX;
+        let h1 = state.generate_handle();
+        assert_eq!(h1, "hffffffff");
+        let h2 = state.generate_handle();
+        assert_eq!(h2, "h00000000");
+    }
+
+    #[test]
+    fn test_build_packet() {
+        let state = create_test_sftp_state();
+        let payload = [1u8, 2, 3, 4];
+        let packet = state.build_packet(&payload);
+        assert_eq!(packet.len(), 8);
+        assert_eq!(u32::from_be_bytes([packet[0], packet[1], packet[2], packet[3]]), 4);
+        assert_eq!(&packet[4..], &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_build_version_packet() {
+        let state = create_test_sftp_state();
+        let packet = state.build_version_packet(3);
+        assert!(packet.len() > 4);
+        let payload_len = u32::from_be_bytes([packet[0], packet[1], packet[2], packet[3]]) as usize;
+        assert_eq!(packet[4], 2);
+        let version = u32::from_be_bytes([packet[5], packet[6], packet[7], packet[8]]);
+        assert_eq!(version, 3);
+        let _ = payload_len;
+    }
+
+    #[test]
+    fn test_build_status_packet() {
+        let state = create_test_sftp_state();
+        let packet = state.build_status_packet(1, 0, "OK", "");
+        assert!(packet.len() > 4);
+        let payload = &packet[4..];
+        assert_eq!(payload[0], 101);
+    }
+
+    #[test]
+    fn test_build_handle_packet() {
+        let state = create_test_sftp_state();
+        let packet = state.build_handle_packet(42, "h00000001");
+        assert!(packet.len() > 4);
+        let payload = &packet[4..];
+        assert_eq!(payload[0], 102);
+    }
+
+    #[test]
+    fn test_build_data_packet() {
+        let state = create_test_sftp_state();
+        let packet = state.build_data_packet(7, b"test data");
+        assert!(packet.len() > 4);
+        let payload = &packet[4..];
+        assert_eq!(payload[0], 103);
+    }
+
+    #[test]
+    fn test_build_attrs() {
+        let state = create_test_sftp_state();
+        let attrs = state.build_attrs(false, 1024);
+        assert!(!attrs.is_empty());
+        let flags = u32::from_be_bytes([attrs[0], attrs[1], attrs[2], attrs[3]]);
+        assert_ne!(flags, 0);
+    }
+
+    #[test]
+    fn test_build_attrs_dir() {
+        let state = create_test_sftp_state();
+        let attrs = state.build_attrs(true, 0);
+        let flags = u32::from_be_bytes([attrs[0], attrs[1], attrs[2], attrs[3]]);
+        assert_ne!(flags, 0);
+    }
+
+    #[test]
+    fn test_sftp_constants() {
+        assert_eq!(SSH_FXF_READ, 0x00000001);
+        assert_eq!(SSH_FXF_WRITE, 0x00000002);
+        assert_eq!(SSH_FXF_APPEND, 0x00000004);
+        assert_eq!(SSH_FXF_CREAT, 0x00000008);
+        assert_eq!(SSH_FXF_TRUNC, 0x00000010);
+        assert_eq!(SSH_FXF_EXCL, 0x00000020);
+    }
+
+    #[test]
+    fn test_sftp_handle_timeout() {
+        assert_eq!(HANDLE_TIMEOUT_SECS, 1800);
+    }
+
+    #[test]
+    fn test_max_handles() {
+        assert_eq!(MAX_HANDLES, 256);
+    }
+
+    #[test]
+    fn test_max_packet_size() {
+        assert_eq!(MAX_PACKET_SIZE, 256 * 1024);
+    }
+}
