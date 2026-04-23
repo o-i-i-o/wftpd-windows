@@ -237,8 +237,8 @@ mod tests {
     #[test]
     fn test_transfer_rate_tracker_elapsed() {
         let tracker = TransferRateTracker::new();
-        std::thread::sleep(Duration::from_millis(50));
-        assert!(tracker.get_elapsed_secs() >= 0);
+        std::thread::sleep(Duration::from_millis(1100));
+        assert!(tracker.get_elapsed_secs() >= 1);
     }
 
     #[test]

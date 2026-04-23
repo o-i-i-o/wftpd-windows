@@ -947,9 +947,6 @@ mod tests {
     #[test]
     fn test_path_resolve_error_clone_copy() {
         let err = PathResolveError::InvalidPath;
-        let cloned = err.clone();
-        assert_eq!(err, cloned);
-
         let copied = err;
         assert_eq!(err, copied);
     }

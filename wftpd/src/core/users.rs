@@ -381,12 +381,6 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    fn create_temp_users_file() -> (tempfile::TempDir, std::path::PathBuf) {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("users.json");
-        (dir, path)
-    }
-
     #[test]
     fn test_user_manager_new() {
         let manager = UserManager::new();
