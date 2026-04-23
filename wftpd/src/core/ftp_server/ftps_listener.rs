@@ -135,6 +135,15 @@ pub async fn start_ftps_implicit_server(
                         let upnp_manager_clone = upnp_manager.clone();
 
                         tokio::spawn(async move {
+                            let client_ip_for_cleanup = client_ip_clone.clone();
+                            let config_for_cleanup_guard = Arc::clone(&config_for_cleanup);
+
+                            // Ensure connection is always unregistered on exit
+                            let _guard = scopeguard::guard((), move |_| {
+                                let cfg = config_for_cleanup_guard.lock();
+                                cfg.unregister_connection(&client_ip_for_cleanup);
+                            });
+
                             if let Err(e) = handle_session_tls(
                                 tls_stream,
                                 config_for_session,
@@ -145,12 +154,6 @@ pub async fn start_ftps_implicit_server(
                                 client_ip,
                             ).await {
                                 tracing::debug!("FTPS session error: {}", e);
-                            }
-
-                            // Unregister when connection ends
-                            {
-                                let cfg = config_for_cleanup.lock();
-                                cfg.unregister_connection(&client_ip_clone);
                             }
                         });
                     }

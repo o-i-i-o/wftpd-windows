@@ -250,7 +250,7 @@ mod tests {
         manager.update_config(new_config.clone());
 
         let current_config = manager.get_config();
-        assert_eq!(current_config.enabled, true);
+        assert!(current_config.enabled);
         assert_eq!(current_config.threshold, 10);
         assert_eq!(current_config.ban_time, 7200);
         assert_eq!(current_config.find_time, 1200);
@@ -273,7 +273,7 @@ mod tests {
         let ban_count_clone = ban_count.clone();
         let unban_count_clone = unban_count.clone();
 
-        manager.register_callback(Arc::new(move |ip, event| match event {
+        manager.register_callback(Arc::new(move |_ip, event| match event {
             BanEvent::Banned => {
                 ban_count_clone.fetch_add(1, Ordering::SeqCst);
             }

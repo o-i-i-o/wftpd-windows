@@ -74,6 +74,7 @@ igd-next = "0.16.1"
 # ========== 监控指标 ==========
 prometheus = "0.13"
 lazy_static = "1.5"
+scopeguard = "1.2.0"
 
 [build-dependencies]
 embed-resource = "3.0.8"

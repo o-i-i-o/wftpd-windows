@@ -245,6 +245,15 @@ impl SftpServer {
                                 let quota_manager = Arc::clone(&quota_manager_clone);
                                 let client_ip = peer_addr.ip().to_string();
 
+                                // Check if IP is banned (Fail2Ban) - independent check, no lock used
+                                if fail2ban_manager_clone.is_banned(&client_ip).await {
+                                    tracing::warn!(
+                                        "SFTP connection rejected from {}: IP is banned by Fail2Ban",
+                                        client_ip
+                                    );
+                                    continue;
+                                }
+
                                 let ip_allowed = {
                                     let cfg = config_clone.lock();
                                     cfg.is_ip_allowed(&client_ip)
@@ -284,6 +293,15 @@ impl SftpServer {
                                 let config_for_handler = Arc::clone(&config_clone);
                                 let sftp_server_clone = sftp_server_for_handler.clone();
                                 tokio::spawn(async move {
+                                    let client_ip_for_cleanup = client_ip_clone.clone();
+                                    let config_for_cleanup = Arc::clone(&config_for_check);
+
+                                    // Ensure connection is always unregistered on exit
+                                    let _guard = scopeguard::guard((), move |_| {
+                                        let cfg = config_for_cleanup.lock();
+                                        cfg.unregister_connection(&client_ip_for_cleanup);
+                                    });
+
                                     let max_sessions = {
                                         let cfg = config_for_handler.lock();
                                         cfg.sftp.max_sessions_per_user
@@ -312,11 +330,6 @@ impl SftpServer {
 
                                     if let Err(e) = russh::server::run_stream(ssh_config, socket, handler).await {
                                         tracing::error!("SSH connection error from {}: {}", peer_addr, e);
-                                    }
-
-                                    {
-                                        let cfg = config_for_check.lock();
-                                        cfg.unregister_connection(&client_ip_clone);
                                     }
                                 });
                             }

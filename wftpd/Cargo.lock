@@ -3424,6 +3424,7 @@ dependencies = [
  "rsa 0.9.10",
  "russh",
  "rustls",
+ "scopeguard",
  "serde",
  "serde_json",
  "sha2 0.11.0",

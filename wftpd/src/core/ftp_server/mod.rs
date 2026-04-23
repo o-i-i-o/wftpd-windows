@@ -302,6 +302,15 @@ impl FtpServer {
                                 let fail2ban_for_spawn = Arc::clone(&fail2ban_spawn);
                                 let upnp_for_spawn = Arc::clone(&upnp_spawn);
                                 tokio::spawn(async move {
+                                    let client_ip_for_cleanup = client_ip_clone.clone();
+                                    let config_for_cleanup = Arc::clone(&config_arc);
+
+                                    // Ensure connection is always unregistered on exit
+                                    let _guard = scopeguard::guard((), move |_| {
+                                        let cfg = config_for_cleanup.lock();
+                                        cfg.unregister_connection(&client_ip_for_cleanup);
+                                    });
+
                                     if let Err(e) = session::handle_session(
                                         socket,
                                         config_for_spawn,
@@ -312,12 +321,6 @@ impl FtpServer {
                                         client_ip,
                                     ).await {
                                         tracing::debug!("FTP session error: {}", e);
-                                    }
-
-                                    // Unregister when connection ends
-                                    {
-                                        let cfg = config_arc.lock();
-                                        cfg.unregister_connection(&client_ip_clone);
                                     }
                                 });
                             }
