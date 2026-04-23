@@ -527,3 +527,160 @@ fn convert_crlf_to_lf(data: &[u8]) -> Vec<u8> {
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_convert_lf_to_crlf_empty() {
+        let data: &[u8] = b"";
+        let result = convert_lf_to_crlf(data);
+        assert_eq!(result, b"");
+    }
+
+    #[test]
+    fn test_convert_lf_to_crlf_no_lf() {
+        let data = b"hello world";
+        let result = convert_lf_to_crlf(data);
+        assert_eq!(result, b"hello world");
+    }
+
+    #[test]
+    fn test_convert_lf_to_crlf_simple_lf() {
+        let data = b"line1\nline2\n";
+        let result = convert_lf_to_crlf(data);
+        assert_eq!(result, b"line1\r\nline2\r\n");
+    }
+
+    #[test]
+    fn test_convert_lf_to_crlf_mixed() {
+        let data = b"line1\r\nline2\n";
+        let result = convert_lf_to_crlf(data);
+        assert_eq!(result, b"line1\r\nline2\r\n");
+    }
+
+    #[test]
+    fn test_convert_lf_to_crlf_only_lf() {
+        let data = b"\n\n\n";
+        let result = convert_lf_to_crlf(data);
+        assert_eq!(result, b"\r\n\r\n\r\n");
+    }
+
+    #[test]
+    fn test_convert_lf_to_crlf_only_cr() {
+        let data = b"\r\r\r";
+        let result = convert_lf_to_crlf(data);
+        assert_eq!(result, b"\r\r\r");
+    }
+
+    #[test]
+    fn test_convert_crlf_to_lf_empty() {
+        let data: &[u8] = b"";
+        let result = convert_crlf_to_lf(data);
+        assert_eq!(result, b"");
+    }
+
+    #[test]
+    fn test_convert_crlf_to_lf_no_crlf() {
+        let data = b"hello world";
+        let result = convert_crlf_to_lf(data);
+        assert_eq!(result, b"hello world");
+    }
+
+    #[test]
+    fn test_convert_crlf_to_lf_simple_crlf() {
+        let data = b"line1\r\nline2\r\n";
+        let result = convert_crlf_to_lf(data);
+        assert_eq!(result, b"line1\nline2\n");
+    }
+
+    #[test]
+    fn test_convert_crlf_to_lf_mixed() {
+        let data = b"line1\r\nline2\nline3\r\n";
+        let result = convert_crlf_to_lf(data);
+        assert_eq!(result, b"line1\nline2\nline3\n");
+    }
+
+    #[test]
+    fn test_convert_crlf_to_lf_only_cr() {
+        let data = b"\r\r\r";
+        let result = convert_crlf_to_lf(data);
+        assert_eq!(result, b"\r\r\r");
+    }
+
+    #[test]
+    fn test_convert_crlf_to_lf_only_lf() {
+        let data = b"\n\n\n";
+        let result = convert_crlf_to_lf(data);
+        assert_eq!(result, b"\n\n\n");
+    }
+
+    #[test]
+    fn test_convert_crlf_to_lf_lone_cr() {
+        let data = b"text\rmore";
+        let result = convert_crlf_to_lf(data);
+        assert_eq!(result, b"text\rmore");
+    }
+
+    #[test]
+    fn test_convert_roundtrip() {
+        let original = b"line1\nline2\nline3\n";
+        let crlf = convert_lf_to_crlf(original);
+        let lf = convert_crlf_to_lf(&crlf);
+        assert_eq!(lf, original);
+    }
+
+    #[test]
+    fn test_build_mlst_facts_file() {
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join("test_mlst_file.txt");
+        std::fs::write(&temp_file, b"test content").unwrap();
+        let metadata = std::fs::metadata(&temp_file).unwrap();
+        let facts = build_mlst_facts(&metadata, "testuser");
+        assert!(facts.contains("type=file"));
+        assert!(facts.contains("size=12"));
+        assert!(facts.contains("UNIX.owner=testuser"));
+        assert!(facts.contains("UNIX.group=testuser"));
+        assert!(facts.starts_with("type=file;size=12;"));
+        std::fs::remove_file(&temp_file).unwrap();
+    }
+
+    #[test]
+    fn test_build_mlst_facts_dir() {
+        let temp_dir = std::env::temp_dir().join("test_mlst_dir");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir(&temp_dir).unwrap();
+        let metadata = std::fs::metadata(&temp_dir).unwrap();
+        let facts = build_mlst_facts(&metadata, "testuser");
+        assert!(facts.contains("type=dir"));
+        assert!(facts.contains("UNIX.owner=testuser"));
+        std::fs::remove_dir(&temp_dir).unwrap();
+    }
+
+    #[test]
+    fn test_get_file_mtime() {
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join("test_mtime.txt");
+        std::fs::write(&temp_file, b"test").unwrap();
+        let metadata = std::fs::metadata(&temp_file).unwrap();
+        let mtime = get_file_mtime(&metadata);
+        assert!(!mtime.is_empty());
+        assert_ne!(mtime, "1970-01-01 00:00");
+        std::fs::remove_file(&temp_file).unwrap();
+    }
+
+    #[test]
+    fn test_get_file_mtime_raw() {
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join("test_mtime_raw.txt");
+        std::fs::write(&temp_file, b"test").unwrap();
+        let metadata = std::fs::metadata(&temp_file).unwrap();
+        let mtime = get_file_mtime_raw(&metadata);
+        assert!(!mtime.is_empty());
+        assert_ne!(mtime, "19700101000000");
+        assert_eq!(mtime.len(), 14);
+        std::fs::remove_file(&temp_file).unwrap();
+    }
+
+}

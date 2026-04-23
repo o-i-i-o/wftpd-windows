@@ -1009,4 +1009,138 @@ mod tests {
         let config = ServerConfig::default();
         assert_eq!(config.get_global_count(), 0);
     }
+
+    #[test]
+    fn test_ip_matches_cidr_invalid_ip() {
+        assert!(!ip_matches_cidr("not-an-ip", "192.168.1.0/24").unwrap());
+    }
+
+    #[test]
+    fn test_ip_matches_cidr_invalid_cidr() {
+        assert!(!ip_matches_cidr("192.168.1.1", "invalid").unwrap());
+    }
+
+    #[test]
+    fn test_ip_matches_cidr_empty() {
+        assert!(!ip_matches_cidr("", "192.168.1.0/24").unwrap());
+        assert!(!ip_matches_cidr("192.168.1.1", "").unwrap());
+    }
+
+    #[test]
+    fn test_config_connection_counting() {
+        let config = Config::default();
+
+        assert!(config.try_register_connection("192.168.1.1"));
+        assert!(config.try_register_connection("192.168.1.1"));
+
+        config.unregister_connection("192.168.1.1");
+        config.unregister_connection("192.168.1.1");
+        assert_eq!(config.server.get_global_count(), 0);
+    }
+
+    #[test]
+    fn test_config_connection_per_ip_limit() {
+        let mut config = Config::default();
+        config.security.max_connections_per_ip = 1;
+
+        assert!(config.try_register_connection("192.168.1.1"));
+        assert!(!config.try_register_connection("192.168.1.1"));
+        assert!(config.try_register_connection("192.168.1.2"));
+    }
+
+    #[test]
+    fn test_config_is_ip_allowed_both_empty() {
+        let config = Config::default();
+        assert!(config.is_ip_allowed("192.168.1.1"));
+        assert!(config.is_ip_allowed("10.0.0.1"));
+    }
+
+    #[test]
+    fn test_config_is_ip_allowed_only_denied() {
+        let mut config = Config::default();
+        config.security.denied_ips = vec!["10.0.0.0/8".to_string()];
+        assert!(!config.is_ip_allowed("10.0.0.1"));
+        assert!(config.is_ip_allowed("192.168.1.1"));
+    }
+
+    #[test]
+    fn test_config_validate_large_port() {
+        let mut config = Config::default();
+        config.ftp.port = 65535;
+        config.sftp.port = 65534;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_validate_sftp_port_different_from_ftp() {
+        let mut config = Config::default();
+        config.ftp.port = 21;
+        config.sftp.port = 22;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_validate_sftp_port_different_from_ftps_implicit() {
+        let mut config = Config::default();
+        config.ftp.port = 21;
+        config.ftp.ftps.enabled = true;
+        config.ftp.ftps.implicit_ssl = true;
+        config.ftp.ftps.implicit_ssl_port = 990;
+        config.sftp.port = 22;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_save_and_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        let config = Config::default();
+        config.save(&path).unwrap();
+
+        let loaded = Config::load(&path).unwrap();
+        assert_eq!(loaded.ftp.port, config.ftp.port);
+        assert_eq!(loaded.sftp.port, config.sftp.port);
+    }
+
+    #[test]
+    fn test_config_load_nonexistent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nonexistent.toml");
+
+        let config = Config::load(&path).unwrap();
+        assert_eq!(config.ftp.port, 21);
+    }
+
+    #[test]
+    fn test_config_validate_paths_anonymous_no_home() {
+        let mut config = Config::default();
+        config.ftp.allow_anonymous = true;
+        config.ftp.anonymous_home = None;
+        let warnings = config.validate_paths();
+        assert!(!warnings.is_empty());
+        assert!(warnings[0].contains("anonymous home directory is not configured"));
+    }
+
+    #[test]
+    fn test_config_validate_paths_ftps_no_cert() {
+        let mut config = Config::default();
+        config.ftp.ftps.enabled = true;
+        config.ftp.ftps.cert_path = None;
+        let warnings = config.validate_paths();
+        assert!(!warnings.is_empty());
+        assert!(warnings.iter().any(|w| w.contains("certificate path")));
+    }
+
+    #[test]
+    fn test_config_get_users_path() {
+        let path = Config::get_users_path();
+        assert!(path.to_string_lossy().contains("users.json"));
+    }
+
+    #[test]
+    fn test_config_get_config_path() {
+        let path = Config::get_config_path();
+        assert!(path.to_string_lossy().contains("config.toml"));
+    }
 }

@@ -718,4 +718,113 @@ mod tests {
         assert!(json.contains("test"));
         assert!(json.contains("hash"));
     }
+
+    #[test]
+    fn test_authenticate_empty_password() {
+        let mut manager = UserManager::new();
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().to_string_lossy().to_string();
+
+        manager.add_user("testuser", "", &home, false).unwrap();
+
+        let result = manager.authenticate("testuser", "");
+        assert!(matches!(result, Ok(true)));
+    }
+
+    #[test]
+    fn test_add_user_empty_username() {
+        let mut manager = UserManager::new();
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().to_string_lossy().to_string();
+
+        // Empty username is allowed by current implementation
+        // but creates a user with empty string as key
+        let result = manager.add_user("", "password", &home, false);
+        assert!(result.is_ok());
+        assert!(manager.get_user("").is_some());
+    }
+
+    #[test]
+    fn test_permissions_default_is_none() {
+        let perms = Permissions::default();
+        assert!(!perms.can_read);
+        assert!(!perms.can_write);
+        assert!(!perms.can_delete);
+        assert!(!perms.can_list);
+        assert!(!perms.can_mkdir);
+        assert!(!perms.can_rmdir);
+        assert!(!perms.can_rename);
+        assert!(!perms.can_append);
+        assert!(perms.quota_mb.is_none());
+        assert!(perms.speed_limit_kbps.is_none());
+    }
+
+    #[test]
+    fn test_user_serialization_roundtrip() {
+        let user = User {
+            username: "test".to_string(),
+            password_hash: "hash".to_string(),
+            home_dir: "/home/test".to_string(),
+            permissions: Permissions::full(),
+            created_at: Utc::now(),
+            last_login: None,
+            enabled: true,
+            is_admin: false,
+        };
+
+        let json = serde_json::to_string(&user).unwrap();
+        let deserialized: User = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.username, user.username);
+        assert_eq!(deserialized.home_dir, user.home_dir);
+        assert!(deserialized.enabled);
+    }
+
+    #[test]
+    fn test_user_manager_multiple_users() {
+        let mut manager = UserManager::new();
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().to_string_lossy().to_string();
+
+        for i in 0..10 {
+            manager
+                .add_user(&format!("user{}", i), &format!("pass{}", i), &home, false)
+                .unwrap();
+        }
+
+        assert_eq!(manager.user_count(), 10);
+
+        for i in 0..10 {
+            assert!(manager.get_user(&format!("user{}", i)).is_some());
+        }
+    }
+
+    #[test]
+    fn test_password_hash_different_passwords() {
+        let mut manager = UserManager::new();
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().to_string_lossy().to_string();
+
+        manager.add_user("user1", "password1", &home, false).unwrap();
+        manager.add_user("user2", "password2", &home, false).unwrap();
+
+        let user1 = manager.get_user("user1").unwrap();
+        let user2 = manager.get_user("user2").unwrap();
+
+        assert_ne!(user1.password_hash, user2.password_hash);
+    }
+
+    #[test]
+    fn test_password_hash_same_password_different_salt() {
+        let mut manager = UserManager::new();
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().to_string_lossy().to_string();
+
+        manager.add_user("user1", "samepassword", &home, false).unwrap();
+        manager.add_user("user2", "samepassword", &home, false).unwrap();
+
+        let user1 = manager.get_user("user1").unwrap();
+        let user2 = manager.get_user("user2").unwrap();
+
+        assert_ne!(user1.password_hash, user2.password_hash);
+    }
 }

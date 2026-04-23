@@ -554,3 +554,58 @@ pub async fn handle_auth_command(
 
     Ok(true)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_command_context_creation() {
+        let config = Arc::new(Mutex::new(Config::default()));
+        let user_manager = Arc::new(Mutex::new(UserManager::new()));
+        let quota_manager = Arc::new(QuotaManager::new(std::path::Path::new(".")));
+        let fail2ban_manager = Arc::new(Fail2BanManager::new(crate::core::fail2ban::Fail2BanConfig::default()));
+        let tls_config = TlsConfig::new(None, None, false);
+
+        let ctx = CommandContext {
+            config: &config,
+            user_manager: &user_manager,
+            quota_manager: &quota_manager,
+            fail2ban_manager: &fail2ban_manager,
+            client_ip: "127.0.0.1",
+            allow_anonymous: &false,
+            anonymous_home: &None,
+            tls_config: &tls_config,
+            require_ssl: false,
+        };
+
+        assert_eq!(ctx.client_ip, "127.0.0.1");
+        assert!(!ctx.require_ssl);
+    }
+
+    #[test]
+    fn test_command_context_with_anonymous() {
+        let config = Arc::new(Mutex::new(Config::default()));
+        let user_manager = Arc::new(Mutex::new(UserManager::new()));
+        let quota_manager = Arc::new(QuotaManager::new(std::path::Path::new(".")));
+        let fail2ban_manager = Arc::new(Fail2BanManager::new(crate::core::fail2ban::Fail2BanConfig::default()));
+        let tls_config = TlsConfig::new(None, None, false);
+
+        let ctx = CommandContext {
+            config: &config,
+            user_manager: &user_manager,
+            quota_manager: &quota_manager,
+            fail2ban_manager: &fail2ban_manager,
+            client_ip: "192.168.1.1",
+            allow_anonymous: &true,
+            anonymous_home: &Some("/tmp/anon".to_string()),
+            tls_config: &tls_config,
+            require_ssl: true,
+        };
+
+        assert_eq!(ctx.client_ip, "192.168.1.1");
+        assert!(ctx.require_ssl);
+        assert!(*ctx.allow_anonymous);
+        assert_eq!(ctx.anonymous_home.as_deref(), Some("/tmp/anon"));
+    }
+}
