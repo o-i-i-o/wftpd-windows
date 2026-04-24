@@ -1069,7 +1069,10 @@ mod tests {
         let payload = [1u8, 2, 3, 4];
         let packet = state.build_packet(&payload);
         assert_eq!(packet.len(), 8);
-        assert_eq!(u32::from_be_bytes([packet[0], packet[1], packet[2], packet[3]]), 4);
+        assert_eq!(
+            u32::from_be_bytes([packet[0], packet[1], packet[2], packet[3]]),
+            4
+        );
         assert_eq!(&packet[4..], &[1, 2, 3, 4]);
     }
 

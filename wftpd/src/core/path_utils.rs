@@ -846,7 +846,10 @@ mod tests {
 
     #[test]
     fn test_paths_equal_ignore_case() {
-        assert!(paths_equal_ignore_case("C:\\Users\\Test", "c:\\users\\test"));
+        assert!(paths_equal_ignore_case(
+            "C:\\Users\\Test",
+            "c:\\users\\test"
+        ));
         assert!(!paths_equal_ignore_case("C:\\Users", "D:\\Users"));
     }
 
@@ -908,10 +911,7 @@ mod tests {
             format!("{}", PathResolveError::NotADirectory),
             "Path is not a directory"
         );
-        assert_eq!(
-            format!("{}", PathResolveError::NotFound),
-            "Path not found"
-        );
+        assert_eq!(format!("{}", PathResolveError::NotFound), "Path not found");
         assert_eq!(
             format!("{}", PathResolveError::PathTooDeep),
             "Path depth exceeds maximum limit"
@@ -924,10 +924,7 @@ mod tests {
             format!("{}", PathResolveError::CanonicalizeFailed),
             "Path canonicalization failed"
         );
-        assert_eq!(
-            format!("{}", PathResolveError::InvalidPath),
-            "Invalid path"
-        );
+        assert_eq!(format!("{}", PathResolveError::InvalidPath), "Invalid path");
         assert_eq!(
             format!("{}", PathResolveError::SymlinkNotAllowed),
             "Symlinks not allowed"

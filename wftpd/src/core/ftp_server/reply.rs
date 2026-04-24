@@ -344,7 +344,11 @@ mod tests {
     fn test_reply_multi_to_bytes() {
         let reply = Reply::multi(
             ReplyCode::SystemStatus,
-            vec!["Features:".to_string(), " UTF8".to_string(), "End.".to_string()],
+            vec![
+                "Features:".to_string(),
+                " UTF8".to_string(),
+                "End.".to_string(),
+            ],
         );
         let bytes = reply.to_bytes();
         let s = String::from_utf8(bytes).expect("valid UTF-8");

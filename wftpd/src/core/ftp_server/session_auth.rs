@@ -290,7 +290,10 @@ pub async fn handle_auth_command(
                                 .await;
                         } else {
                             control_stream
-                                .write_response(b"530 Anonymous access not allowed\r\n", "FTP response")
+                                .write_response(
+                                    b"530 Anonymous access not allowed\r\n",
+                                    "FTP response",
+                                )
                                 .await;
                         }
                     } else {
@@ -298,7 +301,10 @@ pub async fn handle_auth_command(
                         state.authenticated = false;
                         state.ftp_state = FtpSessionState::WaitPass;
                         control_stream
-                            .write_response(b"331 User name okay, need password\r\n", "FTP response")
+                            .write_response(
+                                b"331 User name okay, need password\r\n",
+                                "FTP response",
+                            )
                             .await;
                     }
                 }
@@ -325,14 +331,20 @@ pub async fn handle_auth_command(
                             state.current_user = None;
                             state.ftp_state = FtpSessionState::New;
                             control_stream
-                                .write_response(b"530 Anonymous access not allowed\r\n", "FTP response")
+                                .write_response(
+                                    b"530 Anonymous access not allowed\r\n",
+                                    "FTP response",
+                                )
                                 .await;
                         }
                     } else {
                         state.current_user = Some(username.to_string());
                         state.ftp_state = FtpSessionState::WaitPass;
                         control_stream
-                            .write_response(b"331 User name okay, need password\r\n", "FTP response")
+                            .write_response(
+                                b"331 User name okay, need password\r\n",
+                                "FTP response",
+                            )
                             .await;
                     }
                 }
@@ -350,10 +362,7 @@ pub async fn handle_auth_command(
             match state.ftp_state {
                 FtpSessionState::New => {
                     control_stream
-                        .write_response(
-                            b"503 Login with USER first\r\n",
-                            "FTP response",
-                        )
+                        .write_response(b"503 Login with USER first\r\n", "FTP response")
                         .await;
                 }
                 FtpSessionState::WaitPass => {
@@ -435,7 +444,10 @@ pub async fn handle_auth_command(
                                 ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
                                 state.login_attempts += 1;
                                 control_stream
-                                    .write_response(b"530 Anonymous access not allowed\r\n", "FTP response")
+                                    .write_response(
+                                        b"530 Anonymous access not allowed\r\n",
+                                        "FTP response",
+                                    )
                                     .await;
                                 state.current_user = None;
                                 state.ftp_state = FtpSessionState::New;
@@ -461,7 +473,8 @@ pub async fn handle_auth_command(
                                     if let Some(home_dir) = home_dir_opt {
                                         match PathBuf::from(&home_dir).canonicalize() {
                                             Ok(home_canon) => {
-                                                state.cwd = home_canon.to_string_lossy().to_string();
+                                                state.cwd =
+                                                    home_canon.to_string_lossy().to_string();
                                                 state.home_dir = state.cwd.clone();
                                             }
                                             Err(e) => {
@@ -564,7 +577,9 @@ mod tests {
         let config = Arc::new(Mutex::new(Config::default()));
         let user_manager = Arc::new(Mutex::new(UserManager::new()));
         let quota_manager = Arc::new(QuotaManager::new(std::path::Path::new(".")));
-        let fail2ban_manager = Arc::new(Fail2BanManager::new(crate::core::fail2ban::Fail2BanConfig::default()));
+        let fail2ban_manager = Arc::new(Fail2BanManager::new(
+            crate::core::fail2ban::Fail2BanConfig::default(),
+        ));
         let tls_config = TlsConfig::new(None, None, false);
 
         let ctx = CommandContext {
@@ -588,7 +603,9 @@ mod tests {
         let config = Arc::new(Mutex::new(Config::default()));
         let user_manager = Arc::new(Mutex::new(UserManager::new()));
         let quota_manager = Arc::new(QuotaManager::new(std::path::Path::new(".")));
-        let fail2ban_manager = Arc::new(Fail2BanManager::new(crate::core::fail2ban::Fail2BanConfig::default()));
+        let fail2ban_manager = Arc::new(Fail2BanManager::new(
+            crate::core::fail2ban::Fail2BanConfig::default(),
+        ));
         let tls_config = TlsConfig::new(None, None, false);
 
         let ctx = CommandContext {

@@ -525,8 +525,7 @@ pub async fn handle_list_command(
                     .unwrap_or_else(|| "anonymous".to_string());
                 let mut transfer_ok = false;
 
-                match transfer::send_mlsd_listing(&mut data_stream, &target_path, &mlst_owner)
-                    .await
+                match transfer::send_mlsd_listing(&mut data_stream, &target_path, &mlst_owner).await
                 {
                     Ok(()) => transfer_ok = true,
                     Err(e) => tracing::warn!("MLSD transfer error: {}", e),
@@ -1078,13 +1077,8 @@ pub async fn handle_store_command(
                 let mut transfer_ok = false;
 
                 let abort = Arc::clone(&state.abort_flag);
-                match transfer::receive_file_append(
-                    &mut data_stream,
-                    &file_path,
-                    abort,
-                    is_ascii,
-                )
-                .await
+                match transfer::receive_file_append(&mut data_stream, &file_path, abort, is_ascii)
+                    .await
                 {
                     Ok(_) => transfer_ok = true,
                     Err(e) => tracing::warn!("APPE transfer error: {}", e),

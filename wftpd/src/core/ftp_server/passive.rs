@@ -163,7 +163,11 @@ impl PassiveManager {
         )
     }
 
-    pub async fn accept_with_validation(&mut self, port: u16, timeout_secs: u64) -> Result<tokio::net::TcpStream> {
+    pub async fn accept_with_validation(
+        &mut self,
+        port: u16,
+        timeout_secs: u64,
+    ) -> Result<tokio::net::TcpStream> {
         let info = self
             .listeners
             .get_mut(&port)
@@ -396,7 +400,9 @@ mod tests {
     #[tokio::test]
     async fn test_try_bind_port_success() {
         let mut mgr = PassiveManager::new(None);
-        let port = mgr.try_bind_port(50000, 50100, "127.0.0.1", "127.0.0.1").await;
+        let port = mgr
+            .try_bind_port(50000, 50100, "127.0.0.1", "127.0.0.1")
+            .await;
         assert!(port.is_ok());
         let p = port.unwrap();
         assert!((50000..=50100).contains(&p));
@@ -406,9 +412,13 @@ mod tests {
     #[tokio::test]
     async fn test_try_bind_port_same_port_twice() {
         let mut mgr = PassiveManager::new(None);
-        let port1 = mgr.try_bind_port(50200, 50300, "127.0.0.1", "127.0.0.1").await;
+        let port1 = mgr
+            .try_bind_port(50200, 50300, "127.0.0.1", "127.0.0.1")
+            .await;
         assert!(port1.is_ok());
-        let port2 = mgr.try_bind_port(50200, 50300, "127.0.0.1", "127.0.0.1").await;
+        let port2 = mgr
+            .try_bind_port(50200, 50300, "127.0.0.1", "127.0.0.1")
+            .await;
         assert!(port2.is_ok());
         assert_ne!(port1.unwrap(), port2.unwrap());
     }
@@ -416,7 +426,10 @@ mod tests {
     #[tokio::test]
     async fn test_remove_listener() {
         let mut mgr = PassiveManager::new(None);
-        let port = mgr.try_bind_port(50300, 50400, "127.0.0.1", "127.0.0.1").await.unwrap();
+        let port = mgr
+            .try_bind_port(50300, 50400, "127.0.0.1", "127.0.0.1")
+            .await
+            .unwrap();
         assert!(mgr.listeners.contains_key(&port));
         assert!(mgr.remove_listener(port));
         assert!(!mgr.listeners.contains_key(&port));
@@ -431,7 +444,10 @@ mod tests {
     #[tokio::test]
     async fn test_cleanup_expired() {
         let mut mgr = PassiveManager::new(None);
-        let port = mgr.try_bind_port(50400, 50500, "127.0.0.1", "127.0.0.1").await.unwrap();
+        let port = mgr
+            .try_bind_port(50400, 50500, "127.0.0.1", "127.0.0.1")
+            .await
+            .unwrap();
 
         if let Some(info) = mgr.listeners.get_mut(&port) {
             info.created_at = std::time::Instant::now() - std::time::Duration::from_secs(3600);
@@ -444,7 +460,10 @@ mod tests {
     #[tokio::test]
     async fn test_cleanup_not_expired() {
         let mut mgr = PassiveManager::new(None);
-        let port = mgr.try_bind_port(50500, 50600, "127.0.0.1", "127.0.0.1").await.unwrap();
+        let port = mgr
+            .try_bind_port(50500, 50600, "127.0.0.1", "127.0.0.1")
+            .await
+            .unwrap();
 
         mgr.cleanup_expired(3600);
         assert!(mgr.listeners.contains_key(&port));
@@ -453,7 +472,10 @@ mod tests {
     #[tokio::test]
     async fn test_accept_with_validation_timeout() {
         let mut mgr = PassiveManager::new(None);
-        let port = mgr.try_bind_port(50600, 50700, "127.0.0.1", "127.0.0.1").await.unwrap();
+        let port = mgr
+            .try_bind_port(50600, 50700, "127.0.0.1", "127.0.0.1")
+            .await
+            .unwrap();
 
         let result = mgr.accept_with_validation(port, 1).await;
         assert!(result.is_err());

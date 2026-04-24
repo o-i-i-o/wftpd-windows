@@ -400,7 +400,9 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let home = temp_dir.path().to_string_lossy().to_string();
 
-        manager.add_user("testuser", "password123", &home, false).unwrap();
+        manager
+            .add_user("testuser", "password123", &home, false)
+            .unwrap();
         assert_eq!(manager.user_count(), 1);
 
         let user = manager.get_user("testuser").unwrap();
@@ -416,7 +418,9 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let home = temp_dir.path().to_string_lossy().to_string();
 
-        manager.add_user("testuser", "password123", &home, false).unwrap();
+        manager
+            .add_user("testuser", "password123", &home, false)
+            .unwrap();
         let result = manager.add_user("testuser", "password456", &home, false);
         assert!(result.is_err());
     }
@@ -434,7 +438,9 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let home = temp_dir.path().to_string_lossy().to_string();
 
-        manager.add_user("testuser", "password123", &home, false).unwrap();
+        manager
+            .add_user("testuser", "password123", &home, false)
+            .unwrap();
         assert_eq!(manager.user_count(), 1);
 
         manager.remove_user("testuser").unwrap();
@@ -454,7 +460,9 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let home = temp_dir.path().to_string_lossy().to_string();
 
-        manager.add_user("testuser", "password123", &home, false).unwrap();
+        manager
+            .add_user("testuser", "password123", &home, false)
+            .unwrap();
         let result = manager.authenticate("testuser", "password123").unwrap();
         assert!(result);
 
@@ -468,7 +476,9 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let home = temp_dir.path().to_string_lossy().to_string();
 
-        manager.add_user("testuser", "password123", &home, false).unwrap();
+        manager
+            .add_user("testuser", "password123", &home, false)
+            .unwrap();
         let result = manager.authenticate("testuser", "wrongpassword").unwrap();
         assert!(!result);
     }
@@ -486,7 +496,9 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let home = temp_dir.path().to_string_lossy().to_string();
 
-        manager.add_user("testuser", "password123", &home, false).unwrap();
+        manager
+            .add_user("testuser", "password123", &home, false)
+            .unwrap();
         manager.set_user_enabled("testuser", false).unwrap();
 
         let result = manager.authenticate("testuser", "password123").unwrap();
@@ -499,7 +511,9 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let home = temp_dir.path().to_string_lossy().to_string();
 
-        manager.add_user("testuser", "oldpassword", &home, false).unwrap();
+        manager
+            .add_user("testuser", "oldpassword", &home, false)
+            .unwrap();
         manager.update_password("testuser", "newpassword").unwrap();
 
         let result = manager.authenticate("testuser", "newpassword").unwrap();
@@ -521,9 +535,15 @@ mod tests {
         let mut manager = UserManager::new();
         let temp_dir = tempfile::tempdir().unwrap();
         let home = temp_dir.path().to_string_lossy().to_string();
-        let new_home = temp_dir.path().join("newhome").to_string_lossy().to_string();
+        let new_home = temp_dir
+            .path()
+            .join("newhome")
+            .to_string_lossy()
+            .to_string();
 
-        manager.add_user("testuser", "password123", &home, false).unwrap();
+        manager
+            .add_user("testuser", "password123", &home, false)
+            .unwrap();
         manager.update_home_dir("testuser", &new_home).unwrap();
 
         let user = manager.get_user("testuser").unwrap();
@@ -536,7 +556,9 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let home = temp_dir.path().to_string_lossy().to_string();
 
-        manager.add_user("testuser", "password123", &home, false).unwrap();
+        manager
+            .add_user("testuser", "password123", &home, false)
+            .unwrap();
 
         let new_perms = Permissions {
             can_read: true,
@@ -566,7 +588,9 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let home = temp_dir.path().to_string_lossy().to_string();
 
-        manager.add_user("testuser", "password123", &home, false).unwrap();
+        manager
+            .add_user("testuser", "password123", &home, false)
+            .unwrap();
         manager.set_user_enabled("testuser", false).unwrap();
 
         let user = manager.get_user("testuser").unwrap();
@@ -579,7 +603,9 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let home = temp_dir.path().to_string_lossy().to_string();
 
-        manager.add_user("testuser", "password123", &home, false).unwrap();
+        manager
+            .add_user("testuser", "password123", &home, false)
+            .unwrap();
         manager.set_user_admin("testuser", true).unwrap();
 
         let user = manager.get_user("testuser").unwrap();
@@ -804,8 +830,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_string_lossy().to_string();
 
-        manager.add_user("user1", "password1", &home, false).unwrap();
-        manager.add_user("user2", "password2", &home, false).unwrap();
+        manager
+            .add_user("user1", "password1", &home, false)
+            .unwrap();
+        manager
+            .add_user("user2", "password2", &home, false)
+            .unwrap();
 
         let user1 = manager.get_user("user1").unwrap();
         let user2 = manager.get_user("user2").unwrap();
@@ -819,8 +849,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_string_lossy().to_string();
 
-        manager.add_user("user1", "samepassword", &home, false).unwrap();
-        manager.add_user("user2", "samepassword", &home, false).unwrap();
+        manager
+            .add_user("user1", "samepassword", &home, false)
+            .unwrap();
+        manager
+            .add_user("user2", "samepassword", &home, false)
+            .unwrap();
 
         let user1 = manager.get_user("user1").unwrap();
         let user2 = manager.get_user("user2").unwrap();

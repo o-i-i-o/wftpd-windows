@@ -298,20 +298,38 @@ mod tests {
 
     #[test]
     fn test_parse_mkd_xmkd() {
-        assert!(matches!(FtpCommand::parse("MKD", Some("dir")), FtpCommand::MKD(Some(_))));
-        assert!(matches!(FtpCommand::parse("XMKD", Some("dir")), FtpCommand::MKD(Some(_))));
+        assert!(matches!(
+            FtpCommand::parse("MKD", Some("dir")),
+            FtpCommand::MKD(Some(_))
+        ));
+        assert!(matches!(
+            FtpCommand::parse("XMKD", Some("dir")),
+            FtpCommand::MKD(Some(_))
+        ));
     }
 
     #[test]
     fn test_parse_rmd_xrmd() {
-        assert!(matches!(FtpCommand::parse("RMD", Some("dir")), FtpCommand::RMD(Some(_))));
-        assert!(matches!(FtpCommand::parse("XRMD", Some("dir")), FtpCommand::RMD(Some(_))));
+        assert!(matches!(
+            FtpCommand::parse("RMD", Some("dir")),
+            FtpCommand::RMD(Some(_))
+        ));
+        assert!(matches!(
+            FtpCommand::parse("XRMD", Some("dir")),
+            FtpCommand::RMD(Some(_))
+        ));
     }
 
     #[test]
     fn test_parse_rnfr_rnto() {
-        assert!(matches!(FtpCommand::parse("RNFR", Some("old")), FtpCommand::RNFR(Some(_))));
-        assert!(matches!(FtpCommand::parse("RNTO", Some("new")), FtpCommand::RNTO(Some(_))));
+        assert!(matches!(
+            FtpCommand::parse("RNFR", Some("old")),
+            FtpCommand::RNFR(Some(_))
+        ));
+        assert!(matches!(
+            FtpCommand::parse("RNTO", Some("new")),
+            FtpCommand::RNTO(Some(_))
+        ));
     }
 
     #[test]

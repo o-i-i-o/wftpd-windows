@@ -257,12 +257,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let manager = QuotaManager::new(dir.path());
 
-        manager.add_usage("testuser", 500 * 1024 * 1024).await.unwrap();
+        manager
+            .add_usage("testuser", 500 * 1024 * 1024)
+            .await
+            .unwrap();
 
-        let can_upload = manager.check_quota("testuser", 1024, 100 * 1024 * 1024).await.unwrap();
+        let can_upload = manager
+            .check_quota("testuser", 1024, 100 * 1024 * 1024)
+            .await
+            .unwrap();
         assert!(can_upload);
 
-        let cannot_upload = manager.check_quota("testuser", 1024, 600 * 1024 * 1024).await.unwrap();
+        let cannot_upload = manager
+            .check_quota("testuser", 1024, 600 * 1024 * 1024)
+            .await
+            .unwrap();
         assert!(!cannot_upload);
     }
 

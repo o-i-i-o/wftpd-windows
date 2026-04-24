@@ -682,5 +682,4 @@ mod tests {
         assert_eq!(mtime.len(), 14);
         std::fs::remove_file(&temp_file).unwrap();
     }
-
 }
