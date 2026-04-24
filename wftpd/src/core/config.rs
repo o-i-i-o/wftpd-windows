@@ -179,7 +179,7 @@ fn default_idle_timeout() -> u64 {
     600
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FtpsConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -193,6 +193,19 @@ pub struct FtpsConfig {
     pub cert_path: Option<String>,
     #[serde(default)]
     pub key_path: Option<String>,
+}
+
+impl Default for FtpsConfig {
+    fn default() -> Self {
+        FtpsConfig {
+            enabled: false,
+            require_ssl: false,
+            implicit_ssl: false,
+            implicit_ssl_port: default_ftps_port(),
+            cert_path: None,
+            key_path: None,
+        }
+    }
 }
 
 fn default_ftps_port() -> u16 {
@@ -1001,7 +1014,7 @@ mod tests {
         assert!(!ftps.enabled);
         assert!(!ftps.require_ssl);
         assert!(!ftps.implicit_ssl);
-        assert_eq!(ftps.implicit_ssl_port, 0);
+        assert_eq!(ftps.implicit_ssl_port, 990);
     }
 
     #[test]

@@ -191,7 +191,7 @@ impl FileLogTab {
         }
 
         let mut logs_vec: Vec<_> = self.logs.drain(..).collect();
-        logs_vec.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        logs_vec.sort_by_key(|b| std::cmp::Reverse(b.timestamp));
         if logs_vec.len() > MAX_DISPLAY_LOGS {
             logs_vec.truncate(MAX_DISPLAY_LOGS);
         }

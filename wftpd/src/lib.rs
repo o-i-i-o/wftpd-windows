@@ -204,9 +204,3 @@ impl AppState {
         Ok(())
     }
 }
-
-impl Default for AppState {
-    fn default() -> Self {
-        Self::new().expect("Failed to create default AppState")
-    }
-}

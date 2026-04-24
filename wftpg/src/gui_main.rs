@@ -150,7 +150,13 @@ impl WftpgApp {
         let language = load_gui_language();
         i18n::init(language);
 
-        let config = Config::load(&Config::get_config_path()).unwrap_or_default();
+        let config = match Config::load(&Config::get_config_path()) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                tracing::warn!("Failed to load config: {}, using default", e);
+                Config::default()
+            }
+        };
         let config_manager = ConfigManager::new(config);
 
         let (init_tx, init_rx) = mpsc::channel();
