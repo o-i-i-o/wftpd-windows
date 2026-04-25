@@ -450,10 +450,10 @@ mod tests {
             .unwrap();
 
         if let Some(info) = mgr.listeners.get_mut(&port) {
-            info.created_at = std::time::Instant::now() - std::time::Duration::from_secs(60);
+            info.created_at = std::time::Instant::now() - std::time::Duration::from_millis(1);
         }
 
-        mgr.cleanup_expired(120);
+        mgr.cleanup_expired(0);
         assert!(!mgr.listeners.contains_key(&port));
     }
 
