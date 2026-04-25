@@ -57,6 +57,7 @@ echo.
 
 call :run_check "代码格式检查" "cargo fmt --check"
 call :run_check "Clippy 静态分析" "cargo clippy --release -- -D warnings"
+call :run_check "单元测试" "cargo test --release"
 call :run_check "编译检查" "cargo check --release"
 call :run_check "Release 构建" "cargo build --release"
 
@@ -87,6 +88,7 @@ echo.
 
 call :run_check "代码格式检查" "cargo fmt --check"
 call :run_check "Clippy 静态分析" "cargo clippy --release -- -D warnings"
+call :run_check "单元测试" "cargo test --release"
 call :run_check "编译检查" "cargo check --release"
 call :run_check "Release 构建" "cargo build --release"
 
