@@ -316,12 +316,12 @@ impl SftpState {
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
         }
 
-        if let Err(resp) = self.check_symlink_in_home(&old_full).await {
+        if let Err(resp) = self.check_symlink_in_home(id, &old_full).await {
             return Ok(resp);
         }
 
         if new_full.exists()
-            && let Err(resp) = self.check_symlink_in_home(&new_full).await
+            && let Err(resp) = self.check_symlink_in_home(id, &new_full).await
         {
             return Ok(resp);
         }

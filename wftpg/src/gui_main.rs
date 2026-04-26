@@ -589,14 +589,14 @@ impl App for WftpgApp {
                     .show(ui, |ui| {
                         self.ensure_tab_initialized(self.current_tab);
                         match self.current_tab {
-                            0 => self.server_tab.as_mut().unwrap().ui(ui),
-                            1 => self.user_tab.as_mut().unwrap().ui(ui),
-                            2 => self.security_tab.as_mut().unwrap().ui(ui),
-                            3 => self.service_tab.as_mut().unwrap().ui(ui),
-                            4 => self.log_tab.as_mut().unwrap().ui(ui),
-                            5 => self.file_log_tab.as_mut().unwrap().ui(ui),
-                            6 => self.about_tab.as_mut().unwrap().ui(ui),
-                            _ => self.server_tab.as_mut().unwrap().ui(ui),
+                            0 => { if let Some(tab) = self.server_tab.as_mut() { tab.ui(ui); } }
+                            1 => { if let Some(tab) = self.user_tab.as_mut() { tab.ui(ui); } }
+                            2 => { if let Some(tab) = self.security_tab.as_mut() { tab.ui(ui); } }
+                            3 => { if let Some(tab) = self.service_tab.as_mut() { tab.ui(ui); } }
+                            4 => { if let Some(tab) = self.log_tab.as_mut() { tab.ui(ui); } }
+                            5 => { if let Some(tab) = self.file_log_tab.as_mut() { tab.ui(ui); } }
+                            6 => { if let Some(tab) = self.about_tab.as_mut() { tab.ui(ui); } }
+                            _ => { if let Some(tab) = self.server_tab.as_mut() { tab.ui(ui); } }
                         }
                     });
 

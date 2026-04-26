@@ -57,17 +57,26 @@ pub async fn handle_basic_command(
                 .await;
         }
 
-        OPTS(opt_cmd, _opt_value) => {
+        OPTS(opt_cmd, opt_value) => {
             if let Some(cmd) = opt_cmd {
                 match cmd.to_uppercase().as_str() {
                     "UTF8" => {
-                        state.encoding = "UTF-8".to_string();
-                        control_stream
-                            .write_response(
-                                b"200 OPTS UTF8 command successful - UTF8 encoding on\r\n",
-                                "FTP response",
-                            )
-                            .await;
+                        if opt_value.as_deref().is_none_or(|v| v.eq_ignore_ascii_case("ON")) {
+                            state.encoding = "UTF-8".to_string();
+                            control_stream
+                                .write_response(
+                                    b"200 OPTS UTF8 command successful - UTF8 encoding on\r\n",
+                                    "FTP response",
+                                )
+                                .await;
+                        } else {
+                            control_stream
+                                .write_response(
+                                    b"501 OPTS UTF8 OFF is not supported\r\n",
+                                    "FTP response",
+                                )
+                                .await;
+                        }
                     }
                     "MLST" => {
                         let facts = "Type*;Size*;Modify*;UNIX.owner*;UNIX.group*;";

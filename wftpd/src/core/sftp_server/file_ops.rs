@@ -113,7 +113,6 @@ impl SftpState {
                         path: full_path,
                         file,
                         locked: false,
-                        lock_handle: None,
                         existed: file_existed,
                         written_bytes: 0,
                         read_bytes: 0,
@@ -140,13 +139,11 @@ impl SftpState {
                 SftpFileHandle::File {
                     path,
                     locked,
-                    lock_handle: _,
                     existed,
                     written_bytes,
                     read_bytes,
-                    pending_flush_bytes: _,
-                    last_access: _,
                     mut file,
+                    ..
                 } => {
                     use tokio::io::AsyncWriteExt;
                     if let Err(e) = file.flush().await {
@@ -361,16 +358,16 @@ impl SftpState {
         }
         let write_data = &data[offset_pos + 12..offset_pos + 12 + data_len];
 
-        if let Some(limiter) = &self.rate_limiter {
-            limiter.acquire(data_len).await;
-        }
-
         if !self.check_permission(|p| p.can_write) {
             tracing::warn!(
                 "SFTP WRITE denied: no write permission for user {:?}",
                 self.username
             );
             return Ok(self.build_status_packet(id, 3, "Permission denied", ""));
+        }
+
+        if let Some(limiter) = &self.rate_limiter {
+            limiter.acquire(data_len).await;
         }
 
         let quota_mb = self.cached_permissions.as_ref().and_then(|p| p.quota_mb);

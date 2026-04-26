@@ -50,7 +50,6 @@ pub enum SftpFileHandle {
         path: PathBuf,
         file: tokio::fs::File,
         locked: bool,
-        lock_handle: Option<std::fs::File>,
         existed: bool,
         written_bytes: u64,
         read_bytes: u64,
@@ -644,7 +643,7 @@ impl SftpState {
         })
     }
 
-    pub async fn check_symlink_in_home(&self, path: &PathBuf) -> std::result::Result<(), Vec<u8>> {
+    pub async fn check_symlink_in_home(&self, id: u32, path: &PathBuf) -> std::result::Result<(), Vec<u8>> {
         if !path.is_symlink() {
             return Ok(());
         }
@@ -658,23 +657,37 @@ impl SftpState {
                         .unwrap_or(std::path::Path::new(&self.home_dir));
                     parent.join(&link_target)
                 };
-                if let Ok(canon) = resolved.canonicalize() {
-                    let home = PathBuf::from(&self.home_dir);
-                    if !crate::core::path_utils::path_starts_with_ignore_case(&canon, home) {
-                        tracing::warn!("Symlink points outside home: {:?} -> {:?}", path, canon);
-                        return Err(self.build_status_packet(
-                            0,
+                match resolved.canonicalize() {
+                    Ok(canon) => {
+                        let home = PathBuf::from(&self.home_dir);
+                        if !crate::core::path_utils::path_starts_with_ignore_case(&canon, home) {
+                            tracing::warn!("Symlink points outside home: {:?} -> {:?}", path, canon);
+                            return Err(self.build_status_packet(
+                                id,
+                                3,
+                                "Permission denied: symlink target outside home",
+                                "",
+                            ));
+                        }
+                        Ok(())
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Symlink target cannot be resolved (rejecting for security): {:?} -> {:?}, error: {}",
+                            path, resolved, e
+                        );
+                        Err(self.build_status_packet(
+                            id,
                             3,
-                            "Permission denied: symlink target outside home",
+                            "Permission denied: symlink target cannot be resolved",
                             "",
-                        ));
+                        ))
                     }
                 }
-                Ok(())
             }
             Err(e) => {
                 tracing::warn!("Cannot read symlink {:?}: {}", path, e);
-                Err(self.build_status_packet(0, 4, "Failed to read symlink", ""))
+                Err(self.build_status_packet(id, 4, "Failed to read symlink", ""))
             }
         }
     }
@@ -714,7 +727,9 @@ impl SftpState {
                         ..
                     } => {
                         use tokio::io::AsyncWriteExt;
-                        let _ = file.flush().await;
+                        if let Err(e) = file.flush().await {
+                            tracing::warn!("Failed to flush file {:?} on handle expiry: {}", path, e);
+                        }
                         if locked {
                             self.locked_files.remove(&path);
                         }

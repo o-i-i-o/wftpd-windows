@@ -87,11 +87,7 @@ impl PassiveManager {
         }
 
         let range_size = (port_max - port_min + 1) as usize;
-        if range_size == 0 {
-            anyhow::bail!("Invalid port range: {}-{}", port_min, port_max);
-        }
 
-        // Generate random start position to avoid race conditions and predictability from sequential search
         let start_offset = getrandom_u32()? as usize % range_size;
 
         // Try the entire range at most once

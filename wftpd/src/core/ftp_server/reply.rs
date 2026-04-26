@@ -121,9 +121,11 @@ impl Reply {
                 for line in &lines[1..lines.len() - 1] {
                     result.extend_from_slice(format!(" {}\r\n", line).as_bytes());
                 }
-                result.extend_from_slice(
-                    format!("{} {}\r\n", code_num, lines.last().unwrap()).as_bytes(),
-                );
+                if let Some(last_line) = lines.last() {
+                    result.extend_from_slice(
+                        format!("{} {}\r\n", code_num, last_line).as_bytes(),
+                    );
+                }
                 result
             }
         }

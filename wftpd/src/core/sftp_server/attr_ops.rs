@@ -29,7 +29,15 @@ impl SftpState {
                 payload.extend_from_slice(&attrs);
                 Ok(self.build_packet(&payload))
             }
-            Err(_) => Ok(self.build_status_packet(id, 2, "No such file", "")),
+            Err(e) => {
+                tracing::debug!("SFTP STAT failed for {:?}: {}", full_path, e);
+                let msg = if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    "Permission denied"
+                } else {
+                    "No such file"
+                };
+                Ok(self.build_status_packet(id, 2, msg, ""))
+            }
         }
     }
 
@@ -57,7 +65,15 @@ impl SftpState {
                 payload.extend_from_slice(&attrs);
                 Ok(self.build_packet(&payload))
             }
-            Err(_) => Ok(self.build_status_packet(id, 2, "No such file", "")),
+            Err(e) => {
+                tracing::debug!("SFTP LSTAT failed for {:?}: {}", full_path, e);
+                let msg = if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    "Permission denied"
+                } else {
+                    "No such file"
+                };
+                Ok(self.build_status_packet(id, 2, msg, ""))
+            }
         }
     }
 
@@ -76,7 +92,15 @@ impl SftpState {
                     );
                     Ok(self.build_packet(&payload))
                 }
-                Err(_) => Ok(self.build_status_packet(id, 2, "No such file", "")),
+                Err(e) => {
+                    tracing::debug!("SFTP FSTAT failed: {}", e);
+                    let msg = if e.kind() == std::io::ErrorKind::PermissionDenied {
+                        "Permission denied"
+                    } else {
+                        "No such file"
+                    };
+                    Ok(self.build_status_packet(id, 2, msg, ""))
+                }
             },
             Some(SftpFileHandle::Dir { .. }) => {
                 tracing::warn!(

@@ -351,7 +351,6 @@ pub async fn send_directory_listing(
     dir_path: &Path,
     username: &str,
     is_nlst: bool,
-    _is_ascii: bool,
 ) -> Result<()> {
     let mut entries_data = Vec::new();
     let mut entry_count = 0usize;
@@ -456,7 +455,7 @@ pub fn get_file_mtime(metadata: &std::fs::Metadata) -> String {
 pub fn get_file_mtime_raw(metadata: &std::fs::Metadata) -> String {
     use std::time::UNIX_EPOCH;
     if let Ok(time) = metadata.modified()
-        && let Ok(_d) = time.duration_since(UNIX_EPOCH)
+        && time.duration_since(UNIX_EPOCH).is_ok()
     {
         let dt: chrono::DateTime<chrono::Local> = time.into();
         return dt.format("%Y%m%d%H%M%S").to_string();

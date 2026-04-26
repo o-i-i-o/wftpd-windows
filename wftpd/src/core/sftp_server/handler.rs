@@ -218,7 +218,9 @@ impl russh::server::Handler for SftpHandler {
             let mut users = self.user_manager.lock();
 
             if users.get_user(user).is_none() {
-                let _ = users.reload(&self.users_path);
+                if let Err(e) = users.reload(&self.users_path) {
+                    tracing::warn!("Failed to reload users during SFTP authentication: {}", e);
+                }
             }
 
             let result = users.authenticate(user, password);
@@ -540,7 +542,9 @@ impl russh::server::Handler for SftpHandler {
             match response {
                 Ok(resp) => {
                     let handle = session.handle();
-                    let _ = handle.data(channel, bytes::Bytes::from(resp)).await;
+                    if let Err(e) = handle.data(channel, bytes::Bytes::from(resp)).await {
+                        tracing::warn!("Failed to send SFTP response: {}", e);
+                    }
                 }
                 Err(e) => {
                     tracing::error!(

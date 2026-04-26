@@ -161,6 +161,10 @@ pub async fn handle_transfer_command(
                     }
 
                     let port = parts[4] * 256 + parts[5];
+                    if port < 1024 {
+                        control_stream.write_response(b"500 PORT command rejected: privileged port not allowed\r\n", "FTP response").await;
+                        return Ok(true);
+                    }
                     let addr = format!(
                         "{}.{}.{}.{}:{}",
                         parts[0], parts[1], parts[2], parts[3], port
@@ -369,7 +373,6 @@ pub async fn handle_list_command(
                 .current_user
                 .clone()
                 .unwrap_or_else(|| "anonymous".to_string());
-            let is_ascii = state.transfer_mode == "ascii";
             let mut transfer_ok = false;
 
             let is_nlst = matches!(cmd, NLST(_));
@@ -378,7 +381,6 @@ pub async fn handle_list_command(
                 &list_path,
                 &current_username,
                 is_nlst,
-                is_ascii,
             )
             .await
             {
@@ -640,7 +642,17 @@ pub async fn handle_retrieve_command(
             };
 
             let file_size = file_metadata.len();
-            let remaining = if state.rest_offset > 0 && state.rest_offset < file_size {
+            let remaining = if state.rest_offset > 0 {
+                if state.rest_offset >= file_size {
+                    control_stream
+                        .write_response(
+                            format!("550 REST offset {} exceeds file size {}\r\n", state.rest_offset, file_size).as_bytes(),
+                            "FTP response",
+                        )
+                        .await;
+                    state.rest_offset = 0;
+                    return Ok(true);
+                }
                 file_size - state.rest_offset
             } else {
                 file_size
@@ -1246,7 +1258,7 @@ pub async fn handle_fileinfo_command(
     control_stream: &mut ControlStream,
     cmd: &FtpCommand,
     state: &mut SessionState,
-    _ctx: &super::session_auth::CommandContext<'_>,
+    ctx: &super::session_auth::CommandContext<'_>,
 ) -> Result<bool> {
     use super::commands::FtpCommand::*;
 
@@ -1257,6 +1269,16 @@ pub async fn handle_fileinfo_command(
                     .write_response(b"530 Not logged in\r\n", "FTP response")
                     .await;
                 return Ok(true);
+            }
+            {
+                let users = ctx.user_manager.lock();
+                let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
+                if !user.is_none_or(|u| u.permissions.can_read) {
+                    control_stream
+                        .write_response(b"550 Permission denied\r\n", "FTP response")
+                        .await;
+                    return Ok(true);
+                }
             }
             if let Some(filename) = filename {
                 let file_path = match state.resolve_path(filename) {
@@ -1299,6 +1321,16 @@ pub async fn handle_fileinfo_command(
                     .write_response(b"530 Not logged in\r\n", "FTP response")
                     .await;
                 return Ok(true);
+            }
+            {
+                let users = ctx.user_manager.lock();
+                let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
+                if !user.is_none_or(|u| u.permissions.can_read) {
+                    control_stream
+                        .write_response(b"550 Permission denied\r\n", "FTP response")
+                        .await;
+                    return Ok(true);
+                }
             }
             if let Some(filename) = filename {
                 let file_path = match state.resolve_path(filename) {

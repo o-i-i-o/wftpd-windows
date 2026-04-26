@@ -148,7 +148,15 @@ impl SftpState {
                 payload.extend_from_slice(hash_hex.as_bytes());
                 Ok(self.build_packet(&payload))
             }
-            Err(_) => Ok(self.build_status_packet(id, 2, "No such file", "")),
+            Err(e) => {
+                tracing::debug!("SFTP file hash failed: {}", e);
+                let msg = if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    "Permission denied"
+                } else {
+                    "No such file"
+                };
+                Ok(self.build_status_packet(id, 2, msg, ""))
+            }
         }
     }
 

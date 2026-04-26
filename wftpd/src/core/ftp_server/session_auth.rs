@@ -182,10 +182,11 @@ pub async fn handle_auth_command(
                 .await;
         }
 
-        ADAT(_data) => {
+        ADAT(data) => {
             if state.tls_enabled {
                 tracing::debug!(
-                    "ADAT received but not implemented (TLS already provides security)"
+                    "ADAT received ({} bytes) but not implemented (TLS already provides security)",
+                    data.as_deref().map(|d| d.len()).unwrap_or(0)
                 );
                 control_stream
                     .write_response(
@@ -371,6 +372,7 @@ pub async fn handle_auth_command(
                         cfg.security.max_login_attempts
                     };
                     if max_attempts > 0 && state.login_attempts >= max_attempts {
+                        ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
                         control_stream
                             .write_response(b"530 Too many login attempts\r\n", "FTP response")
                             .await;
@@ -453,11 +455,25 @@ pub async fn handle_auth_command(
                                 state.ftp_state = FtpSessionState::New;
                             }
                         } else {
-                            let password = password.as_deref().unwrap_or("");
+                            let password = match password.as_deref() {
+                                Some(p) if !p.is_empty() => p,
+                                _ => {
+                                    ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
+                                    state.login_attempts += 1;
+                                    control_stream
+                                        .write_response(b"530 Password required\r\n", "FTP response")
+                                        .await;
+                                    state.current_user = None;
+                                    state.ftp_state = FtpSessionState::New;
+                                    return Ok(true);
+                                }
+                            };
                             let (auth_result, home_dir_opt) = {
                                 let mut users = ctx.user_manager.lock();
                                 if users.get_user(username).is_none() {
-                                    let _ = users.reload(&Config::get_users_path());
+                                    if let Err(e) = users.reload(&Config::get_users_path()) {
+                                        tracing::warn!("Failed to reload users during authentication: {}", e);
+                                    }
                                 }
                                 let result = users.authenticate(username, password);
                                 let home = users.get_user(username).map(|u| u.home_dir.clone());
