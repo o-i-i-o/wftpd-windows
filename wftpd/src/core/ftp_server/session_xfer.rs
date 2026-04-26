@@ -155,6 +155,13 @@ pub async fn handle_transfer_command(
             if let Some(data) = data {
                 let parts: Vec<u16> = data.split(',').filter_map(|s| s.parse().ok()).collect();
                 if parts.len() == 6 {
+                    if parts.iter().take(4).any(|&p| p > 255) || parts[4] > 255 || parts[5] > 255 {
+                        control_stream
+                            .write_response(b"501 Invalid PORT parameters\r\n", "FTP response")
+                            .await;
+                        return Ok(true);
+                    }
+
                     if !state.validate_port_ip(data) {
                         control_stream.write_response(b"500 PORT command rejected: IP address must match control connection\r\n", "FTP response").await;
                         return Ok(true);
@@ -162,7 +169,12 @@ pub async fn handle_transfer_command(
 
                     let port = parts[4] * 256 + parts[5];
                     if port < 1024 {
-                        control_stream.write_response(b"500 PORT command rejected: privileged port not allowed\r\n", "FTP response").await;
+                        control_stream
+                            .write_response(
+                                b"500 PORT command rejected: privileged port not allowed\r\n",
+                                "FTP response",
+                            )
+                            .await;
                         return Ok(true);
                     }
                     let addr = format!(
@@ -204,6 +216,10 @@ pub async fn handle_transfer_command(
                     match net_proto {
                         "1" => {
                             if let Ok(port) = tcp_port.parse::<u16>() {
+                                if port < 1024 {
+                                    control_stream.write_response(b"500 EPRT command rejected: privileged port not allowed\r\n", "FTP response").await;
+                                    return Ok(true);
+                                }
                                 if !state.validate_eprt_ip(net_addr) {
                                     control_stream.write_response(b"500 EPRT command rejected: IP address must match control connection\r\n", "FTP response").await;
                                     return Ok(true);
@@ -225,6 +241,10 @@ pub async fn handle_transfer_command(
                         }
                         "2" => {
                             if let Ok(port) = tcp_port.parse::<u16>() {
+                                if port < 1024 {
+                                    control_stream.write_response(b"500 EPRT command rejected: privileged port not allowed\r\n", "FTP response").await;
+                                    return Ok(true);
+                                }
                                 if !state.validate_eprt_ip(net_addr) {
                                     control_stream.write_response(b"500 EPRT command rejected: IP address must match control connection\r\n", "FTP response").await;
                                     return Ok(true);
@@ -388,7 +408,9 @@ pub async fn handle_list_command(
                 Err(e) => tracing::warn!("LIST/NLST transfer error: {}", e),
             }
 
-            let _ = data_stream.shutdown().await;
+            if let Err(e) = data_stream.shutdown().await {
+                tracing::debug!("Data stream shutdown error: {}", e);
+            }
 
             if state.passive_mode
                 && let Some(port) = state.data_port
@@ -533,7 +555,9 @@ pub async fn handle_list_command(
                     Err(e) => tracing::warn!("MLSD transfer error: {}", e),
                 }
 
-                let _ = data_stream.shutdown().await;
+                if let Err(e) = data_stream.shutdown().await {
+                    tracing::debug!("Data stream shutdown error: {}", e);
+                }
 
                 if state.passive_mode
                     && let Some(port) = state.data_port
@@ -646,7 +670,11 @@ pub async fn handle_retrieve_command(
                 if state.rest_offset >= file_size {
                     control_stream
                         .write_response(
-                            format!("550 REST offset {} exceeds file size {}\r\n", state.rest_offset, file_size).as_bytes(),
+                            format!(
+                                "550 REST offset {} exceeds file size {}\r\n",
+                                state.rest_offset, file_size
+                            )
+                            .as_bytes(),
                             "FTP response",
                         )
                         .await;
@@ -726,7 +754,9 @@ pub async fn handle_retrieve_command(
                 Err(e) => tracing::warn!("RETR transfer error: {}", e),
             }
 
-            let _ = data_stream.shutdown().await;
+            if let Err(e) = data_stream.shutdown().await {
+                tracing::debug!("Data stream shutdown error: {}", e);
+            }
 
             if state.passive_mode
                 && let Some(port) = state.data_port
@@ -934,7 +964,9 @@ pub async fn handle_store_command(
                     }
                 }
 
-                let _ = data_stream.shutdown().await;
+                if let Err(e) = data_stream.shutdown().await {
+                    tracing::debug!("Data stream shutdown error: {}", e);
+                }
 
                 if state.passive_mode
                     && let Some(port) = state.data_port
@@ -1050,6 +1082,31 @@ pub async fn handle_store_command(
                     return Ok(true);
                 }
 
+                let quota_mb = {
+                    let users = ctx.user_manager.lock();
+                    let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
+                    user.and_then(|u| u.permissions.quota_mb)
+                };
+                if let Some(quota) = quota_mb {
+                    let current_usage = ctx
+                        .quota_manager
+                        .get_usage(state.current_user.as_deref().unwrap_or("anonymous"))
+                        .await;
+                    let quota_bytes = quota * 1024 * 1024;
+                    if current_usage >= quota_bytes {
+                        control_stream
+                            .write_response(b"552 Quota exceeded\r\n", "FTP response")
+                            .await;
+                        tracing::warn!(
+                            client_ip = %ctx.client_ip,
+                            username = ?state.current_user.as_deref(),
+                            action = "QUOTA_EXCEEDED_APPE",
+                            "Append denied: quota exceeded for user {}", state.current_user.as_deref().unwrap_or("unknown")
+                        );
+                        return Ok(true);
+                    }
+                }
+
                 let mut data_stream = match transfer::get_data_connection(
                     state.passive_mode,
                     state.data_port,
@@ -1096,7 +1153,9 @@ pub async fn handle_store_command(
                     Err(e) => tracing::warn!("APPE transfer error: {}", e),
                 }
 
-                let _ = data_stream.shutdown().await;
+                if let Err(e) = data_stream.shutdown().await {
+                    tracing::debug!("Data stream shutdown error: {}", e);
+                }
 
                 if state.passive_mode
                     && let Some(port) = state.data_port
@@ -1214,7 +1273,9 @@ pub async fn handle_store_command(
                 Err(e) => tracing::warn!("STOU transfer error: {}", e),
             }
 
-            let _ = data_stream.shutdown().await;
+            if let Err(e) = data_stream.shutdown().await {
+                tracing::debug!("Data stream shutdown error: {}", e);
+            }
 
             if state.passive_mode
                 && let Some(port) = state.data_port
@@ -1271,9 +1332,12 @@ pub async fn handle_fileinfo_command(
                 return Ok(true);
             }
             {
-                let users = ctx.user_manager.lock();
-                let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
-                if !user.is_none_or(|u| u.permissions.can_read) {
+                let can_read = {
+                    let users = ctx.user_manager.lock();
+                    let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
+                    user.is_none_or(|u| u.permissions.can_read)
+                };
+                if !can_read {
                     control_stream
                         .write_response(b"550 Permission denied\r\n", "FTP response")
                         .await;
@@ -1323,9 +1387,12 @@ pub async fn handle_fileinfo_command(
                 return Ok(true);
             }
             {
-                let users = ctx.user_manager.lock();
-                let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
-                if !user.is_none_or(|u| u.permissions.can_read) {
+                let can_read = {
+                    let users = ctx.user_manager.lock();
+                    let user = state.current_user.as_ref().and_then(|u| users.get_user(u));
+                    user.is_none_or(|u| u.permissions.can_read)
+                };
+                if !can_read {
                     control_stream
                         .write_response(b"550 Permission denied\r\n", "FTP response")
                         .await;

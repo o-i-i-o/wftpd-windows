@@ -309,6 +309,11 @@ pub async fn handle_site_command(
                             if let Ok(mode_val) = u32::from_str_radix(mode, 8) {
                                 #[cfg(windows)]
                                 {
+                                    tracing::debug!(
+                                        "CHMOD {:o} for {:?} (Windows: permissions managed by ACL)",
+                                        mode_val,
+                                        target_path
+                                    );
                                     control_stream.write_response(b"200 CHMOD command accepted (Windows: permissions managed by ACL)\r\n", "FTP response").await;
                                 }
                                 #[cfg(not(windows))]

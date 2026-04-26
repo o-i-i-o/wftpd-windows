@@ -341,7 +341,6 @@ fn default_allow_symlinks() -> bool {
 pub struct LoggingConfig {
     pub log_dir: String,
     pub log_level: String,
-    pub max_log_size: u64,
     pub max_log_files: usize,
 }
 
@@ -430,7 +429,6 @@ impl Default for Config {
             logging: LoggingConfig {
                 log_dir,
                 log_level: "info".to_string(),
-                max_log_size: 10 * 1024 * 1024,
                 max_log_files: 10,
             },
         }
@@ -606,10 +604,6 @@ impl Config {
 
         if self.security.max_login_attempts == 0 {
             return Err("max_login_attempts must be greater than 0".to_string());
-        }
-
-        if self.logging.max_log_size < 1024 * 1024 {
-            return Err("max_log_size must be at least 1MB".to_string());
         }
 
         if self.logging.max_log_files == 0 {

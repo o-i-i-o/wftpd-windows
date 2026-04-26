@@ -69,7 +69,9 @@ impl SftpState {
             ));
         }
 
-        let link_parent = full_link.parent().unwrap_or(std::path::Path::new(&self.home_dir));
+        let link_parent = full_link
+            .parent()
+            .unwrap_or(std::path::Path::new(&self.home_dir));
         let resolved_target = if std::path::Path::new(&target).is_absolute() {
             match self.resolve_path_checked(id, &target) {
                 Ok(p) => p,

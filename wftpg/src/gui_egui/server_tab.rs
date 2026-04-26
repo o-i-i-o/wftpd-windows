@@ -105,10 +105,6 @@ impl ServerTab {
             errors.push(i18n::t("server.log_dir_empty"));
         }
 
-        if config.logging.max_log_size == 0 {
-            errors.push(i18n::t("server.max_log_size_zero"));
-        }
-
         if config.logging.max_log_files == 0 {
             errors.push(i18n::t("server.max_log_files_zero"));
         }
@@ -175,7 +171,9 @@ impl ServerTab {
                 }
             };
 
-            let _ = tx.send(result);
+            if let Err(e) = tx.send(result) {
+                tracing::debug!("Failed to send server config save result: {}", e);
+            }
             ctx_clone.request_repaint();
         });
     }
@@ -1415,30 +1413,6 @@ impl ServerTab {
                             .italics(),
                     );
                 });
-
-                styles::form_row_with_suffix(
-                    ui,
-                    &i18n::t("server.max_log_size"),
-                    label_width,
-                    |ui| {
-                        let size_mb = config.logging.max_log_size / 1024 / 1024;
-                        let mut size_str = size_mb.to_string();
-                        styles::input_frame().show(ui, |ui| {
-                            ui.add(
-                                egui::TextEdit::singleline(&mut size_str)
-                                    .desired_width(80.0)
-                                    .font(egui::FontId::new(
-                                        styles::FONT_SIZE_MD,
-                                        egui::FontFamily::Proportional,
-                                    )),
-                            );
-                        });
-                        if let Ok(v) = size_str.parse::<u64>() {
-                            config.logging.max_log_size = v * 1024 * 1024;
-                        }
-                    },
-                    "MB",
-                );
 
                 styles::form_row_with_suffix(
                     ui,

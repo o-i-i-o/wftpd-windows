@@ -87,6 +87,9 @@ impl PassiveManager {
         }
 
         let range_size = (port_max - port_min + 1) as usize;
+        if range_size == 0 {
+            anyhow::bail!("Invalid port range: {}-{}", port_min, port_max);
+        }
 
         let start_offset = getrandom_u32()? as usize % range_size;
 
@@ -243,9 +246,16 @@ impl PassiveManager {
             if let Some(upnp) = &self.upnp_manager {
                 let upnp_clone = Arc::clone(upnp);
                 tokio::spawn(async move {
-                    let _ = upnp_clone
+                    if let Err(e) = upnp_clone
                         .remove_port_mapping(port, igd_next::PortMappingProtocol::TCP)
-                        .await;
+                        .await
+                    {
+                        tracing::warn!(
+                            "Failed to remove UPnP port mapping for port {}: {}",
+                            port,
+                            e
+                        );
+                    }
                 });
             }
             true

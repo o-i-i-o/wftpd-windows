@@ -190,7 +190,9 @@ impl Drop for IpcServerInner {
         unsafe {
             let handle = HANDLE(self.handle.load(Ordering::SeqCst));
             if !handle.is_invalid() {
-                let _ = CloseHandle(handle);
+                if let Err(e) = CloseHandle(handle) {
+                    tracing::debug!("CloseHandle error in Drop: {:?}", e);
+                }
             }
         }
     }
@@ -287,7 +289,9 @@ impl Read for &IpcStream {
                     let wait_result = WaitForSingleObject(event, timeout_ms);
 
                     if wait_result == WAIT_TIMEOUT {
-                        let _ = CancelIo(self.handle);
+                        if let Err(e) = CancelIo(self.handle) {
+                            tracing::debug!("CancelIo error on read timeout: {:?}", e);
+                        }
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::TimedOut,
                             "Read timed out",
@@ -339,7 +343,9 @@ impl Write for &IpcStream {
                     let wait_result = WaitForSingleObject(event, timeout_ms);
 
                     if wait_result == WAIT_TIMEOUT {
-                        let _ = CancelIo(self.handle);
+                        if let Err(e) = CancelIo(self.handle) {
+                            tracing::debug!("CancelIo error on write timeout: {:?}", e);
+                        }
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::TimedOut,
                             "Write timed out",
@@ -394,7 +400,9 @@ impl Drop for IpcStream {
     fn drop(&mut self) {
         unsafe {
             if !self.handle.is_invalid() {
-                let _ = CloseHandle(self.handle);
+                if let Err(e) = CloseHandle(self.handle) {
+                    tracing::debug!("CloseHandle error in IpcStream::drop: {:?}", e);
+                }
             }
         }
     }

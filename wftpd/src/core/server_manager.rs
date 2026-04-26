@@ -74,7 +74,10 @@ impl ServerManager {
 
         let server = FtpServer::new(config, user_manager);
 
-        runtime.block_on(server.start())?;
+        if let Err(e) = runtime.block_on(server.start()) {
+            self.ftp_starting.store(false, Ordering::SeqCst);
+            return Err(e);
+        }
 
         {
             let mut state = self.ftp_state.lock();
@@ -136,7 +139,10 @@ impl ServerManager {
 
         let server = SftpServer::new(config, user_manager);
 
-        runtime.block_on(server.start())?;
+        if let Err(e) = runtime.block_on(server.start()) {
+            self.sftp_starting.store(false, Ordering::SeqCst);
+            return Err(e);
+        }
 
         {
             let mut state = self.sftp_state.lock();

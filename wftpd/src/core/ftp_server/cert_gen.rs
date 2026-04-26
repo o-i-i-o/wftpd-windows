@@ -62,10 +62,14 @@ pub fn ensure_cert_exists(cert_path: &str, key_path: &str) -> Result<bool> {
     if cert_file.exists() != key_file.exists() {
         warn!("Only certificate or key file exists, will regenerate");
         if cert_file.exists() {
-            let _ = fs::remove_file(cert_file);
+            if let Err(e) = fs::remove_file(cert_file) {
+                warn!("Failed to remove cert file: {}", e);
+            }
         }
         if key_file.exists() {
-            let _ = fs::remove_file(key_file);
+            if let Err(e) = fs::remove_file(key_file) {
+                warn!("Failed to remove key file: {}", e);
+            }
         }
     }
 

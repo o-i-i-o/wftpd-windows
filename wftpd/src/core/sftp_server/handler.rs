@@ -40,6 +40,19 @@ pub struct SftpHandler {
 
 impl SftpHandler {
     fn check_auth_preconditions(&mut self, user: &str) -> Option<server::Auth> {
+        if user.contains('/') || user.contains('\\') || user.contains("..") {
+            tracing::warn!(
+                client_ip = %self.client_ip,
+                username = %user,
+                action = "AUTH_REJECTED",
+                "Auth rejected: username contains path traversal characters"
+            );
+            return Some(server::Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            });
+        }
+
         if let Some(start_time) = self.auth.auth_start_time {
             let elapsed = start_time.elapsed().as_secs();
             if elapsed > self.auth.auth_timeout_secs {
@@ -274,20 +287,6 @@ impl russh::server::Handler for SftpHandler {
         user: &str,
         public_key: &PublicKey,
     ) -> Result<server::Auth, Self::Error> {
-        // Security check: reject usernames with path traversal characters early
-        if user.contains('/') || user.contains('\\') || user.contains("..") {
-            tracing::warn!(
-                client_ip = %self.client_ip,
-                username = %user,
-                action = "AUTH_REJECTED",
-                "Public key auth rejected: username contains path traversal characters"
-            );
-            return Ok(server::Auth::Reject {
-                proceed_with_methods: None,
-                partial_success: false,
-            });
-        }
-
         if let Some(reject) = self.check_auth_preconditions(user) {
             if self.auth.auth_attempts > self.auth.max_auth_attempts {
                 self.fail2ban_manager.add_failure(&self.client_ip).await;
@@ -404,7 +403,9 @@ impl russh::server::Handler for SftpHandler {
             action = "TCP_FORWARD_DISABLED",
             "TCP forwarding is disabled for SFTP"
         );
-        let _ = session.channel_failure(channel.id());
+        if let Err(e) = session.channel_failure(channel.id()) {
+            tracing::debug!("Failed to send channel_failure for tcpip_forward: {}", e);
+        }
         Ok(false)
     }
 
@@ -422,7 +423,9 @@ impl russh::server::Handler for SftpHandler {
             action = "FORWARDED_TCP_DISABLED",
             "Forwarded TCP connection is disabled for SFTP"
         );
-        let _ = session.channel_failure(channel.id());
+        if let Err(e) = session.channel_failure(channel.id()) {
+            tracing::debug!("Failed to send channel_failure for forwarded_tcpip: {}", e);
+        }
         Ok(false)
     }
 
@@ -469,7 +472,9 @@ impl russh::server::Handler for SftpHandler {
             action = "X11_FORWARD_DISABLED",
             "X11 forwarding is disabled for SFTP"
         );
-        let _ = session.channel_failure(channel);
+        if let Err(e) = session.channel_failure(channel) {
+            tracing::debug!("Failed to send channel_failure for x11: {}", e);
+        }
         Ok(())
     }
 
@@ -481,7 +486,9 @@ impl russh::server::Handler for SftpHandler {
     ) -> Result<(), Self::Error> {
         if name == "sftp" && self.auth.authenticated {
             if let Some(ref home_dir) = self.auth.home_dir {
-                let _ = session.channel_success(channel);
+                if let Err(e) = session.channel_success(channel) {
+                    tracing::warn!("Failed to send channel_success for sftp subsystem: {}", e);
+                }
 
                 self.sftp_channel = Some(channel);
 
@@ -498,10 +505,14 @@ impl russh::server::Handler for SftpHandler {
                 self.sftp_state = Some(Arc::new(TokioMutex::new(state)));
             } else {
                 tracing::error!("SFTP subsystem request failed: home directory not set");
-                let _ = session.channel_failure(channel);
+                if let Err(e) = session.channel_failure(channel) {
+                    tracing::debug!("Failed to send channel_failure (no home dir): {}", e);
+                }
             }
         } else {
-            let _ = session.channel_failure(channel);
+            if let Err(e) = session.channel_failure(channel) {
+                tracing::debug!("Failed to send channel_failure (not sftp/not auth): {}", e);
+            }
         }
         Ok(())
     }
@@ -521,7 +532,12 @@ impl russh::server::Handler for SftpHandler {
                 reason = "channel_mismatch_or_not_initialized",
                 "Received data on non-SFTP channel or SFTP not initialized"
             );
-            let _ = session.channel_failure(channel);
+            if let Err(e) = session.channel_failure(channel) {
+                tracing::debug!(
+                    "Failed to send channel_failure (data on invalid channel): {}",
+                    e
+                );
+            }
             return Ok(());
         }
 
@@ -533,7 +549,9 @@ impl russh::server::Handler for SftpHandler {
                 reason = "sftp_state_not_initialized",
                 "SFTP state not initialized, subsystem request may have failed"
             );
-            let _ = session.channel_failure(channel);
+            if let Err(e) = session.channel_failure(channel) {
+                tracing::debug!("Failed to send channel_failure: {:?}", e);
+            }
             return Ok(());
         }
 
@@ -543,7 +561,7 @@ impl russh::server::Handler for SftpHandler {
                 Ok(resp) => {
                     let handle = session.handle();
                     if let Err(e) = handle.data(channel, bytes::Bytes::from(resp)).await {
-                        tracing::warn!("Failed to send SFTP response: {}", e);
+                        tracing::warn!("Failed to send SFTP response: {:?}", e);
                     }
                 }
                 Err(e) => {

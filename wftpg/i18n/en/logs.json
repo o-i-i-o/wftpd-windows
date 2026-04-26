@@ -13,7 +13,6 @@
   "Configuration loaded successfully": "Configuration loaded successfully",
   "Loading configuration from {0}": "Loading configuration from {0}",
   "Reinitializing logger with config settings...": "Reinitializing logger with config settings...",
-  "Logger reinitialized: level={0}, dir={1}, max_size={2}, max_files={3}": "Logger reinitialized: level={0}, dir={1}, max_size={2}, max_files={3}",
   "Loading users from {0}": "Loading users from {0}",
   "Users loaded successfully ({0} users)": "Users loaded successfully ({0} users)",
   "AppState initialized successfully": "AppState initialized successfully",

@@ -254,9 +254,11 @@ impl FtpServer {
                                     );
                                     use tokio::io::AsyncWriteExt;
                                     let mut socket = socket;
-                                    let _ = socket.write_all(
+                                    if let Err(e) = socket.write_all(
                                         b"421 Your IP has been banned - connection refused\r\n"
-                                    ).await;
+                                    ).await {
+                                        tracing::debug!("Failed to send ban message: {}", e);
+                                    }
                                     continue;
                                 }
 
@@ -267,9 +269,11 @@ impl FtpServer {
                                     );
                                     use tokio::io::AsyncWriteExt;
                                     let mut socket = socket;
-                                    let _ = socket.write_all(
+                                    if let Err(e) = socket.write_all(
                                         b"530 Connection denied by IP filter\r\n"
-                                    ).await;
+                                    ).await {
+                                        tracing::debug!("Failed to send IP filter message: {}", e);
+                                    }
                                     continue;
                                 }
 
@@ -280,9 +284,11 @@ impl FtpServer {
                                     );
                                     use tokio::io::AsyncWriteExt;
                                     let mut socket = socket;
-                                    let _ = socket.write_all(
+                                    if let Err(e) = socket.write_all(
                                         b"421 Too many connections - please try again later\r\n"
-                                    ).await;
+                                    ).await {
+                                        tracing::debug!("Failed to send max connections message: {}", e);
+                                    }
                                     continue;
                                 }
 
@@ -342,7 +348,9 @@ impl FtpServer {
         {
             let mut tx = self.shutdown_tx.lock().await;
             if let Some(sender) = tx.take() {
-                let _ = sender.send(());
+                if let Err(e) = sender.send(()) {
+                    tracing::warn!("Failed to send FTP shutdown signal: {}", e);
+                }
             }
         }
         {

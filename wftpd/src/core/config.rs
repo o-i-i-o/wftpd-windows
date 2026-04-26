@@ -337,7 +337,6 @@ fn default_max_connections_per_ip() -> usize {
 pub struct LoggingConfig {
     pub log_dir: String,
     pub log_level: String,
-    pub max_log_size: u64,
     pub max_log_files: usize,
 }
 
@@ -426,7 +425,6 @@ impl Default for Config {
             logging: LoggingConfig {
                 log_dir,
                 log_level: "info".to_string(),
-                max_log_size: 10 * 1024 * 1024,
                 max_log_files: 10,
             },
         }
@@ -712,10 +710,6 @@ impl Config {
         }
 
         // Validate logging configuration
-        if self.logging.max_log_size < 1024 * 1024 {
-            return Err("max_log_size must be at least 1MB".to_string());
-        }
-
         if self.logging.max_log_files == 0 {
             return Err("max_log_files must be greater than 0".to_string());
         }
@@ -858,7 +852,6 @@ mod tests {
         assert_eq!(config.security.max_login_attempts, 5);
         assert!(!config.security.allow_symlinks);
 
-        assert_eq!(config.logging.max_log_size, 10 * 1024 * 1024);
         assert_eq!(config.logging.max_log_files, 10);
     }
 
@@ -926,13 +919,6 @@ mod tests {
         let mut config = Config::default();
         config.security.fail2ban_enabled = true;
         config.security.fail2ban_ban_time = 0;
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_config_validate_log_size_too_small() {
-        let mut config = Config::default();
-        config.logging.max_log_size = 1024;
         assert!(config.validate().is_err());
     }
 

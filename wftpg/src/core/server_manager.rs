@@ -8,10 +8,14 @@ use windows::Win32::System::Services::*;
 use windows::core::PCWSTR;
 
 const SERVICE_NAME: &str = "wftpd";
-/// 服务启动/停止最大等待次数
 const SERVICE_WAIT_MAX_ATTEMPTS: u32 = 30;
-/// 服务启动/停止每次等待间隔（毫秒）
 const SERVICE_WAIT_INTERVAL_MS: u64 = 500;
+
+fn close_service_handle(handle: impl windows::Win32::Foundation::IntoParam<SC_HANDLE>) {
+    if let Err(e) = CloseServiceHandle(handle) {
+        tracing::debug!("CloseServiceHandle error: {:?}", e);
+    }
+}
 
 pub struct ServerManager;
 
@@ -26,7 +30,6 @@ impl ServerManager {
         ServerManager
     }
 
-    /// 检查服务是否已安装
     pub fn is_service_installed(&self) -> bool {
         unsafe {
             let manager_result = OpenSCManagerW(None, None, SC_MANAGER_CONNECT);
@@ -42,10 +45,10 @@ impl ServerManager {
                     SERVICE_QUERY_STATUS,
                 );
 
-                let _ = CloseServiceHandle(manager);
+                close_service_handle(manager);
 
-                if let Ok(_service) = service_result {
-                    let _ = CloseServiceHandle(SC_HANDLE(service_result.unwrap().0));
+                if let Ok(service) = service_result {
+                    close_service_handle(SC_HANDLE(service.0));
                     return true;
                 }
             }
@@ -53,7 +56,6 @@ impl ServerManager {
         false
     }
 
-    /// 检查服务是否正在运行
     pub fn is_service_running(&self) -> bool {
         unsafe {
             let manager = match OpenSCManagerW(None, None, SC_MANAGER_CONNECT) {
@@ -72,12 +74,12 @@ impl ServerManager {
             ) {
                 Ok(s) => s,
                 Err(_) => {
-                    let _ = CloseServiceHandle(manager);
+                    close_service_handle(manager);
                     return false;
                 }
             };
 
-            let _ = CloseServiceHandle(manager);
+            close_service_handle(manager);
 
             let mut status = SERVICE_STATUS_PROCESS::default();
             let mut bytes_needed: u32 = 0;
@@ -92,7 +94,7 @@ impl ServerManager {
                 &mut bytes_needed,
             );
 
-            let _ = CloseServiceHandle(service);
+            close_service_handle(service);
 
             if query_result.is_ok() {
                 return status.dwCurrentState == SERVICE_RUNNING;
@@ -101,7 +103,6 @@ impl ServerManager {
         false
     }
 
-    /// 安装服务
     pub fn install_service(&self) -> Result<()> {
         unsafe {
             let exe_path =
@@ -156,8 +157,8 @@ impl ServerManager {
             )
             .context("Failed to create service")?;
 
-            let _ = CloseServiceHandle(service);
-            let _ = CloseServiceHandle(manager);
+            close_service_handle(service);
+            close_service_handle(manager);
 
             tracing::info!("Service installed successfully: {}", SERVICE_NAME);
             Ok(())
@@ -182,8 +183,8 @@ impl ServerManager {
 
             DeleteService(service).context("Failed to delete service")?;
 
-            let _ = CloseServiceHandle(service);
-            let _ = CloseServiceHandle(manager);
+            close_service_handle(service);
+            close_service_handle(manager);
 
             tracing::info!("Service uninstalled successfully: {}", SERVICE_NAME);
             Ok(())
@@ -206,7 +207,7 @@ impl ServerManager {
             )
             .context("Failed to open service")?;
 
-            let _ = CloseServiceHandle(manager);
+            close_service_handle(manager);
 
             StartServiceW(service, None).context("Failed to start service")?;
 
@@ -217,7 +218,7 @@ impl ServerManager {
                         break;
                     }
                     if status.dwCurrentState == SERVICE_STOPPED {
-                        let _ = CloseServiceHandle(service);
+                        close_service_handle(service);
                         anyhow::bail!(
                             "Service stopped immediately after start, check service configuration"
                         );
@@ -226,7 +227,7 @@ impl ServerManager {
                 std::thread::sleep(std::time::Duration::from_millis(SERVICE_WAIT_INTERVAL_MS));
             }
 
-            let _ = CloseServiceHandle(service);
+            close_service_handle(service);
 
             tracing::info!("Service started successfully: {}", SERVICE_NAME);
             Ok(())
@@ -249,7 +250,7 @@ impl ServerManager {
             )
             .context("Failed to open service")?;
 
-            let _ = CloseServiceHandle(manager);
+            close_service_handle(manager);
 
             let mut status = SERVICE_STATUS::default();
             ControlService(service, SERVICE_CONTROL_STOP, &mut status)
@@ -264,14 +265,13 @@ impl ServerManager {
                 std::thread::sleep(std::time::Duration::from_millis(SERVICE_WAIT_INTERVAL_MS));
             }
 
-            let _ = CloseServiceHandle(service);
+            close_service_handle(service);
 
             tracing::info!("Service stopped successfully: {}", SERVICE_NAME);
             Ok(())
         }
     }
 
-    /// 重启服务
     pub fn restart_service(&self) -> Result<()> {
         self.stop_service()?;
         std::thread::sleep(std::time::Duration::from_secs(2));

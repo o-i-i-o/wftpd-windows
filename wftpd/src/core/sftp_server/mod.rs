@@ -351,7 +351,9 @@ impl SftpServer {
         {
             let mut tx = self.shutdown_tx.lock().await;
             if let Some(sender) = tx.take() {
-                let _ = sender.send(());
+                if let Err(e) = sender.send(()) {
+                    tracing::warn!("Failed to send SFTP shutdown signal: {}", e);
+                }
             }
         }
         {
@@ -643,7 +645,11 @@ impl SftpState {
         })
     }
 
-    pub async fn check_symlink_in_home(&self, id: u32, path: &PathBuf) -> std::result::Result<(), Vec<u8>> {
+    pub async fn check_symlink_in_home(
+        &self,
+        id: u32,
+        path: &PathBuf,
+    ) -> std::result::Result<(), Vec<u8>> {
         if !path.is_symlink() {
             return Ok(());
         }
@@ -661,7 +667,11 @@ impl SftpState {
                     Ok(canon) => {
                         let home = PathBuf::from(&self.home_dir);
                         if !crate::core::path_utils::path_starts_with_ignore_case(&canon, home) {
-                            tracing::warn!("Symlink points outside home: {:?} -> {:?}", path, canon);
+                            tracing::warn!(
+                                "Symlink points outside home: {:?} -> {:?}",
+                                path,
+                                canon
+                            );
                             return Err(self.build_status_packet(
                                 id,
                                 3,
@@ -674,7 +684,9 @@ impl SftpState {
                     Err(e) => {
                         tracing::warn!(
                             "Symlink target cannot be resolved (rejecting for security): {:?} -> {:?}, error: {}",
-                            path, resolved, e
+                            path,
+                            resolved,
+                            e
                         );
                         Err(self.build_status_packet(
                             id,
@@ -728,7 +740,11 @@ impl SftpState {
                     } => {
                         use tokio::io::AsyncWriteExt;
                         if let Err(e) = file.flush().await {
-                            tracing::warn!("Failed to flush file {:?} on handle expiry: {}", path, e);
+                            tracing::warn!(
+                                "Failed to flush file {:?} on handle expiry: {}",
+                                path,
+                                e
+                            );
                         }
                         if locked {
                             self.locked_files.remove(&path);
@@ -1100,7 +1116,7 @@ mod tests {
         assert_eq!(packet[4], 2);
         let version = u32::from_be_bytes([packet[5], packet[6], packet[7], packet[8]]);
         assert_eq!(version, 3);
-        let _ = payload_len;
+        tracing::trace!("SFTP init: payload_len={}", payload_len);
     }
 
     #[test]

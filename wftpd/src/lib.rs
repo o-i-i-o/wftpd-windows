@@ -87,24 +87,19 @@ impl AppState {
 
                 let log_dir = config.logging.log_dir.clone();
                 let log_level = config.logging.log_level.clone();
-                let max_log_size = config.logging.max_log_size;
                 let max_log_files = config.logging.max_log_files;
 
                 if let Err(e) = std::fs::create_dir_all(&log_dir) {
-                    eprintln!(
-                        "Warning: Failed to create log directory {}: {}",
-                        log_dir, e
-                    );
+                    eprintln!("Warning: Failed to create log directory {}: {}", log_dir, e);
                 }
 
-                let logger = TracingLogger::init(&log_dir, max_log_size, max_log_files, &log_level)
+                let logger = TracingLogger::init(&log_dir, max_log_files, &log_level)
                     .map_err(|e| anyhow::anyhow!("Failed to initialize logger: {}", e))?;
 
                 tracing::info!(
-                    "Logger initialized with config: level={}, dir={}, max_size={}MB, max_files={}",
+                    "Logger initialized with config: level={}, dir={}, max_files={}",
                     log_level,
                     log_dir,
-                    max_log_size / (1024 * 1024),
                     max_log_files
                 );
                 tracing::info!("Configuration loaded successfully");
@@ -123,9 +118,8 @@ impl AppState {
                     config_err
                 );
 
-                let logger =
-                    TracingLogger::init(&default_log_dir, 10 * 1024 * 1024, 10, "info")
-                        .map_err(|e| anyhow::anyhow!("Failed to initialize logger: {}", e))?;
+                let _logger = TracingLogger::init(&default_log_dir, 10, "info")
+                    .map_err(|e| anyhow::anyhow!("Failed to initialize logger: {}", e))?;
 
                 tracing::error!("Failed to load configuration: {}", config_err);
                 tracing::error!(

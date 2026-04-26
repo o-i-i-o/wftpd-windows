@@ -182,7 +182,9 @@ impl WftpgApp {
                 }
             };
 
-            let _ = init_tx.send(init_result);
+            if let Err(e) = init_tx.send(init_result) {
+                tracing::debug!("Failed to send init result: {}", e);
+            }
             ctx_clone.request_repaint();
         });
 
@@ -358,7 +360,9 @@ impl WftpgApp {
                 }
             };
 
-            let _ = tx.send(final_result);
+            if let Err(e) = tx.send(final_result) {
+                tracing::debug!("Failed to send service install result: {}", e);
+            }
             ctx_clone.request_repaint();
         });
     }
@@ -589,14 +593,46 @@ impl App for WftpgApp {
                     .show(ui, |ui| {
                         self.ensure_tab_initialized(self.current_tab);
                         match self.current_tab {
-                            0 => { if let Some(tab) = self.server_tab.as_mut() { tab.ui(ui); } }
-                            1 => { if let Some(tab) = self.user_tab.as_mut() { tab.ui(ui); } }
-                            2 => { if let Some(tab) = self.security_tab.as_mut() { tab.ui(ui); } }
-                            3 => { if let Some(tab) = self.service_tab.as_mut() { tab.ui(ui); } }
-                            4 => { if let Some(tab) = self.log_tab.as_mut() { tab.ui(ui); } }
-                            5 => { if let Some(tab) = self.file_log_tab.as_mut() { tab.ui(ui); } }
-                            6 => { if let Some(tab) = self.about_tab.as_mut() { tab.ui(ui); } }
-                            _ => { if let Some(tab) = self.server_tab.as_mut() { tab.ui(ui); } }
+                            0 => {
+                                if let Some(tab) = self.server_tab.as_mut() {
+                                    tab.ui(ui);
+                                }
+                            }
+                            1 => {
+                                if let Some(tab) = self.user_tab.as_mut() {
+                                    tab.ui(ui);
+                                }
+                            }
+                            2 => {
+                                if let Some(tab) = self.security_tab.as_mut() {
+                                    tab.ui(ui);
+                                }
+                            }
+                            3 => {
+                                if let Some(tab) = self.service_tab.as_mut() {
+                                    tab.ui(ui);
+                                }
+                            }
+                            4 => {
+                                if let Some(tab) = self.log_tab.as_mut() {
+                                    tab.ui(ui);
+                                }
+                            }
+                            5 => {
+                                if let Some(tab) = self.file_log_tab.as_mut() {
+                                    tab.ui(ui);
+                                }
+                            }
+                            6 => {
+                                if let Some(tab) = self.about_tab.as_mut() {
+                                    tab.ui(ui);
+                                }
+                            }
+                            _ => {
+                                if let Some(tab) = self.server_tab.as_mut() {
+                                    tab.ui(ui);
+                                }
+                            }
                         }
                     });
 
@@ -721,10 +757,14 @@ fn load_gui_language() -> i18n::Language {
 fn save_gui_language(language: i18n::Language) {
     let path = wftpg::core::config::get_program_data_path().join("gui_config.json");
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::warn!("Failed to create config directory: {}", e);
+        }
     }
     let json = serde_json::json!({ "language": language.code() });
-    let _ = std::fs::write(&path, json.to_string());
+    if let Err(e) = std::fs::write(&path, json.to_string()) {
+        tracing::warn!("Failed to save language preference: {}", e);
+    }
 }
 
 fn main() -> eframe::Result<()> {
@@ -742,7 +782,9 @@ fn main() -> eframe::Result<()> {
 
     let persistence_path = std::path::PathBuf::from("C:\\ProgramData\\wftpg\\gui_state");
     if let Some(parent) = persistence_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::warn!("Failed to create persistence directory: {}", e);
+        }
     }
 
     let options = eframe::NativeOptions {
@@ -779,5 +821,7 @@ fn init_tracing_for_gui() {
             .compact(),
     );
 
-    let _ = tracing::subscriber::set_global_default(subscriber);
+    if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
+        eprintln!("Warning: Failed to set global tracing subscriber: {}", e);
+    }
 }

@@ -461,7 +461,10 @@ pub async fn handle_auth_command(
                                     ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
                                     state.login_attempts += 1;
                                     control_stream
-                                        .write_response(b"530 Password required\r\n", "FTP response")
+                                        .write_response(
+                                            b"530 Password required\r\n",
+                                            "FTP response",
+                                        )
                                         .await;
                                     state.current_user = None;
                                     state.ftp_state = FtpSessionState::New;
@@ -472,7 +475,10 @@ pub async fn handle_auth_command(
                                 let mut users = ctx.user_manager.lock();
                                 if users.get_user(username).is_none() {
                                     if let Err(e) = users.reload(&Config::get_users_path()) {
-                                        tracing::warn!("Failed to reload users during authentication: {}", e);
+                                        tracing::warn!(
+                                            "Failed to reload users during authentication: {}",
+                                            e
+                                        );
                                     }
                                 }
                                 let result = users.authenticate(username, password);

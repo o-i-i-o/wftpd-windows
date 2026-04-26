@@ -61,7 +61,10 @@ pub async fn handle_basic_command(
             if let Some(cmd) = opt_cmd {
                 match cmd.to_uppercase().as_str() {
                     "UTF8" => {
-                        if opt_value.as_deref().is_none_or(|v| v.eq_ignore_ascii_case("ON")) {
+                        if opt_value
+                            .as_deref()
+                            .is_none_or(|v| v.eq_ignore_ascii_case("ON"))
+                        {
                             state.encoding = "UTF-8".to_string();
                             control_stream
                                 .write_response(
@@ -319,7 +322,6 @@ pub async fn handle_basic_command(
             state.data_protection = tls_config_preserved;
             state.pbsz_set = false;
             state.ftp_state = super::session_state::FtpSessionState::New;
-            state.login_attempts = 0;
 
             control_stream
                 .write_response(b"220 Service ready for new user\r\n", "FTP response")

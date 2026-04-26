@@ -123,7 +123,9 @@ impl ServiceTab {
                 }
                 Err(_) => OperationResult::Error(i18n::t("service.install_unknown_error")),
             };
-            let _ = tx.send(result);
+            if let Err(e) = tx.send(result) {
+                tracing::debug!("Failed to send service install result: {}", e);
+            }
             ctx_clone.request_repaint();
         });
     }
@@ -147,7 +149,9 @@ impl ServiceTab {
                 }
                 Err(_) => OperationResult::Error(i18n::t("service.start_unknown_error")),
             };
-            let _ = tx.send(result);
+            if let Err(e) = tx.send(result) {
+                tracing::debug!("Failed to send service start result: {}", e);
+            }
             ctx_clone.request_repaint();
         });
     }
@@ -171,7 +175,9 @@ impl ServiceTab {
                 }
                 Err(_) => OperationResult::Error(i18n::t("service.stop_unknown_error")),
             };
-            let _ = tx.send(result);
+            if let Err(e) = tx.send(result) {
+                tracing::debug!("Failed to send service stop result: {}", e);
+            }
             ctx_clone.request_repaint();
         });
     }
@@ -195,7 +201,9 @@ impl ServiceTab {
                 }
                 Err(_) => OperationResult::Error(i18n::t("service.restart_unknown_error")),
             };
-            let _ = tx.send(result);
+            if let Err(e) = tx.send(result) {
+                tracing::debug!("Failed to send service restart result: {}", e);
+            }
             ctx_clone.request_repaint();
         });
     }
@@ -220,7 +228,9 @@ impl ServiceTab {
                 )),
                 Err(_) => OperationResult::Error(i18n::t("service.uninstall_unknown_error")),
             };
-            let _ = tx.send(result);
+            if let Err(e) = tx.send(result) {
+                tracing::debug!("Failed to send service uninstall result: {}", e);
+            }
             ctx_clone.request_repaint();
         });
     }

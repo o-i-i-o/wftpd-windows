@@ -149,7 +149,9 @@ impl LogTab {
         // 创建监听器 - 使用更短的轮询间隔以提高响应速度
         let watcher_result = RecommendedWatcher::new(
             move |res: Result<Event, notify::Error>| {
-                let _ = tx.send(res);
+                if let Err(e) = tx.send(res) {
+                    tracing::debug!("Log watcher channel send error: {}", e);
+                }
             },
             notify::Config::default().with_poll_interval(Duration::from_millis(500)),
         );

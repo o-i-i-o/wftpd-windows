@@ -13,7 +13,6 @@
   "Configuration loaded successfully": "配置加载成功",
   "Loading configuration from {0}": "正在从 {0} 加载配置",
   "Reinitializing logger with config settings...": "正在使用配置设置重新初始化日志记录器...",
-  "Logger reinitialized: level={0}, dir={1}, max_size={2}, max_files={3}": "日志记录器已重新初始化: 级别={0}, 目录={1}, 最大大小={2}, 最大文件数={3}",
   "Loading users from {0}": "正在从 {0} 加载用户",
   "Users loaded successfully ({0} users)": "用户加载成功 ({0} 个用户)",
   "AppState initialized successfully": "应用状态初始化成功",

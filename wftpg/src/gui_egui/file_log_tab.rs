@@ -66,7 +66,9 @@ impl FileLogTab {
 
         let watcher_result = RecommendedWatcher::new(
             move |res: Result<Event, notify::Error>| {
-                let _ = tx.send(res);
+                if let Err(e) = tx.send(res) {
+                    tracing::debug!("File log watcher channel send error: {}", e);
+                }
             },
             notify::Config::default().with_poll_interval(Duration::from_millis(500)),
         );

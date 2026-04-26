@@ -194,10 +194,18 @@ impl SftpState {
 
         let quota_mb = self.cached_permissions.as_ref().and_then(|p| p.quota_mb);
         if let Some(quota) = quota_mb {
-            let src_size = tokio::fs::metadata(&src_full)
-                .await
-                .map(|m| m.len())
-                .unwrap_or(0);
+            let src_size = match tokio::fs::metadata(&src_full).await {
+                Ok(m) => m.len(),
+                Err(e) => {
+                    tracing::warn!("SFTP COPY: cannot read source metadata: {}", e);
+                    return Ok(self.build_status_packet(
+                        id,
+                        4,
+                        "Cannot read source file metadata",
+                        "",
+                    ));
+                }
+            };
             let current_usage = self
                 .quota_manager
                 .get_usage(self.username.as_deref().unwrap_or("anonymous"))

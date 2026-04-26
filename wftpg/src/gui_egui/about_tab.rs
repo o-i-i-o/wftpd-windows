@@ -321,16 +321,14 @@ impl AboutTab {
 }
 
 fn save_gui_language(lang: i18n::Language) {
-    use std::fs;
-    use std::io::Write;
-
-    let config_dir = crate::core::config::Config::get_config_path()
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| std::path::PathBuf::from("C:\\ProgramData\\wftpg"));
-
-    let lang_file = config_dir.join("gui_language.txt");
-    if let Ok(mut file) = fs::File::create(&lang_file) {
-        let _ = file.write_all(lang.code().as_bytes());
+    let path = crate::core::config::get_program_data_path().join("gui_config.json");
+    if let Some(parent) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::warn!("Failed to create config directory: {}", e);
+        }
+    }
+    let json = serde_json::json!({ "language": lang.code() });
+    if let Err(e) = std::fs::write(&path, json.to_string()) {
+        tracing::warn!("Failed to save language preference: {}", e);
     }
 }

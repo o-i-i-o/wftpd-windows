@@ -125,7 +125,9 @@ fn run_service() -> windows_service::Result<()> {
         tracing::info!("Service stopped");
     });
 
-    let _ = service_thread.join();
+    if let Err(e) = service_thread.join() {
+        tracing::error!("Service thread join error: {:?}", e);
+    }
 
     let stopped_status = ServiceStatus {
         service_type: ServiceType::OWN_PROCESS,
@@ -209,7 +211,9 @@ fn main() {
                 .open(&log_file)
             {
                 use std::io::Write;
-                let _ = file.write_all(panic_msg.as_bytes());
+                if let Err(e) = file.write_all(panic_msg.as_bytes()) {
+                    eprintln!("Failed to write panic log: {}", e);
+                }
             }
         }
 

@@ -408,12 +408,7 @@ pub struct TracingLogger {
 }
 
 impl TracingLogger {
-    pub fn init(
-        log_dir: &str,
-        _max_size: u64,
-        max_files: usize,
-        log_level: &str,
-    ) -> Result<Self, String> {
+    pub fn init(log_dir: &str, max_files: usize, log_level: &str) -> Result<Self, String> {
         if let Some(global) = GLOBAL_LOGGER.get() {
             // 检查是否需要重新初始化（日志目录或级别发生变化）
             // 注意：由于 tracing subscriber 已经设置，无法动态更改日志级别和目录
@@ -509,12 +504,14 @@ impl TracingLogger {
             "TracingLogger 初始化完成"
         );
 
-        let _ = GLOBAL_LOGGER.set(GlobalLogger {
+        if let Err(_) = GLOBAL_LOGGER.set(GlobalLogger {
             buffer: buffer.clone(),
             file_op_buffer: file_op_buffer.clone(),
             _guard: guard,
             _file_op_guard: file_op_guard,
-        });
+        }) {
+            tracing::debug!("GlobalLogger already initialized, skipping set");
+        }
 
         Ok(TracingLogger {
             buffer,
