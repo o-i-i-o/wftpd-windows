@@ -449,11 +449,18 @@ mod tests {
             .await
             .unwrap();
 
+        let past_time = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(2));
+
         if let Some(info) = mgr.listeners.get_mut(&port) {
-            info.created_at = std::time::Instant::now() - std::time::Duration::from_millis(1);
+            if let Some(past) = past_time {
+                info.created_at = past;
+            } else {
+                drop(info);
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
         }
 
-        mgr.cleanup_expired(0);
+        mgr.cleanup_expired(1);
         assert!(!mgr.listeners.contains_key(&port));
     }
 
