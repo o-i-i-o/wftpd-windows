@@ -258,50 +258,50 @@ pub async fn dispatch_command(
     use super::commands::FtpCommand::*;
 
     match cmd {
-        AUTH(_) | PBSZ(_) | PROT(_) | CCC | ADAT(_) | MIC(_) | CONF(_) | ENC(_) | USER(_)
-        | PASS(_) => {
+        Auth(_) | Pbsz(_) | Prot(_) | Ccc | Adat(_) | Mic(_) | Conf(_) | Enc(_) | User(_)
+        | Pass(_) => {
             return handle_auth_command(control_stream, cmd, state, ctx).await;
         }
-        QUIT
-        | SYST
-        | FEAT
-        | NOOP
-        | OPTS(_, _)
-        | TYPE(_)
-        | MODE(_)
-        | STRU(_)
-        | ALLO
-        | REST(_)
-        | ACCT
-        | REIN
-        | ABOR => {
+        Quit
+        | Syst
+        | Feat
+        | Noop
+        | Opts(_, _)
+        | Type(_)
+        | Mode(_)
+        | Stru(_)
+        | Allo
+        | Rest(_)
+        | Acct
+        | Rein
+        | Abor => {
             return handle_basic_command(control_stream, cmd, state, ctx).await;
         }
-        HELP(_) => {
+        Help(_) => {
             return handle_help_command(control_stream, cmd).await;
         }
-        STAT => {
+        Stat => {
             return handle_stat_command(control_stream, cmd, state, ctx).await;
         }
-        PWD | XPWD | CWD(_) | CDUP | XCUP | MKD(_) | RMD(_) | RNFR(_) | RNTO(_) | DELE(_) => {
+        Pwd | Xpwd | Cwd(_) | Cdup | Xcup | Mkd(_) | Rmd(_) | Rnfr(_) | Rnto(_) | Dele(_) => {
             return handle_directory_command(control_stream, cmd, state, ctx).await;
         }
-        PASV | EPSV | PORT(_) | EPRT(_) => {
+        Pasv | Epsv | Port(_) | Eprt(_) => {
             return handle_transfer_command(control_stream, cmd, state, ctx).await;
         }
-        LIST(_) | NLST(_) | MLSD(_) | MLST(_) => {
+        List(_) | Nlst(_) | Mlsd(_) | Mlst(_) => {
             return handle_list_command(control_stream, cmd, state, ctx).await;
         }
-        RETR(_) => {
+        Retr(_) => {
             return handle_retrieve_command(control_stream, cmd, state, ctx).await;
         }
-        STOR(_) | APPE(_) | STOU => {
+        Stor(_) | Appe(_) | Stou => {
             return handle_store_command(control_stream, cmd, state, ctx).await;
         }
-        SIZE(_) | MDTM(_) => {
+        Size(_) | Mdtm(_) => {
             return handle_fileinfo_command(control_stream, cmd, state, ctx).await;
         }
-        SITE(_) => {
+        Site(_) => {
             return handle_site_command(control_stream, cmd, state, ctx).await;
         }
         Unknown(name) => {

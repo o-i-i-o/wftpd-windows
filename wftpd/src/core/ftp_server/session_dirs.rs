@@ -1,6 +1,6 @@
 //! FTP directory command handling
 //!
-//! Handles CWD, CDUP, PWD, MKD, RMD and other directory operation commands
+//! Handles Cwd, Cdup, Pwd, Mkd, Rmd and other directory operation commands
 
 use crate::core::path_utils::{path_starts_with_ignore_case, to_ftp_path};
 use std::path::PathBuf;
@@ -24,7 +24,7 @@ pub async fn handle_directory_command(
     use super::commands::FtpCommand::*;
 
     match cmd {
-        PWD | XPWD => {
+        Pwd | Xpwd => {
             match to_ftp_path(
                 std::path::Path::new(&state.cwd),
                 std::path::Path::new(&state.home_dir),
@@ -38,7 +38,7 @@ pub async fn handle_directory_command(
                         .await;
                 }
                 Err(e) => {
-                    tracing::error!("PWD failed: {}", e);
+                    tracing::error!("Pwd failed: {}", e);
                     control_stream
                         .write_response(b"550 Failed to get current directory\r\n", "FTP response")
                         .await;
@@ -46,7 +46,7 @@ pub async fn handle_directory_command(
             }
         }
 
-        CWD(dir) => {
+        Cwd(dir) => {
             if !state.authenticated {
                 control_stream
                     .write_response(b"530 Not logged in\r\n", "FTP response")
@@ -77,7 +77,7 @@ pub async fn handle_directory_command(
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("CWD failed for '{}': {}", dir, e);
+                        tracing::warn!("Cwd failed for '{}': {}", dir, e);
                         control_stream
                             .write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response")
                             .await;
@@ -86,14 +86,14 @@ pub async fn handle_directory_command(
             } else {
                 control_stream
                     .write_response(
-                        b"501 Syntax error: CWD requires directory parameter\r\n",
+                        b"501 Syntax error: Cwd requires directory parameter\r\n",
                         "FTP response",
                     )
                     .await;
             }
         }
 
-        CDUP | XCUP => {
+        Cdup | Xcup => {
             if !state.authenticated {
                 control_stream
                     .write_response(b"530 Not logged in\r\n", "FTP response")
@@ -118,7 +118,7 @@ pub async fn handle_directory_command(
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("CDUP failed: {}", e);
+                    tracing::warn!("Cdup failed: {}", e);
                     control_stream
                         .write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response")
                         .await;
@@ -126,7 +126,7 @@ pub async fn handle_directory_command(
             }
         }
 
-        MKD(dirname) => {
+        Mkd(dirname) => {
             if !state.authenticated {
                 control_stream
                     .write_response(b"530 Not logged in\r\n", "FTP response")
@@ -151,7 +151,7 @@ pub async fn handle_directory_command(
                 let dir_path = match state.resolve_path(dirname) {
                     Ok(p) => p,
                     Err(e) => {
-                        tracing::warn!("MKD failed for '{}': {}", dirname, e);
+                        tracing::warn!("Mkd failed for '{}': {}", dirname, e);
                         control_stream
                             .write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response")
                             .await;
@@ -175,7 +175,7 @@ pub async fn handle_directory_command(
                                 .await;
                         }
                         Err(e) => {
-                            tracing::error!("MKD failed to get ftp path: {}", e);
+                            tracing::error!("Mkd failed to get ftp path: {}", e);
                             control_stream
                                 .write_response(b"257 Directory created\r\n", "FTP response")
                                 .await;
@@ -199,7 +199,7 @@ pub async fn handle_directory_command(
             }
         }
 
-        RMD(dirname) => {
+        Rmd(dirname) => {
             if !state.authenticated {
                 control_stream
                     .write_response(b"530 Not logged in\r\n", "FTP response")
@@ -224,7 +224,7 @@ pub async fn handle_directory_command(
                 let dir_path = match state.resolve_path(dirname) {
                     Ok(p) => p,
                     Err(e) => {
-                        tracing::warn!("RMD failed for '{}': {}", dirname, e);
+                        tracing::warn!("Rmd failed for '{}': {}", dirname, e);
                         control_stream
                             .write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response")
                             .await;
@@ -245,7 +245,7 @@ pub async fn handle_directory_command(
                         let file_attrs = metadata.file_attributes();
                         if file_attrs & 0x400 != 0 {
                             tracing::warn!(
-                                "RMD denied: path is a junction/reparse point - {:?}",
+                                "Rmd denied: path is a junction/reparse point - {:?}",
                                 dir_path
                             );
                             control_stream
@@ -283,7 +283,7 @@ pub async fn handle_directory_command(
             }
         }
 
-        RNFR(from_name) => {
+        Rnfr(from_name) => {
             if !state.authenticated {
                 control_stream
                     .write_response(b"530 Not logged in\r\n", "FTP response")
@@ -308,7 +308,7 @@ pub async fn handle_directory_command(
                 let from_path = match state.resolve_path(from_name) {
                     Ok(p) => p,
                     Err(e) => {
-                        tracing::warn!("RNFR failed for '{}': {}", from_name, e);
+                        tracing::warn!("Rnfr failed for '{}': {}", from_name, e);
                         control_stream
                             .write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response")
                             .await;
@@ -316,7 +316,7 @@ pub async fn handle_directory_command(
                     }
                 };
                 tracing::debug!(
-                    "RNFR: raw='{}', resolved='{}', exists={}, starts_with={}",
+                    "Rnfr: raw='{}', resolved='{}', exists={}, starts_with={}",
                     from_name,
                     from_path.display(),
                     from_path.exists(),
@@ -334,11 +334,11 @@ pub async fn handle_directory_command(
                         client_ip = %ctx.client_ip,
                         username = ?state.current_user.as_deref(),
                         action = "RNFR",
-                        "RNFR: {}", from_path.display()
+                        "Rnfr: {}", from_path.display()
                     );
                 } else {
                     tracing::warn!(
-                        "RNFR failed: file not found or outside home - raw='{}', resolved='{}'",
+                        "Rnfr failed: file not found or outside home - raw='{}', resolved='{}'",
                         from_name,
                         from_path.display()
                     );
@@ -349,20 +349,20 @@ pub async fn handle_directory_command(
             } else {
                 control_stream
                     .write_response(
-                        b"501 Syntax error: RNFR requires filename\r\n",
+                        b"501 Syntax error: Rnfr requires filename\r\n",
                         "FTP response",
                     )
                     .await;
             }
         }
 
-        RNTO(to_name) => {
+        Rnto(to_name) => {
             if let Some(ref from_path) = state.rename_from {
                 if let Some(to_name) = to_name {
                     let to_path = match state.resolve_path(to_name) {
                         Ok(p) => p,
                         Err(e) => {
-                            tracing::warn!("RNTO failed for '{}': {}", to_name, e);
+                            tracing::warn!("Rnto failed for '{}': {}", to_name, e);
                             control_stream
                                 .write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response")
                                 .await;
@@ -371,14 +371,14 @@ pub async fn handle_directory_command(
                         }
                     };
                     tracing::debug!(
-                        "RNTO: raw='{}', resolved='{}', from='{}'",
+                        "Rnto: raw='{}', resolved='{}', from='{}'",
                         to_name,
                         to_path.display(),
                         from_path
                     );
                     if !path_starts_with_ignore_case(&to_path, &state.home_dir) {
                         tracing::warn!(
-                            "RNTO failed: destination outside home - {}",
+                            "Rnto failed: destination outside home - {}",
                             to_path.display()
                         );
                         control_stream
@@ -389,7 +389,7 @@ pub async fn handle_directory_command(
                     }
                     if to_path.exists() {
                         tracing::warn!(
-                            "RNTO failed: destination already exists - {}",
+                            "Rnto failed: destination already exists - {}",
                             to_path.display()
                         );
                         control_stream
@@ -451,7 +451,7 @@ pub async fn handle_directory_command(
                 } else {
                     control_stream
                         .write_response(
-                            b"501 Syntax error: RNTO requires filename\r\n",
+                            b"501 Syntax error: Rnto requires filename\r\n",
                             "FTP response",
                         )
                         .await;
@@ -464,7 +464,7 @@ pub async fn handle_directory_command(
             state.rename_from = None;
         }
 
-        DELE(filename) => {
+        Dele(filename) => {
             if !state.authenticated {
                 control_stream
                     .write_response(b"530 Not logged in\r\n", "FTP response")
@@ -489,7 +489,7 @@ pub async fn handle_directory_command(
                 let file_path = match state.resolve_path(filename) {
                     Ok(p) => p,
                     Err(e) => {
-                        tracing::warn!("DELE failed for '{}': {}", filename, e);
+                        tracing::warn!("Dele failed for '{}': {}", filename, e);
                         control_stream
                             .write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response")
                             .await;
@@ -574,7 +574,7 @@ pub async fn generate_unique_filename(
         }
 
         tracing::debug!(
-            "STOU filename collision detected, retrying: {}",
+            "Stou filename collision detected, retrying: {}",
             unique_name
         );
     }

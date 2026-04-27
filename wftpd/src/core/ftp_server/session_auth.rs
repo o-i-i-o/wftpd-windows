@@ -1,6 +1,6 @@
 //! FTP authentication command handler
 //!
-//! Handles authentication commands like USER, PASS, AUTH
+//! Handles authentication commands like User, Pass, Auth
 
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -37,7 +37,7 @@ pub async fn handle_auth_command(
     use super::commands::FtpCommand::*;
 
     match cmd {
-        AUTH(tls_type) => {
+        Auth(tls_type) => {
             let ftps_enabled = {
                 let cfg = ctx.config.lock();
                 cfg.ftp.ftps.enabled
@@ -57,7 +57,7 @@ pub async fn handle_auth_command(
                 if tls_upper == "TLS" || tls_upper == "TLS-C" || tls_upper == "SSL" {
                     control_stream
                         .write_response(
-                            b"234 AUTH command OK; starting TLS connection\r\n",
+                            b"234 Auth command OK; starting TLS connection\r\n",
                             "FTP response",
                         )
                         .await;
@@ -82,7 +82,7 @@ pub async fn handle_auth_command(
                 } else {
                     control_stream
                         .write_response(
-                            format!("504 AUTH {} not supported\r\n", tls_type).as_bytes(),
+                            format!("504 Auth {} not supported\r\n", tls_type).as_bytes(),
                             "FTP response",
                         )
                         .await;
@@ -94,180 +94,180 @@ pub async fn handle_auth_command(
             }
         }
 
-        PBSZ(size) => {
+        Pbsz(size) => {
             if state.tls_enabled {
                 if let Some(size_str) = size {
                     if let Ok(size_val) = size_str.parse::<u64>() {
                         state.pbsz_set = true;
                         control_stream
                             .write_response(
-                                format!("200 PBSZ={} OK\r\n", size_val).as_bytes(),
+                                format!("200 Pbsz={} OK\r\n", size_val).as_bytes(),
                                 "FTP response",
                             )
                             .await;
                     } else {
                         control_stream
-                            .write_response(b"501 Invalid PBSZ value\r\n", "FTP response")
+                            .write_response(b"501 Invalid Pbsz value\r\n", "FTP response")
                             .await;
                     }
                 } else {
                     state.pbsz_set = true;
                     control_stream
-                        .write_response(b"200 PBSZ=0 OK\r\n", "FTP response")
+                        .write_response(b"200 Pbsz=0 OK\r\n", "FTP response")
                         .await;
                 }
             } else {
                 control_stream
-                    .write_response(b"503 PBSZ requires AUTH first\r\n", "FTP response")
+                    .write_response(b"503 Pbsz requires Auth first\r\n", "FTP response")
                     .await;
             }
         }
 
-        PROT(level) => {
+        Prot(level) => {
             if state.tls_enabled && state.pbsz_set {
                 if let Some(level) = level {
                     match level.to_uppercase().as_str() {
                         "P" => {
                             state.data_protection = true;
                             control_stream
-                                .write_response(b"200 PROT Private OK\r\n", "FTP response")
+                                .write_response(b"200 Prot Private OK\r\n", "FTP response")
                                 .await;
                         }
                         "C" => {
                             state.data_protection = false;
                             control_stream
-                                .write_response(b"200 PROT Clear OK\r\n", "FTP response")
+                                .write_response(b"200 Prot Clear OK\r\n", "FTP response")
                                 .await;
                         }
                         "S" => {
                             control_stream
-                                .write_response(b"536 PROT Safe not supported\r\n", "FTP response")
+                                .write_response(b"536 Prot Safe not supported\r\n", "FTP response")
                                 .await;
                         }
                         "E" => {
                             control_stream
                                 .write_response(
-                                    b"536 PROT Confidential not supported\r\n",
+                                    b"536 Prot Confidential not supported\r\n",
                                     "FTP response",
                                 )
                                 .await;
                         }
                         _ => {
                             control_stream
-                                .write_response(b"504 Unknown PROT level\r\n", "FTP response")
+                                .write_response(b"504 Unknown Prot level\r\n", "FTP response")
                                 .await;
                         }
                     }
                 } else {
                     control_stream
                         .write_response(
-                            b"501 PROT requires parameter (C/P/S/E)\r\n",
+                            b"501 Prot requires parameter (C/P/S/E)\r\n",
                             "FTP response",
                         )
                         .await;
                 }
             } else {
                 control_stream
-                    .write_response(b"503 PROT requires PBSZ first\r\n", "FTP response")
+                    .write_response(b"503 Prot requires Pbsz first\r\n", "FTP response")
                     .await;
             }
         }
 
-        CCC => {
+        Ccc => {
             control_stream
                 .write_response(
-                    b"534 CCC is disabled for security reasons\r\n",
+                    b"534 Ccc is disabled for security reasons\r\n",
                     "FTP response",
                 )
                 .await;
         }
 
-        ADAT(data) => {
+        Adat(data) => {
             if state.tls_enabled {
                 tracing::debug!(
-                    "ADAT received ({} bytes) but not implemented (TLS already provides security)",
+                    "Adat received ({} bytes) but not implemented (TLS already provides security)",
                     data.as_deref().map(|d| d.len()).unwrap_or(0)
                 );
                 control_stream
                     .write_response(
-                        b"504 ADAT not implemented - TLS provides security\r\n",
+                        b"504 Adat not implemented - TLS provides security\r\n",
                         "FTP response",
                     )
                     .await;
             } else {
                 control_stream
-                    .write_response(b"503 ADAT requires AUTH first\r\n", "FTP response")
+                    .write_response(b"503 Adat requires Auth first\r\n", "FTP response")
                     .await;
             }
         }
 
-        MIC(data) => {
+        Mic(data) => {
             if state.tls_enabled {
                 if data.is_some() {
-                    tracing::debug!("MIC command received (TLS already provides integrity)");
+                    tracing::debug!("Mic command received (TLS already provides integrity)");
                     control_stream
                         .write_response(
-                            b"200 MIC accepted - integrity provided by TLS\r\n",
+                            b"200 Mic accepted - integrity provided by TLS\r\n",
                             "FTP response",
                         )
                         .await;
                 } else {
                     control_stream
-                        .write_response(b"501 MIC requires data parameter\r\n", "FTP response")
+                        .write_response(b"501 Mic requires data parameter\r\n", "FTP response")
                         .await;
                 }
             } else {
                 control_stream
-                    .write_response(b"503 MIC requires AUTH first\r\n", "FTP response")
+                    .write_response(b"503 Mic requires Auth first\r\n", "FTP response")
                     .await;
             }
         }
 
-        CONF(data) => {
+        Conf(data) => {
             if state.tls_enabled {
                 if data.is_some() {
-                    tracing::debug!("CONF command received (TLS already provides confidentiality)");
+                    tracing::debug!("Conf command received (TLS already provides confidentiality)");
                     control_stream
                         .write_response(
-                            b"200 CONF accepted - confidentiality provided by TLS\r\n",
+                            b"200 Conf accepted - confidentiality provided by TLS\r\n",
                             "FTP response",
                         )
                         .await;
                 } else {
                     control_stream
-                        .write_response(b"501 CONF requires data parameter\r\n", "FTP response")
+                        .write_response(b"501 Conf requires data parameter\r\n", "FTP response")
                         .await;
                 }
             } else {
                 control_stream
-                    .write_response(b"503 CONF requires AUTH first\r\n", "FTP response")
+                    .write_response(b"503 Conf requires Auth first\r\n", "FTP response")
                     .await;
             }
         }
 
-        ENC(data) => {
+        Enc(data) => {
             if state.tls_enabled {
                 if data.is_some() {
-                    tracing::debug!("ENC command received (TLS already provides encryption)");
+                    tracing::debug!("Enc command received (TLS already provides encryption)");
                     control_stream
                         .write_response(
-                            b"200 ENC accepted - encryption provided by TLS\r\n",
+                            b"200 Enc accepted - encryption provided by TLS\r\n",
                             "FTP response",
                         )
                         .await;
                 } else {
                     control_stream
-                        .write_response(b"501 ENC requires data parameter\r\n", "FTP response")
+                        .write_response(b"501 Enc requires data parameter\r\n", "FTP response")
                         .await;
                 }
             } else {
                 control_stream
-                    .write_response(b"503 ENC requires AUTH first\r\n", "FTP response")
+                    .write_response(b"503 Enc requires Auth first\r\n", "FTP response")
                     .await;
             }
         }
 
-        USER(username) => {
+        User(username) => {
             if ctx.require_ssl && !state.tls_enabled {
                 control_stream
                     .write_response(b"530 SSL required for login\r\n", "FTP response")
@@ -352,7 +352,7 @@ pub async fn handle_auth_command(
             }
         }
 
-        PASS(password) => {
+        Pass(password) => {
             if ctx.require_ssl && !state.tls_enabled {
                 control_stream
                     .write_response(b"530 SSL required for login\r\n", "FTP response")
@@ -363,7 +363,7 @@ pub async fn handle_auth_command(
             match state.ftp_state {
                 FtpSessionState::New => {
                     control_stream
-                        .write_response(b"503 Login with USER first\r\n", "FTP response")
+                        .write_response(b"503 Login with User first\r\n", "FTP response")
                         .await;
                 }
                 FtpSessionState::WaitPass => {
@@ -397,7 +397,7 @@ pub async fn handle_auth_command(
                                             state.ftp_state = FtpSessionState::WaitCmd;
                                             control_stream
                                                 .write_response(
-                                                    b"230 Anonymous user logged in\r\n",
+                                                    b"230 Anonymous User logged in\r\n",
                                                     "FTP response",
                                                 )
                                                 .await;
@@ -406,12 +406,12 @@ pub async fn handle_auth_command(
                                                 username = "anonymous",
                                                 action = "LOGIN",
                                                 protocol = "FTP",
-                                                "Anonymous user logged in"
+                                                "Anonymous User logged in"
                                             );
                                         }
                                         Err(e) => {
                                             tracing::error!(
-                                                "PASS failed: cannot canonicalize anonymous home directory '{}': {}",
+                                                "Pass failed: cannot canonicalize anonymous home directory '{}': {}",
                                                 anon_home,
                                                 e
                                             );
@@ -429,7 +429,7 @@ pub async fn handle_auth_command(
                                     }
                                 } else {
                                     tracing::error!(
-                                        "PASS failed: anonymous access allowed but no anonymous_home configured"
+                                        "Pass failed: anonymous access allowed but no anonymous_home configured"
                                     );
                                     ctx.fail2ban_manager.add_failure(ctx.client_ip).await;
                                     state.login_attempts += 1;
@@ -473,13 +473,13 @@ pub async fn handle_auth_command(
                             };
                             let (auth_result, home_dir_opt) = {
                                 let mut users = ctx.user_manager.lock();
-                                if users.get_user(username).is_none() {
-                                    if let Err(e) = users.reload(&Config::get_users_path()) {
-                                        tracing::warn!(
-                                            "Failed to reload users during authentication: {}",
-                                            e
-                                        );
-                                    }
+                                if users.get_user(username).is_none()
+                                    && let Err(e) = users.reload(&Config::get_users_path())
+                                {
+                                    tracing::warn!(
+                                        "Failed to reload users during authentication: {}",
+                                        e
+                                    );
                                 }
                                 let result = users.authenticate(username, password);
                                 let home = users.get_user(username).map(|u| u.home_dir.clone());
@@ -501,7 +501,7 @@ pub async fn handle_auth_command(
                                             }
                                             Err(e) => {
                                                 tracing::error!(
-                                                    "PASS failed: cannot canonicalize user home directory '{}': {}",
+                                                    "Pass failed: cannot canonicalize User home directory '{}': {}",
                                                     home_dir,
                                                     e
                                                 );
@@ -538,13 +538,13 @@ pub async fn handle_auth_command(
                                         username = %username,
                                         action = "AUTH_FAIL",
                                         protocol = "FTP",
-                                        "Authentication failed for user {}", username
+                                        "Authentication failed for User {}", username
                                     );
                                     state.current_user = None;
                                     state.ftp_state = FtpSessionState::New;
                                     control_stream
                                         .write_response(
-                                            b"530 Not logged in, user cannot be authenticated\r\n",
+                                            b"530 Not logged in, User cannot be authenticated\r\n",
                                             "FTP response",
                                         )
                                         .await;
@@ -557,7 +557,7 @@ pub async fn handle_auth_command(
                                         client_ip = %ctx.client_ip,
                                         username = %username,
                                         action = "AUTH_ERROR",
-                                        "Authentication error for user {}: {}", username, e
+                                        "Authentication error for User {}: {}", username, e
                                     );
                                     state.current_user = None;
                                     state.ftp_state = FtpSessionState::New;
@@ -569,7 +569,7 @@ pub async fn handle_auth_command(
                         }
                     } else {
                         control_stream
-                            .write_response(b"503 Login with USER first\r\n", "FTP response")
+                            .write_response(b"503 Login with User first\r\n", "FTP response")
                             .await;
                     }
                 }

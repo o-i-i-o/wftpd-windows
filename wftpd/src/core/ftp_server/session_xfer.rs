@@ -1,6 +1,6 @@
 //! FTP file transfer command handler
 //!
-//! Handles RETR, STOR, LIST, NLST and other file transfer commands
+//! Handles Retr, Stor, List, Nlst and other file transfer commands
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -30,7 +30,7 @@ pub async fn handle_transfer_command(
     }
 
     match cmd {
-        PASV => {
+        Pasv => {
             let pasv_config = {
                 let cfg = ctx.config.lock();
                 super::passive::PasvConfig {
@@ -54,14 +54,14 @@ pub async fn handle_transfer_command(
                     let ip_parts: Vec<&str> = response_ip.split('.').collect();
                     if ip_parts.len() != 4 {
                         tracing::error!(
-                            "PASV: Invalid IPv4 address format '{}' returned from handle_pasv. \
+                            "Pasv: Invalid IPv4 address format '{}' returned from handle_pasv. \
                              Please check masquerade_address and passive_ip_override configuration.",
                             response_ip
                         );
                         control_stream
                             .write_response(
-                                b"425 Cannot determine valid passive mode IP - configuration error\r\n",
-                                "PASV response",
+                                b"425 Cannot determine valid passive Mode IP - configuration error\r\n",
+                                "Pasv response",
                             )
                             .await;
                         return Ok(true);
@@ -77,7 +77,7 @@ pub async fn handle_transfer_command(
                                 ip_parts[0], ip_parts[1], ip_parts[2], ip_parts[3], p1, p2
                             )
                             .as_bytes(),
-                            "PASV response",
+                            "Pasv response",
                         )
                         .await;
 
@@ -86,13 +86,13 @@ pub async fn handle_transfer_command(
                         username = ?state.current_user.as_deref(),
                         action = "PASV",
                         protocol = "FTP",
-                        "PASV mode: port {} on IP {}", passive_port, response_ip
+                        "Pasv Mode: Port {} on IP {}", passive_port, response_ip
                     );
                 }
                 Err(e) => {
                     control_stream
                         .write_response(
-                            format!("425 Could not enter passive mode: {}\r\n", e).as_bytes(),
+                            format!("425 Could not enter passive Mode: {}\r\n", e).as_bytes(),
                             "FTP response",
                         )
                         .await;
@@ -100,7 +100,7 @@ pub async fn handle_transfer_command(
             }
         }
 
-        EPSV => {
+        Epsv => {
             let pasv_config = {
                 let cfg = ctx.config.lock();
                 super::passive::PasvConfig {
@@ -127,7 +127,7 @@ pub async fn handle_transfer_command(
                                 passive_port
                             )
                             .as_bytes(),
-                            "EPSV response",
+                            "Epsv response",
                         )
                         .await;
 
@@ -136,13 +136,13 @@ pub async fn handle_transfer_command(
                         username = ?state.current_user.as_deref(),
                         action = "EPSV",
                         protocol = "FTP",
-                        "EPSV mode: port {}", passive_port
+                        "Epsv Mode: Port {}", passive_port
                     );
                 }
                 Err(e) => {
                     control_stream
                         .write_response(
-                            format!("425 Could not enter extended passive mode: {}\r\n", e)
+                            format!("425 Could not enter extended passive Mode: {}\r\n", e)
                                 .as_bytes(),
                             "FTP response",
                         )
@@ -151,19 +151,19 @@ pub async fn handle_transfer_command(
             }
         }
 
-        PORT(data) => {
+        Port(data) => {
             if let Some(data) = data {
                 let parts: Vec<u16> = data.split(',').filter_map(|s| s.parse().ok()).collect();
                 if parts.len() == 6 {
                     if parts.iter().take(4).any(|&p| p > 255) || parts[4] > 255 || parts[5] > 255 {
                         control_stream
-                            .write_response(b"501 Invalid PORT parameters\r\n", "FTP response")
+                            .write_response(b"501 Invalid Port parameters\r\n", "FTP response")
                             .await;
                         return Ok(true);
                     }
 
                     if !state.validate_port_ip(data) {
-                        control_stream.write_response(b"500 PORT command rejected: IP address must match control connection\r\n", "FTP response").await;
+                        control_stream.write_response(b"500 Port command rejected: IP address must match control connection\r\n", "FTP response").await;
                         return Ok(true);
                     }
 
@@ -171,7 +171,7 @@ pub async fn handle_transfer_command(
                     if port < 1024 {
                         control_stream
                             .write_response(
-                                b"500 PORT command rejected: privileged port not allowed\r\n",
+                                b"500 Port command rejected: privileged Port not allowed\r\n",
                                 "FTP response",
                             )
                             .await;
@@ -185,7 +185,7 @@ pub async fn handle_transfer_command(
                     state.data_addr = Some(addr);
                     state.passive_mode = false;
                     control_stream
-                        .write_response(b"200 PORT command successful\r\n", "FTP response")
+                        .write_response(b"200 Port command successful\r\n", "FTP response")
                         .await;
                 } else {
                     control_stream
@@ -198,14 +198,14 @@ pub async fn handle_transfer_command(
             } else {
                 control_stream
                     .write_response(
-                        b"501 Syntax error: PORT requires parameters\r\n",
+                        b"501 Syntax error: Port requires parameters\r\n",
                         "FTP response",
                     )
                     .await;
             }
         }
 
-        EPRT(data) => {
+        Eprt(data) => {
             if let Some(data) = data {
                 let parts: Vec<&str> = data.split('|').collect();
                 if parts.len() >= 4 {
@@ -217,11 +217,11 @@ pub async fn handle_transfer_command(
                         "1" => {
                             if let Ok(port) = tcp_port.parse::<u16>() {
                                 if port < 1024 {
-                                    control_stream.write_response(b"500 EPRT command rejected: privileged port not allowed\r\n", "FTP response").await;
+                                    control_stream.write_response(b"500 Eprt command rejected: privileged Port not allowed\r\n", "FTP response").await;
                                     return Ok(true);
                                 }
                                 if !state.validate_eprt_ip(net_addr) {
-                                    control_stream.write_response(b"500 EPRT command rejected: IP address must match control connection\r\n", "FTP response").await;
+                                    control_stream.write_response(b"500 Eprt command rejected: IP address must match control connection\r\n", "FTP response").await;
                                     return Ok(true);
                                 }
                                 state.data_port = Some(port);
@@ -229,24 +229,24 @@ pub async fn handle_transfer_command(
                                 state.passive_mode = false;
                                 control_stream
                                     .write_response(
-                                        b"200 EPRT command successful\r\n",
+                                        b"200 Eprt command successful\r\n",
                                         "FTP response",
                                     )
                                     .await;
                             } else {
                                 control_stream
-                                    .write_response(b"501 Invalid port number\r\n", "FTP response")
+                                    .write_response(b"501 Invalid Port number\r\n", "FTP response")
                                     .await;
                             }
                         }
                         "2" => {
                             if let Ok(port) = tcp_port.parse::<u16>() {
                                 if port < 1024 {
-                                    control_stream.write_response(b"500 EPRT command rejected: privileged port not allowed\r\n", "FTP response").await;
+                                    control_stream.write_response(b"500 Eprt command rejected: privileged Port not allowed\r\n", "FTP response").await;
                                     return Ok(true);
                                 }
                                 if !state.validate_eprt_ip(net_addr) {
-                                    control_stream.write_response(b"500 EPRT command rejected: IP address must match control connection\r\n", "FTP response").await;
+                                    control_stream.write_response(b"500 Eprt command rejected: IP address must match control connection\r\n", "FTP response").await;
                                     return Ok(true);
                                 }
                                 state.data_port = Some(port);
@@ -254,13 +254,13 @@ pub async fn handle_transfer_command(
                                 state.passive_mode = false;
                                 control_stream
                                     .write_response(
-                                        b"200 EPRT command successful (IPv6)\r\n",
+                                        b"200 Eprt command successful (IPv6)\r\n",
                                         "FTP response",
                                     )
                                     .await;
                             } else {
                                 control_stream
-                                    .write_response(b"501 Invalid port number\r\n", "FTP response")
+                                    .write_response(b"501 Invalid Port number\r\n", "FTP response")
                                     .await;
                             }
                         }
@@ -275,13 +275,13 @@ pub async fn handle_transfer_command(
                     }
                 } else {
                     control_stream
-                        .write_response(b"501 Syntax error in EPRT parameters\r\n", "FTP response")
+                        .write_response(b"501 Syntax error in Eprt parameters\r\n", "FTP response")
                         .await;
                 }
             } else {
                 control_stream
                     .write_response(
-                        b"501 Syntax error: EPRT requires parameters\r\n",
+                        b"501 Syntax error: Eprt requires parameters\r\n",
                         "FTP response",
                     )
                     .await;
@@ -304,7 +304,7 @@ pub async fn handle_list_command(
     use crate::core::path_utils::resolve_directory_path;
 
     match cmd {
-        LIST(path) | NLST(path) => {
+        List(path) | Nlst(path) => {
             if !state.authenticated {
                 control_stream
                     .write_response(b"530 Not logged in\r\n", "FTP response")
@@ -370,7 +370,7 @@ pub async fn handle_list_command(
             {
                 Ok(s) => s,
                 Err(e) => {
-                    tracing::warn!("LIST/NLST: Failed to get data connection: {}", e);
+                    tracing::warn!("List/Nlst: Failed to get data connection: {}", e);
                     if state.passive_mode
                         && let Some(port) = state.data_port
                     {
@@ -395,7 +395,7 @@ pub async fn handle_list_command(
                 .unwrap_or_else(|| "anonymous".to_string());
             let mut transfer_ok = false;
 
-            let is_nlst = matches!(cmd, NLST(_));
+            let is_nlst = matches!(cmd, Nlst(_));
             match transfer::send_directory_listing(
                 &mut data_stream,
                 &list_path,
@@ -405,7 +405,7 @@ pub async fn handle_list_command(
             .await
             {
                 Ok(()) => transfer_ok = true,
-                Err(e) => tracing::warn!("LIST/NLST transfer error: {}", e),
+                Err(e) => tracing::warn!("List/Nlst transfer error: {}", e),
             }
 
             if let Err(e) = data_stream.shutdown().await {
@@ -431,7 +431,7 @@ pub async fn handle_list_command(
             }
         }
 
-        MLSD(path) | MLST(path) => {
+        Mlsd(path) | Mlst(path) => {
             if !state.authenticated {
                 control_stream
                     .write_response(b"530 Not logged in\r\n", "FTP response")
@@ -466,7 +466,7 @@ pub async fn handle_list_command(
                 PathBuf::from(&state.cwd)
             };
 
-            if matches!(cmd, MLST(_)) {
+            if matches!(cmd, Mlst(_)) {
                 if target_path.exists()
                     && path_starts_with_ignore_case(&target_path, &state.home_dir)
                 {
@@ -491,7 +491,7 @@ pub async fn handle_list_command(
                                     .await;
                             }
                             Err(e) => {
-                                tracing::error!("MLST failed: {}", e);
+                                tracing::error!("Mlst failed: {}", e);
                                 control_stream
                                     .write_response(
                                         b"550 Failed to get file path\r\n",
@@ -524,7 +524,7 @@ pub async fn handle_list_command(
                 {
                     Ok(s) => s,
                     Err(e) => {
-                        tracing::warn!("MLSD: Failed to get data connection: {}", e);
+                        tracing::warn!("Mlsd: Failed to get data connection: {}", e);
                         if state.passive_mode
                             && let Some(port) = state.data_port
                         {
@@ -552,7 +552,7 @@ pub async fn handle_list_command(
                 match transfer::send_mlsd_listing(&mut data_stream, &target_path, &mlst_owner).await
                 {
                     Ok(()) => transfer_ok = true,
-                    Err(e) => tracing::warn!("MLSD transfer error: {}", e),
+                    Err(e) => tracing::warn!("Mlsd transfer error: {}", e),
                 }
 
                 if let Err(e) = data_stream.shutdown().await {
@@ -593,7 +593,7 @@ pub async fn handle_retrieve_command(
 ) -> Result<bool> {
     use super::commands::FtpCommand::*;
 
-    if let RETR(filename) = cmd {
+    if let Retr(filename) = cmd {
         if !state.authenticated {
             control_stream
                 .write_response(b"530 Not logged in\r\n", "FTP response")
@@ -605,7 +605,7 @@ pub async fn handle_retrieve_command(
             let file_path = match state.resolve_path(filename) {
                 Ok(p) => p,
                 Err(e) => {
-                    tracing::warn!("RETR failed for '{}': {}", filename, e);
+                    tracing::warn!("Retr failed for '{}': {}", filename, e);
                     control_stream
                         .write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response")
                         .await;
@@ -615,7 +615,7 @@ pub async fn handle_retrieve_command(
 
             if !path_starts_with_ignore_case(&file_path, &state.home_dir) {
                 tracing::warn!(
-                    "RETR denied: path='{}', home='{}', exists={}, is_file={}",
+                    "Retr denied: path='{}', home='{}', exists={}, is_file={}",
                     file_path.display(),
                     state.home_dir,
                     file_path.exists(),
@@ -671,7 +671,7 @@ pub async fn handle_retrieve_command(
                     control_stream
                         .write_response(
                             format!(
-                                "550 REST offset {} exceeds file size {}\r\n",
+                                "550 Rest offset {} exceeds file Size {}\r\n",
                                 state.rest_offset, file_size
                             )
                             .as_bytes(),
@@ -708,7 +708,7 @@ pub async fn handle_retrieve_command(
             {
                 Ok(s) => s,
                 Err(e) => {
-                    tracing::warn!("RETR: Failed to get data connection: {}", e);
+                    tracing::warn!("Retr: Failed to get data connection: {}", e);
                     if state.passive_mode
                         && let Some(port) = state.data_port
                     {
@@ -726,11 +726,11 @@ pub async fn handle_retrieve_command(
             control_stream
                 .write_response(
                     format!(
-                        "150 Opening BINARY mode data connection ({} bytes)\r\n",
+                        "150 Opening BINARY Mode data connection ({} bytes)\r\n",
                         remaining
                     )
                     .as_bytes(),
-                    "RETR opening",
+                    "Retr opening",
                 )
                 .await;
 
@@ -751,7 +751,7 @@ pub async fn handle_retrieve_command(
             .await
             {
                 Ok(()) => transfer_ok = true,
-                Err(e) => tracing::warn!("RETR transfer error: {}", e),
+                Err(e) => tracing::warn!("Retr transfer error: {}", e),
             }
 
             if let Err(e) = data_stream.shutdown().await {
@@ -805,7 +805,7 @@ pub async fn handle_store_command(
     use super::commands::FtpCommand::*;
 
     match cmd {
-        STOR(filename) => {
+        Stor(filename) => {
             if !state.authenticated {
                 control_stream
                     .write_response(b"530 Not logged in\r\n", "FTP response")
@@ -835,7 +835,7 @@ pub async fn handle_store_command(
 
                 if !can_write {
                     tracing::warn!(
-                        "STOR denied: user {} lacks write permission",
+                        "Stor denied: User {} lacks write permission",
                         state.current_user.as_deref().unwrap_or("unknown")
                     );
                     control_stream
@@ -846,7 +846,7 @@ pub async fn handle_store_command(
 
                 let is_abs = filename.starts_with('/');
                 tracing::debug!(
-                    "STOR: raw_filename='{}', is_absolute={}, cwd='{}', home='{}', passive_mode={}, data_port={:?}",
+                    "Stor: raw_filename='{}', is_absolute={}, Cwd='{}', home='{}', passive_mode={}, data_port={:?}",
                     filename,
                     is_abs,
                     state.cwd,
@@ -857,11 +857,11 @@ pub async fn handle_store_command(
 
                 let file_path = match state.resolve_path(filename) {
                     Ok(p) => {
-                        tracing::debug!("STOR: resolved_path='{}'", p.display());
+                        tracing::debug!("Stor: resolved_path='{}'", p.display());
                         p
                     }
                     Err(e) => {
-                        tracing::warn!("STOR failed for '{}': {}", filename, e);
+                        tracing::warn!("Stor failed for '{}': {}", filename, e);
                         control_stream
                             .write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response")
                             .await;
@@ -871,7 +871,7 @@ pub async fn handle_store_command(
 
                 if !path_starts_with_ignore_case(&file_path, &state.home_dir) {
                     tracing::warn!(
-                        "STOR denied: path outside home - {} (home: {})",
+                        "Stor denied: path outside home - {} (home: {})",
                         file_path.display(),
                         state.home_dir
                     );
@@ -895,7 +895,7 @@ pub async fn handle_store_command(
                             client_ip = %ctx.client_ip,
                             username = ?state.current_user.as_deref(),
                             action = "QUOTA_EXCEEDED",
-                            "Upload denied: quota exceeded for user {}", state.current_user.as_deref().unwrap_or("unknown")
+                            "Upload denied: quota exceeded for User {}", state.current_user.as_deref().unwrap_or("unknown")
                         );
                         return Ok(true);
                     }
@@ -916,7 +916,7 @@ pub async fn handle_store_command(
                 {
                     Ok(s) => s,
                     Err(e) => {
-                        tracing::warn!("STOR: Failed to get data connection: {}", e);
+                        tracing::warn!("Stor: Failed to get data connection: {}", e);
                         if state.passive_mode
                             && let Some(port) = state.data_port
                         {
@@ -933,7 +933,7 @@ pub async fn handle_store_command(
 
                 control_stream
                     .write_response(
-                        b"150 Opening BINARY mode data connection\r\n",
+                        b"150 Opening BINARY Mode data connection\r\n",
                         "FTP response",
                     )
                     .await;
@@ -960,7 +960,7 @@ pub async fn handle_store_command(
                         total_written = written;
                     }
                     Err(e) => {
-                        tracing::error!("STOR transfer error: {}", e);
+                        tracing::error!("Stor transfer error: {}", e);
                     }
                 }
 
@@ -1036,14 +1036,14 @@ pub async fn handle_store_command(
             } else {
                 control_stream
                     .write_response(
-                        b"501 Syntax error: STOR requires filename\r\n",
+                        b"501 Syntax error: Stor requires filename\r\n",
                         "FTP response",
                     )
                     .await;
             }
         }
 
-        APPE(filename) => {
+        Appe(filename) => {
             if !state.authenticated {
                 control_stream
                     .write_response(b"530 Not logged in\r\n", "FTP response")
@@ -1068,7 +1068,7 @@ pub async fn handle_store_command(
                 let file_path = match state.resolve_path(filename) {
                     Ok(p) => p,
                     Err(e) => {
-                        tracing::warn!("APPE failed for '{}': {}", filename, e);
+                        tracing::warn!("Appe failed for '{}': {}", filename, e);
                         control_stream
                             .write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response")
                             .await;
@@ -1101,7 +1101,7 @@ pub async fn handle_store_command(
                             client_ip = %ctx.client_ip,
                             username = ?state.current_user.as_deref(),
                             action = "QUOTA_EXCEEDED_APPE",
-                            "Append denied: quota exceeded for user {}", state.current_user.as_deref().unwrap_or("unknown")
+                            "Append denied: quota exceeded for User {}", state.current_user.as_deref().unwrap_or("unknown")
                         );
                         return Ok(true);
                     }
@@ -1120,7 +1120,7 @@ pub async fn handle_store_command(
                 {
                     Ok(s) => s,
                     Err(e) => {
-                        tracing::warn!("APPE: Failed to get data connection: {}", e);
+                        tracing::warn!("Appe: Failed to get data connection: {}", e);
                         if state.passive_mode
                             && let Some(port) = state.data_port
                         {
@@ -1137,7 +1137,7 @@ pub async fn handle_store_command(
 
                 control_stream
                     .write_response(
-                        b"150 Opening BINARY mode data connection for append\r\n",
+                        b"150 Opening BINARY Mode data connection for append\r\n",
                         "FTP response",
                     )
                     .await;
@@ -1150,7 +1150,7 @@ pub async fn handle_store_command(
                     .await
                 {
                     Ok(_) => transfer_ok = true,
-                    Err(e) => tracing::warn!("APPE transfer error: {}", e),
+                    Err(e) => tracing::warn!("Appe transfer error: {}", e),
                 }
 
                 if let Err(e) = data_stream.shutdown().await {
@@ -1192,7 +1192,7 @@ pub async fn handle_store_command(
             }
         }
 
-        STOU => {
+        Stou => {
             if !state.authenticated {
                 control_stream
                     .write_response(b"530 Not logged in\r\n", "FTP response")
@@ -1216,7 +1216,7 @@ pub async fn handle_store_command(
             let file_path = match super::session_dirs::generate_unique_filename(state, 100).await {
                 Ok(path) => path,
                 Err(e) => {
-                    tracing::warn!("STOU failed: {}", e);
+                    tracing::warn!("Stou failed: {}", e);
                     control_stream
                         .write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response")
                         .await;
@@ -1242,7 +1242,7 @@ pub async fn handle_store_command(
             {
                 Ok(s) => s,
                 Err(e) => {
-                    tracing::warn!("STOU: Failed to get data connection: {}", e);
+                    tracing::warn!("Stou: Failed to get data connection: {}", e);
                     if state.passive_mode
                         && let Some(port) = state.data_port
                     {
@@ -1270,7 +1270,7 @@ pub async fn handle_store_command(
             let abort = Arc::clone(&state.abort_flag);
             match transfer::receive_file(&mut data_stream, &file_path, 0, abort, is_ascii).await {
                 Ok(_) => transfer_ok = true,
-                Err(e) => tracing::warn!("STOU transfer error: {}", e),
+                Err(e) => tracing::warn!("Stou transfer error: {}", e),
             }
 
             if let Err(e) = data_stream.shutdown().await {
@@ -1324,7 +1324,7 @@ pub async fn handle_fileinfo_command(
     use super::commands::FtpCommand::*;
 
     match cmd {
-        SIZE(filename) => {
+        Size(filename) => {
             if !state.authenticated {
                 control_stream
                     .write_response(b"530 Not logged in\r\n", "FTP response")
@@ -1348,7 +1348,7 @@ pub async fn handle_fileinfo_command(
                 let file_path = match state.resolve_path(filename) {
                     Ok(p) => p,
                     Err(e) => {
-                        tracing::warn!("SIZE failed for '{}': {}", filename, e);
+                        tracing::warn!("Size failed for '{}': {}", filename, e);
                         control_stream
                             .write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response")
                             .await;
@@ -1379,7 +1379,7 @@ pub async fn handle_fileinfo_command(
             }
         }
 
-        MDTM(filename) => {
+        Mdtm(filename) => {
             if !state.authenticated {
                 control_stream
                     .write_response(b"530 Not logged in\r\n", "FTP response")
@@ -1403,7 +1403,7 @@ pub async fn handle_fileinfo_command(
                 let file_path = match state.resolve_path(filename) {
                     Ok(p) => p,
                     Err(e) => {
-                        tracing::warn!("MDTM failed for '{}': {}", filename, e);
+                        tracing::warn!("Mdtm failed for '{}': {}", filename, e);
                         control_stream
                             .write_response(format!("550 {}\r\n", e).as_bytes(), "FTP response")
                             .await;

@@ -1,6 +1,6 @@
-//! SITE command handler
+//! Site command handler
 //!
-//! Handles FTP SITE commands, supports custom site operations
+//! Handles FTP Site commands, supports custom Site operations
 
 use crate::core::path_utils::path_starts_with_ignore_case;
 use anyhow::Result;
@@ -16,7 +16,7 @@ pub async fn handle_site_command(
 ) -> Result<bool> {
     use super::commands::FtpCommand::*;
 
-    if let SITE(site_cmd) = cmd {
+    if let Site(site_cmd) = cmd {
         if let Some(site_cmd) = site_cmd {
             let site_parts: Vec<&str> = site_cmd.splitn(2, ' ').collect();
             let site_action = site_parts[0].to_uppercase();
@@ -26,13 +26,13 @@ pub async fn handle_site_command(
                 "HELP" => {
                     control_stream
                         .write_response(
-                            b"214-The following SITE commands are recognized:\r\n",
+                            b"214-The following Site commands are recognized:\r\n",
                             "FTP response",
                         )
                         .await;
                     control_stream
                         .write_response(
-                            b"214-CHMOD IDLE HELP WHO WHOIS SYMLINK\r\n",
+                            b"214-CHMOD IDLE Help WHO WHOIS SYMLINK\r\n",
                             "FTP response",
                         )
                         .await;
@@ -58,7 +58,7 @@ pub async fn handle_site_command(
                     } else {
                         control_stream
                             .write_response(
-                                b"501 SITE IDLE requires time parameter\r\n",
+                                b"501 Site IDLE requires time parameter\r\n",
                                 "FTP response",
                             )
                             .await;
@@ -258,7 +258,7 @@ pub async fn handle_site_command(
                         } else {
                             control_stream
                                 .write_response(
-                                    b"501 SITE SYMLINK requires target and link_name\r\n",
+                                    b"501 Site SYMLINK requires target and link_name\r\n",
                                     "FTP response",
                                 )
                                 .await;
@@ -266,7 +266,7 @@ pub async fn handle_site_command(
                     } else {
                         control_stream
                             .write_response(
-                                b"501 SITE SYMLINK requires parameters\r\n",
+                                b"501 Site SYMLINK requires parameters\r\n",
                                 "FTP response",
                             )
                             .await;
@@ -326,7 +326,7 @@ pub async fn handle_site_command(
                                         Ok(()) => {
                                             control_stream
                                                 .write_response(
-                                                    format!("200 CHMOD {} {}\r\n", mode, target)
+                                                    format!("200 CHMOD {} {}\r\n", Mode, target)
                                                         .as_bytes(),
                                                     "FTP response",
                                                 )
@@ -345,13 +345,13 @@ pub async fn handle_site_command(
                                 }
                             } else {
                                 control_stream
-                                    .write_response(b"501 Invalid mode format\r\n", "FTP response")
+                                    .write_response(b"501 Invalid Mode format\r\n", "FTP response")
                                     .await;
                             }
                         } else {
                             control_stream
                                 .write_response(
-                                    b"501 SITE CHMOD requires mode and filename\r\n",
+                                    b"501 Site CHMOD requires Mode and filename\r\n",
                                     "FTP response",
                                 )
                                 .await;
@@ -359,7 +359,7 @@ pub async fn handle_site_command(
                     } else {
                         control_stream
                             .write_response(
-                                b"501 SITE CHMOD requires parameters\r\n",
+                                b"501 Site CHMOD requires parameters\r\n",
                                 "FTP response",
                             )
                             .await;
@@ -368,7 +368,7 @@ pub async fn handle_site_command(
                 _ => {
                     control_stream
                         .write_response(
-                            format!("500 Unknown SITE command: {}\r\n", site_action).as_bytes(),
+                            format!("500 Unknown Site command: {}\r\n", site_action).as_bytes(),
                             "FTP response",
                         )
                         .await;
@@ -376,7 +376,7 @@ pub async fn handle_site_command(
             }
         } else {
             control_stream
-                .write_response(b"501 SITE command requires parameter\r\n", "FTP response")
+                .write_response(b"501 Site command requires parameter\r\n", "FTP response")
                 .await;
         }
     }

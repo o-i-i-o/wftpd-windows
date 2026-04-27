@@ -510,12 +510,15 @@ impl TracingLogger {
         tracing::subscriber::set_global_default(subscriber)
             .map_err(|e| format!("Failed to set tracing logger: {}", e))?;
 
-        if let Err(_) = GLOBAL_LOGGER.set(GlobalLogger {
-            buffer: buffer.clone(),
-            file_op_buffer: file_op_buffer.clone(),
-            _guard: guard,
-            _file_op_guard: file_op_guard,
-        }) {
+        if GLOBAL_LOGGER
+            .set(GlobalLogger {
+                buffer: buffer.clone(),
+                file_op_buffer: file_op_buffer.clone(),
+                _guard: guard,
+                _file_op_guard: file_op_guard,
+            })
+            .is_err()
+        {
             tracing::debug!("GlobalLogger already initialized, skipping set");
         }
 

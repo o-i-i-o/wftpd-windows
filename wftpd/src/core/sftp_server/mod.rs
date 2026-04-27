@@ -350,10 +350,10 @@ impl SftpServer {
     pub async fn stop(&self) {
         {
             let mut tx = self.shutdown_tx.lock().await;
-            if let Some(sender) = tx.take() {
-                if let Err(e) = sender.send(()) {
-                    tracing::warn!("Failed to send SFTP shutdown signal: {}", e);
-                }
+            if let Some(sender) = tx.take()
+                && let Err(e) = sender.send(())
+            {
+                tracing::warn!("Failed to send SFTP shutdown signal: {:?}", e);
             }
         }
         {

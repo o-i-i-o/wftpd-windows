@@ -11,7 +11,7 @@ const SERVICE_NAME: &str = "wftpd";
 const SERVICE_WAIT_MAX_ATTEMPTS: u32 = 30;
 const SERVICE_WAIT_INTERVAL_MS: u64 = 500;
 
-fn close_service_handle(handle: impl windows::Win32::Foundation::IntoParam<SC_HANDLE>) {
+fn close_service_handle(handle: SC_HANDLE) {
     if let Err(e) = CloseServiceHandle(handle) {
         tracing::debug!("CloseServiceHandle error: {:?}", e);
     }

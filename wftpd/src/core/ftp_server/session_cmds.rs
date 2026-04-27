@@ -1,6 +1,6 @@
 //! FTP basic command handler
 //!
-//! Handles basic FTP commands like QUIT, NOOP, OPTS
+//! Handles basic FTP commands like Quit, Noop, Opts
 
 use super::commands::FtpCommand;
 use super::session_state::{ControlStream, FileStructure, SessionState, TransferModeType};
@@ -15,14 +15,14 @@ pub async fn handle_basic_command(
     use super::commands::FtpCommand::*;
 
     match cmd {
-        QUIT => {
+        Quit => {
             control_stream
                 .write_response(b"221 Goodbye\r\n", "FTP response")
                 .await;
             return Ok(false);
         }
 
-        SYST => {
+        Syst => {
             let hide_version = {
                 let cfg = ctx.config.lock();
                 cfg.ftp.hide_version_info
@@ -38,26 +38,26 @@ pub async fn handle_basic_command(
             }
         }
 
-        FEAT => {
-            let mut features = "211-Features:\r\n SIZE\r\n MDTM\r\n REST STREAM\r\n PASV\r\n EPSV\r\n EPRT\r\n PORT\r\n MLST\r\n MLSD\r\n MODE S\r\n STRU F\r\n UTF8\r\n TVFS\r\n".to_string();
+        Feat => {
+            let mut features = "211-Features:\r\n Size\r\n Mdtm\r\n Rest STREAM\r\n Pasv\r\n Epsv\r\n Eprt\r\n Port\r\n Mlst\r\n Mlsd\r\n Mode S\r\n Stru F\r\n UTF8\r\n TVFS\r\n".to_string();
             if ctx.tls_config.is_tls_available() {
-                features.push_str(" AUTH TLS\r\n PBSZ\r\n PROT\r\n");
-                features.push_str(" MIC\r\n CONF\r\n ENC\r\n");
+                features.push_str(" Auth TLS\r\n Pbsz\r\n Prot\r\n");
+                features.push_str(" Mic\r\n Conf\r\n Enc\r\n");
             }
-            features.push_str(" SITE SYMLINK\r\n SITE WHO\r\n");
+            features.push_str(" Site SYMLINK\r\n Site WHO\r\n");
             features.push_str("211 End\r\n");
             control_stream
                 .write_response(features.as_bytes(), "FTP response")
                 .await;
         }
 
-        NOOP => {
+        Noop => {
             control_stream
                 .write_response(b"200 OK\r\n", "FTP response")
                 .await;
         }
 
-        OPTS(opt_cmd, opt_value) => {
+        Opts(opt_cmd, opt_value) => {
             if let Some(cmd) = opt_cmd {
                 match cmd.to_uppercase().as_str() {
                     "UTF8" => {
@@ -68,14 +68,14 @@ pub async fn handle_basic_command(
                             state.encoding = "UTF-8".to_string();
                             control_stream
                                 .write_response(
-                                    b"200 OPTS UTF8 command successful - UTF8 encoding on\r\n",
+                                    b"200 Opts UTF8 command successful - UTF8 encoding on\r\n",
                                     "FTP response",
                                 )
                                 .await;
                         } else {
                             control_stream
                                 .write_response(
-                                    b"501 OPTS UTF8 OFF is not supported\r\n",
+                                    b"501 Opts UTF8 OFF is not supported\r\n",
                                     "FTP response",
                                 )
                                 .await;
@@ -85,25 +85,25 @@ pub async fn handle_basic_command(
                         let facts = "Type*;Size*;Modify*;UNIX.owner*;UNIX.group*;";
                         control_stream
                             .write_response(
-                                format!("250 MLST OPTS {}\r\n", facts).as_bytes(),
+                                format!("250 Mlst Opts {}\r\n", facts).as_bytes(),
                                 "FTP response",
                             )
                             .await;
                     }
                     _ => {
                         control_stream
-                            .write_response(b"501 Unsupported OPTS option\r\n", "FTP response")
+                            .write_response(b"501 Unsupported Opts option\r\n", "FTP response")
                             .await;
                     }
                 }
             } else {
                 control_stream
-                    .write_response(b"501 Syntax error in OPTS command\r\n", "FTP response")
+                    .write_response(b"501 Syntax error in Opts command\r\n", "FTP response")
                     .await;
             }
         }
 
-        TYPE(type_code) => {
+        Type(type_code) => {
             if let Some(type_code) = type_code {
                 let type_upper = type_code.to_uppercase();
                 let parts: Vec<&str> = type_upper.split_whitespace().collect();
@@ -122,7 +122,7 @@ pub async fn handle_basic_command(
                             state.transfer_mode = "binary".to_string();
                             control_stream
                                 .write_response(
-                                    b"200 Type set to L 8 (Local byte size 8)\r\n",
+                                    b"200 Type set to L 8 (Local byte Size 8)\r\n",
                                     "FTP response",
                                 )
                                 .await;
@@ -175,7 +175,7 @@ pub async fn handle_basic_command(
                     }
                     _ => {
                         control_stream
-                            .write_response(b"501 Unknown type\r\n", "FTP response")
+                            .write_response(b"501 Unknown Type\r\n", "FTP response")
                             .await;
                     }
                 }
@@ -191,9 +191,9 @@ pub async fn handle_basic_command(
             }
         }
 
-        MODE(mode) => {
-            if let Some(mode) = mode {
-                match mode.to_uppercase().as_str() {
+        Mode(mode) => {
+            if let Some(mode_val) = mode {
+                match mode_val.to_uppercase().as_str() {
                     "S" => {
                         state.transfer_mode_type = TransferModeType::Stream;
                         control_stream
@@ -203,28 +203,28 @@ pub async fn handle_basic_command(
                     "B" | "C" => {
                         control_stream
                             .write_response(
-                                b"504 Only Stream mode is supported\r\n",
+                                b"504 Only Stream Mode is supported\r\n",
                                 "FTP response",
                             )
                             .await;
                     }
                     _ => {
                         control_stream
-                            .write_response(b"501 Unknown mode\r\n", "FTP response")
+                            .write_response(b"501 Unknown Mode\r\n", "FTP response")
                             .await;
                     }
                 }
             } else {
                 control_stream
                     .write_response(
-                        b"501 Syntax error: MODE requires parameter\r\n",
+                        b"501 Syntax error: Mode requires parameter\r\n",
                         "FTP response",
                     )
                     .await;
             }
         }
 
-        STRU(structure) => {
+        Stru(structure) => {
             if let Some(structure) = structure {
                 match structure.to_uppercase().as_str() {
                     "F" => {
@@ -250,20 +250,20 @@ pub async fn handle_basic_command(
             } else {
                 control_stream
                     .write_response(
-                        b"501 Syntax error: STRU requires parameter\r\n",
+                        b"501 Syntax error: Stru requires parameter\r\n",
                         "FTP response",
                     )
                     .await;
             }
         }
 
-        ALLO => {
+        Allo => {
             control_stream
-                .write_response(b"200 ALLO command successful\r\n", "FTP response")
+                .write_response(b"200 Allo command successful\r\n", "FTP response")
                 .await;
         }
 
-        REST(offset_str) => {
+        Rest(offset_str) => {
             if let Some(offset_str) = offset_str {
                 if let Ok(offset) = offset_str.parse::<u64>() {
                     state.rest_offset = offset;
@@ -277,11 +277,11 @@ pub async fn handle_basic_command(
                         client_ip = %ctx.client_ip,
                         username = ?state.current_user.as_deref(),
                         action = "REST",
-                        "REST command: offset {}", offset
+                        "Rest command: offset {}", offset
                     );
                 } else {
                     control_stream
-                        .write_response(b"501 Syntax error in REST parameter\r\n", "FTP response")
+                        .write_response(b"501 Syntax error in Rest parameter\r\n", "FTP response")
                         .await;
                 }
             } else {
@@ -292,13 +292,13 @@ pub async fn handle_basic_command(
             }
         }
 
-        ACCT => {
+        Acct => {
             control_stream
                 .write_response(b"202 Account not required\r\n", "FTP response")
                 .await;
         }
 
-        REIN => {
+        Rein => {
             let tls_was_enabled = state.tls_enabled;
             let tls_config_preserved = state.data_protection;
             let previous_user = state.current_user.take();
@@ -324,7 +324,7 @@ pub async fn handle_basic_command(
             state.ftp_state = super::session_state::FtpSessionState::New;
 
             control_stream
-                .write_response(b"220 Service ready for new user\r\n", "FTP response")
+                .write_response(b"220 Service ready for new User\r\n", "FTP response")
                 .await;
 
             tracing::info!(
@@ -337,7 +337,7 @@ pub async fn handle_basic_command(
             );
         }
 
-        ABOR => {
+        Abor => {
             state
                 .abort_flag
                 .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -382,11 +382,11 @@ pub async fn handle_help_command(
 ) -> Result<bool> {
     use super::commands::FtpCommand::*;
 
-    if let HELP(opt_cmd) = cmd {
+    if let Help(opt_cmd) = cmd {
         if let Some(cmd) = opt_cmd {
             let help_text = match cmd.to_uppercase().as_str() {
                 "USER" => {
-                    "214 USER <username>: Specify user name for authentication. Use 'anonymous' or 'ftp' for anonymous access.\r\n"
+                    "214 USER <username>: Specify USER name for authentication. Use 'anonymous' or 'ftp' for anonymous access.\r\n"
                 }
                 "PASS" => {
                     "214 PASS <password>: Specify password for authentication. For anonymous access, use email as password.\r\n"
@@ -402,13 +402,13 @@ pub async fn handle_help_command(
                 "PWD" => "214 PWD: Print current working directory path.\r\n",
                 "XPWD" => "214 XPWD: Print current working directory (deprecated, use PWD).\r\n",
                 "LIST" => {
-                    "214 LIST [<path>]: List directory contents in Unix format. If no path specified, lists current directory.\r\n"
+                    "214 LIST [<path>]: LIST directory contents in Unix format. If no path specified, lists current directory.\r\n"
                 }
                 "NLST" => {
-                    "214 NLST [<path>]: List directory names only (no details). Useful for automated scripts.\r\n"
+                    "214 NLST [<path>]: LIST directory names only (no details). Useful for automated scripts.\r\n"
                 }
                 "MLSD" => {
-                    "214 MLSD [<path>]: List directory contents with machine-readable facts (RFC 3659).\r\n"
+                    "214 MLSD [<path>]: LIST directory contents with machine-readable facts (RFC 3659).\r\n"
                 }
                 "MLST" => {
                     "214 MLST [<path>]: Show facts for a single file/directory (RFC 3659).\r\n"
@@ -437,26 +437,26 @@ pub async fn handle_help_command(
                     "214 RNTO <filename>: Specify rename-to filename (second part of rename sequence).\r\n"
                 }
                 "PASV" => {
-                    "214 PASV: Enter passive mode for data transfer. Server opens a port for client to connect.\r\n"
+                    "214 PASV: Enter passive MODE for data transfer. Server opens a PORT for client to connect.\r\n"
                 }
-                "EPSV" => "214 EPSV: Enter extended passive mode (supports IPv6, RFC 2428).\r\n",
+                "EPSV" => "214 EPSV: Enter extended passive MODE (supports IPv6, RFC 2428).\r\n",
                 "PORT" => {
-                    "214 PORT <h1,h2,h3,h4,p1,p2>: Enter active mode. Client IP must match control connection.\r\n"
+                    "214 PORT <h1,h2,h3,h4,p1,p2>: Enter active MODE. Client IP must match control connection.\r\n"
                 }
                 "EPRT" => {
-                    "214 EPRT |<netproto>|<netaddr>|<tcpport>|: Extended active mode (supports IPv6, RFC 2428).\r\n"
+                    "214 EPRT |<netproto>|<netaddr>|<tcpport>|: Extended active MODE (supports IPv6, RFC 2428).\r\n"
                 }
                 "TYPE" => {
-                    "214 TYPE <type>: Set transfer type. A=ASCII, I=Binary(Image), L 8=Local byte size 8.\r\n"
+                    "214 TYPE <TYPE>: Set transfer TYPE. A=ASCII, I=Binary(Image), L 8=Local byte SIZE 8.\r\n"
                 }
                 "MODE" => {
-                    "214 MODE <mode>: Set transfer mode. S=Stream, B=Block, C=Compressed.\r\n"
+                    "214 MODE <MODE>: Set transfer MODE. S=Stream, B=Block, C=Compressed.\r\n"
                 }
                 "STRU" => "214 STRU <structure>: Set file structure. F=File, R=Record, P=Page.\r\n",
                 "REST" => {
                     "214 REST <offset>: Set restart marker for resuming transfers. Use before RETR or STOR.\r\n"
                 }
-                "SIZE" => "214 SIZE <filename>: Get file size in bytes (RFC 3659).\r\n",
+                "SIZE" => "214 SIZE <filename>: Get file SIZE in bytes (RFC 3659).\r\n",
                 "MDTM" => {
                     "214 MDTM <filename>: Get file modification time in YYYYMMDDHHMMSS format (RFC 3659).\r\n"
                 }
@@ -465,13 +465,13 @@ pub async fn handle_help_command(
                 "REIN" => {
                     "214 REIN: Reinitialize connection, reset all parameters (stay connected).\r\n"
                 }
-                "SYST" => "214 SYST: Return system type (returns 'UNIX Type: L8').\r\n",
-                "FEAT" => "214 FEAT: List server-supported features and extensions.\r\n",
+                "SYST" => "214 SYST: Return system TYPE (returns 'UNIX TYPE: L8').\r\n",
+                "FEAT" => "214 FEAT: LIST server-supported features and extensions.\r\n",
                 "STAT" => {
                     "214 STAT [<path>]: Without parameter: show server status. With parameter: show file/directory info.\r\n"
                 }
                 "HELP" => {
-                    "214 HELP [<command>]: Show help information. Without parameter: list all commands.\r\n"
+                    "214 HELP [<command>]: Show HELP information. Without parameter: LIST all commands.\r\n"
                 }
                 "NOOP" => {
                     "214 NOOP: No operation, returns 200 OK. Used to keep connection alive.\r\n"
@@ -480,10 +480,10 @@ pub async fn handle_help_command(
                     "214 SITE <command>: Execute server-specific commands (CHMOD, IDLE, HELP, WHO, WHOIS, SYMLINK).\r\n"
                 }
                 "AUTH" => {
-                    "214 AUTH <type>: Initiate TLS/SSL authentication. Type can be TLS, TLS-C, or SSL.\r\n"
+                    "214 AUTH <TYPE>: Initiate TLS/SSL authentication. TYPE can be TLS, TLS-C, or SSL.\r\n"
                 }
                 "PBSZ" => {
-                    "214 PBSZ <size>: Set protection buffer size (must be 0 for TLS). Use after AUTH.\r\n"
+                    "214 PBSZ <SIZE>: Set protection buffer SIZE (must be 0 for TLS). Use after AUTH.\r\n"
                 }
                 "PROT" => {
                     "214 PROT <level>: Set data channel protection level. C=Clear, P=Private(encrypted).\r\n"
@@ -505,9 +505,9 @@ pub async fn handle_help_command(
                 }
                 "OPTS" => "214 OPTS <option>: Set options (e.g., OPTS UTF8 ON).\r\n",
                 "ALLO" => {
-                    "214 ALLO <size>: Allocate storage space (no-op on this server, returns success).\r\n"
+                    "214 ALLO <SIZE>: Allocate storage space (no-op on this server, returns success).\r\n"
                 }
-                _ => "214 Unknown command or no help available\r\n",
+                _ => "214 Unknown command or no HELP available\r\n",
             };
             control_stream
                 .write_response(help_text.as_bytes(), "FTP response")
@@ -602,7 +602,7 @@ pub async fn handle_stat_command(
 ) -> Result<bool> {
     use super::commands::FtpCommand::*;
 
-    if let STAT = cmd {
+    if let Stat = cmd {
         if let Some(ref username) = state.current_user {
             control_stream
                 .write_response(b"211-FTP server status:\r\n", "FTP response")
@@ -628,7 +628,7 @@ pub async fn handle_stat_command(
             control_stream
                 .write_response(
                     format!(
-                        "211-Transfer mode: {}\r\n",
+                        "211-Transfer Mode: {}\r\n",
                         if state.passive_mode {
                             "Passive"
                         } else {
@@ -642,7 +642,7 @@ pub async fn handle_stat_command(
             control_stream
                 .write_response(
                     format!(
-                        "211-Transfer type: {}\r\n",
+                        "211-Transfer Type: {}\r\n",
                         state.transfer_mode.to_uppercase()
                     )
                     .as_bytes(),
@@ -657,7 +657,7 @@ pub async fn handle_stat_command(
                 .await;
             control_stream
                 .write_response(
-                    format!("211-Transfer mode type: {:?}\r\n", state.transfer_mode_type)
+                    format!("211-Transfer Mode Type: {:?}\r\n", state.transfer_mode_type)
                         .as_bytes(),
                     "FTP response",
                 )
@@ -703,7 +703,7 @@ pub async fn handle_stat_command(
             if let Some(data_port) = state.data_port {
                 control_stream
                     .write_response(
-                        format!("211-Data port: {}\r\n", data_port).as_bytes(),
+                        format!("211-Data Port: {}\r\n", data_port).as_bytes(),
                         "FTP response",
                     )
                     .await;

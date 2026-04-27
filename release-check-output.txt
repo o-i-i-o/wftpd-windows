@@ -1,0 +1,443 @@
+﻿========================================
+  WFTPG 鍙戝竷鍓嶆鏌?
+========================================
+
+鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  椤圭洰: wftpd (FTP/SFTP 鏈嶅姟绔?
+鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+[鍑嗗] 姝ｅ湪鏍煎紡鍖栦唬鐮?..
+  鉁?浠ｇ爜鏍煎紡鍖栧畬鎴?
+
+[1] 姝ｅ湪鎵ц: 浠ｇ爜鏍煎紡妫€鏌?..
+  鉁?閫氳繃: 浠ｇ爜鏍煎紡妫€鏌?
+
+[2] 姝ｅ湪鎵ц: Clippy 闈欐€佸垎鏋?..
+./release-check.cmd :     Finished `release` profile [optimized] target(s) in 0
+.58s
+所在位置 行:1 字符: 27
++ cd d:\Code\wftpd-windows; ./release-check.cmd 2>&1 | Out-File -FilePa ...
++                           ~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Finished `r...get(s) in 0.58s 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  鉁?閫氳繃: Clippy 闈欐€佸垎鏋?
+
+[3] 姝ｅ湪鎵ц: 鍗曞厓娴嬭瘯...
+warning: calls to `std::mem::drop` with a reference instead of an owned value d
+oes nothing
+   --> src\core\ftp_server\passive.rs:464:17
+    |
+464 |                 drop(info);
+    |                 ^^^^^----^
+    |                      |
+    |                      argument has type `&mut PassiveListenerInfo`
+    |
+    = note: `#[warn(dropping_references)]` on by default
+help: use `let _ = ...` to ignore the expression or result
+    |
+464 -                 drop(info);
+464 +                 let _ = info;
+    |
+
+warning: `wftpd` (lib test) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.60s
+     Running unittests src\lib.rs (target\release\deps\wftpd-8859f16b0a8fb870.e
+xe)
+
+running 285 tests
+test core::config::tests::test_config_clone ... ok
+test core::config::tests::test_config_default_values ... ok
+test core::config::tests::test_config_connection_counting ... ok
+test core::config::tests::test_config_is_ip_allowed_denied ... ok
+test core::config::tests::test_config_get_config_path ... ok
+test core::config::tests::test_config_get_users_path ... ok
+test core::config::tests::test_config_is_ip_allowed_both_empty ... ok
+test core::config::tests::test_config_check_connection_limits ... ok
+test core::config::tests::test_config_is_ip_allowed_only_denied ... ok
+test core::config::tests::test_config_is_ip_allowed ... ok
+test core::config::tests::test_config_normalize_bind_ip ... ok
+test core::config::tests::test_config_connection_per_ip_limit ... ok
+test core::config::tests::test_config_validate_empty_cidr_skipped ... ok
+test core::config::tests::test_config_validate_fail2ban_ban_time_zero ... ok
+test core::config::tests::test_config_validate_fail2ban_threshold_zero ... ok
+test core::config::tests::test_config_validate_ftp_port_zero ... ok
+test core::config::tests::test_config_validate_invalid_passive_range ... ok
+test core::config::tests::test_config_validate_large_port ... ok
+test core::config::tests::test_config_validate_pass ... ok
+test core::config::tests::test_config_validate_paths_anonymous_no_home ... ok
+test core::config::tests::test_config_validate_paths_ftps_no_cert ... ok
+test core::config::tests::test_config_validate_sftp_port_different_from_ftp ... ok
+test core::config::tests::test_config_validate_sftp_port_different_from_ftps_implicit ... ok
+test core::config::tests::test_config_validate_sftp_port_zero ... ok
+test core::config::tests::test_config_validate_zero_log_files ... ok
+test core::config::tests::test_config_validate_zero_max_connections ... ok
+test core::config::tests::test_config_validate_zero_max_per_ip ... ok
+test core::config::tests::test_ftps_config_default ... ok
+test core::config::tests::test_ip_matches_cidr_empty ... ok
+test core::config::tests::test_ip_matches_cidr_exact ... ok
+test core::config::tests::test_ip_matches_cidr_invalid_cidr ... ok
+test core::config::tests::test_ip_matches_cidr_invalid_ip ... ok
+test core::config::tests::test_ip_matches_cidr_ipv4_net ... ok
+test core::config::tests::test_ip_matches_cidr_ipv6 ... ok
+test core::config::tests::test_ip_matches_cidr_wildcard ... ok
+test core::config::tests::test_server_config_connection_counting ... ok
+test core::config::tests::test_server_config_default ... ok
+test core::config::tests::test_server_config_get_all_ip_counts ... ok
+test core::config::tests::test_server_config_get_counts ... ok
+test core::config::tests::test_server_config_limits ... ok
+test core::config::tests::test_server_config_unregister_underflow ... ok
+test core::fail2ban::tests::test_config_hot_update ... ok
+test core::fail2ban::tests::test_event_callback ... ok
+test core::fail2ban::tests::test_fail2ban_basic ... ok
+test core::fail2ban::tests::test_hashset_no_duplicates ... ok
+test core::ftp_server::commands::tests::test_parse_abor ... ok
+test core::ftp_server::commands::tests::test_parse_appe ... ok
+test core::ftp_server::commands::tests::test_parse_auth ... ok
+test core::ftp_server::commands::tests::test_parse_cdup ... ok
+test core::ftp_server::commands::tests::test_parse_cwd ... ok
+test core::ftp_server::commands::tests::test_parse_dele ... ok
+test core::config::tests::test_config_load_nonexistent ... ok
+test core::ftp_server::commands::tests::test_parse_epsv ... ok
+test core::ftp_server::commands::tests::test_parse_feat ... ok
+test core::ftp_server::commands::tests::test_parse_list ... ok
+test core::ftp_server::commands::tests::test_parse_list_no_arg ... ok
+test core::config::tests::test_config_save_and_load ... ok
+test core::ftp_server::commands::tests::test_parse_mkd_xmkd ... ok
+test core::ftp_server::commands::tests::test_parse_mlsd ... ok
+test core::ftp_server::commands::tests::test_parse_mlst ... ok
+test core::ftp_server::commands::tests::test_parse_noop ... ok
+test core::ftp_server::commands::tests::test_parse_opts_with_value ... ok
+test core::ftp_server::commands::tests::test_parse_opts_no_arg ... ok
+test core::ftp_server::commands::tests::test_parse_opts_without_value ... ok
+test core::ftp_server::commands::tests::test_parse_pass ... ok
+test core::ftp_server::commands::tests::test_parse_pass_no_arg ... ok
+test core::ftp_server::commands::tests::test_parse_pasv ... ok
+test core::ftp_server::commands::tests::test_parse_pbsz ... ok
+test core::ftp_server::commands::tests::test_parse_port ... ok
+test core::ftp_server::commands::tests::test_parse_prot ... ok
+test core::ftp_server::commands::tests::test_parse_pwd ... ok
+test core::ftp_server::commands::tests::test_parse_quit ... ok
+test core::ftp_server::commands::tests::test_parse_rein ... ok
+test core::ftp_server::commands::tests::test_parse_rest ... ok
+test core::ftp_server::commands::tests::test_parse_retr ... ok
+test core::ftp_server::commands::tests::test_parse_rmd_xrmd ... ok
+test core::ftp_server::commands::tests::test_parse_rnfr_rnto ... ok
+test core::ftp_server::commands::tests::test_parse_site ... ok
+test core::ftp_server::commands::tests::test_parse_size ... ok
+test core::ftp_server::commands::tests::test_parse_stor ... ok
+test core::ftp_server::commands::tests::test_parse_stou ... ok
+test core::ftp_server::commands::tests::test_parse_syst ... ok
+test core::ftp_server::commands::tests::test_parse_type ... ok
+test core::ftp_server::commands::tests::test_parse_unknown ... ok
+test core::ftp_server::commands::tests::test_parse_user ... ok
+test core::ftp_server::commands::tests::test_parse_user_no_arg ... ok
+test core::ftp_server::passive::tests::test_accept_with_validation_no_listener ... ok
+test core::ftp_server::passive::tests::test_ip_matches_client_exact_ipv4 ... ok
+test core::ftp_server::passive::tests::test_ip_matches_client_invalid_expected ... ok
+test core::ftp_server::passive::tests::test_ip_matches_client_ipv6_exact ... ok
+test core::ftp_server::passive::tests::test_ip_matches_client_ipv6_mapped_to_ipv4 ... ok
+test core::ftp_server::passive::tests::test_ip_matches_client_ipv4_mapped_to_ipv6 ... ok
+test core::ftp_server::passive::tests::test_ip_matches_client_mismatched_ipv4 ... ok
+test core::ftp_server::passive::tests::test_ip_matches_client_ipv6_mismatch ... ok
+test core::ftp_server::passive::tests::test_passive_manager_default ... ok
+test core::ftp_server::passive::tests::test_passive_manager_new ... ok
+test core::ftp_server::passive::tests::test_pasv_config_ipv6_rejected ... ok
+test core::ftp_server::passive::tests::test_remove_nonexistent_listener ... ok
+test core::ftp_server::passive::tests::test_try_bind_port_invalid_range ... ok
+test core::ftp_server::reply::tests::test_reply_builder_about_to_send_with_size ... ok
+test core::ftp_server::reply::tests::test_reply_builder_about_to_send_without_size ... ok
+test core::ftp_server::reply::tests::test_reply_builder_entering_extended_passive_mode ... ok
+test core::ftp_server::reply::tests::test_reply_builder_entering_passive_mode ... ok
+test core::ftp_server::reply::tests::test_reply_builder_feature_list ... ok
+test core::ftp_server::reply::tests::test_reply_builder_goodbye ... ok
+test core::ftp_server::reply::tests::test_reply_builder_logged_in ... ok
+test core::ftp_server::reply::tests::test_reply_builder_not_logged_in ... ok
+test core::ftp_server::reply::tests::test_reply_builder_transfer_complete ... ok
+test core::ftp_server::reply::tests::test_reply_builder_welcome ... ok
+test core::ftp_server::reply::tests::test_reply_code_values ... ok
+test core::ftp_server::reply::tests::test_reply_equality ... ok
+test core::ftp_server::reply::tests::test_reply_from_code ... ok
+test core::ftp_server::reply::tests::test_reply_is_positive ... ok
+test core::ftp_server::passive::tests::test_try_bind_port_success ... ok
+test core::ftp_server::reply::tests::test_reply_multi_empty ... ok
+test core::ftp_server::passive::tests::test_try_bind_port_same_port_twice ... ok
+test core::ftp_server::passive::tests::test_cleanup_expired ... ok
+test core::ftp_server::passive::tests::test_remove_listener ... ok
+test core::ftp_server::reply::tests::test_reply_multi_single_line ... ok
+test core::ftp_server::passive::tests::test_epsv_config_ipv6_ok ... ok
+test core::ftp_server::passive::tests::test_cleanup_not_expired ... ok
+test core::ftp_server::reply::tests::test_reply_multi_to_bytes ... ok
+test core::ftp_server::reply::tests::test_reply_none_to_bytes ... ok
+test core::ftp_server::reply::tests::test_reply_single_to_bytes ... ok
+test core::ftp_server::session_auth::tests::test_command_context_creation ... ok
+test core::ftp_server::session_auth::tests::test_command_context_with_anonymous ... ok
+test core::ftp_server::session_state::tests::test_file_structure_default ... ok
+test core::ftp_server::session_state::tests::test_ftp_session_state_equality ... ok
+test core::ftp_server::session_state::tests::test_ftp_session_state_initial ... ok
+test core::ftp_server::session_state::tests::test_session_state_default_values ... ok
+test core::ftp_server::session_state::tests::test_transfer_mode_type_default ... ok
+test core::ftp_server::session_state::tests::test_ftp_session_state_transitions ... ok
+test core::ftp_server::session_state::tests::test_validate_eprt_ip_invalid_ip ... ok
+test core::ftp_server::session_state::tests::test_validate_eprt_ip_ipv6_mismatch ... ok
+test core::ftp_server::session_state::tests::test_validate_eprt_ip_ipv6_matching ... ok
+test core::ftp_server::session_state::tests::test_validate_eprt_ip_matching_ipv4 ... ok
+test core::ftp_server::session_state::tests::test_validate_eprt_ip_version_mismatch ... ok
+test core::ftp_server::session_state::tests::test_validate_eprt_ip_mismatched_ipv4 ... ok
+test core::ftp_server::session_state::tests::test_validate_port_ip_empty ... ok
+test core::ftp_server::session_state::tests::test_validate_port_ip_partial_mismatch ... ok
+test core::ftp_server::session_state::tests::test_validate_port_ip_too_few_parts ... ok
+test core::ftp_server::session_state::tests::test_validate_port_ip_valid ... ok
+test core::ftp_server::session_state::tests::test_validate_port_ip_too_many_parts ... ok
+test core::ftp_server::session_state::tests::test_validate_port_ip_wrong_ip ... ok
+test core::ftp_server::transfer::tests::test_convert_crlf_to_lf_empty ... ok
+test core::ftp_server::transfer::tests::test_convert_crlf_to_lf_lone_cr ... ok
+test core::ftp_server::transfer::tests::test_convert_crlf_to_lf_mixed ... ok
+test core::ftp_server::transfer::tests::test_convert_crlf_to_lf_no_crlf ... ok
+test core::ftp_server::transfer::tests::test_convert_crlf_to_lf_only_cr ... ok
+test core::ftp_server::transfer::tests::test_convert_crlf_to_lf_only_lf ... ok
+test core::ftp_server::transfer::tests::test_convert_crlf_to_lf_simple_crlf ... ok
+test core::ftp_server::transfer::tests::test_convert_lf_to_crlf_empty ... ok
+test core::ftp_server::transfer::tests::test_convert_lf_to_crlf_mixed ... ok
+test core::ftp_server::transfer::tests::test_convert_lf_to_crlf_no_lf ... ok
+test core::ftp_server::transfer::tests::test_convert_lf_to_crlf_only_cr ... ok
+test core::ftp_server::transfer::tests::test_convert_lf_to_crlf_only_lf ... ok
+test core::ftp_server::transfer::tests::test_convert_lf_to_crlf_simple_lf ... ok
+test core::ftp_server::transfer::tests::test_convert_roundtrip ... ok
+test core::ftp_server::transfer::tests::test_build_mlst_facts_dir ... ok
+test core::ipc::tests::test_reload_command_serialization ... ok
+test core::ipc::tests::test_reload_response_error ... ok
+test core::ipc::tests::test_reload_response_serialization ... ok
+test core::ftp_server::transfer::tests::test_build_mlst_facts_file ... ok
+test core::logger::tests::test_log_level_from_tracing ... ok
+test core::logger::tests::test_log_level_ordering ... ok
+test core::metrics::tests::test_metrics_recording ... ok
+test core::path_utils::tests::test_build_safe_path_normal ... ok
+test core::path_utils::tests::test_build_safe_path_parent_escape ... ok
+test core::path_utils::tests::test_build_safe_path_too_deep ... ok
+test core::path_utils::tests::test_is_absolute_ftp_path ... ok
+test core::path_utils::tests::test_is_absolute_ftp_path_edge_cases ... ok
+test core::path_utils::tests::test_is_valid_path_component ... ok
+test core::path_utils::tests::test_is_valid_path_component_empty ... ok
+test core::path_utils::tests::test_is_valid_path_component_invalid_chars ... ok
+test core::path_utils::tests::test_is_valid_path_component_windows_reserved ... ok
+test core::path_utils::tests::test_normalize_windows_path ... ok
+test core::path_utils::tests::test_path_resolve_error_clone_copy ... ok
+test core::path_utils::tests::test_path_resolve_error_debug ... ok
+test core::path_utils::tests::test_path_resolve_error_display ... ok
+test core::path_utils::tests::test_path_starts_with_ignore_case ... ok
+test core::path_utils::tests::test_paths_equal_ignore_case ... ok
+test core::logger::tests::test_file_op_buffer ... ok
+test core::path_utils::tests::test_resolve_path_internal_absolute ... ok
+test core::path_utils::tests::test_resolve_path_internal_absolute_with_backslash ... ok
+test core::logger::tests::test_file_op_entry_json_roundtrip ... ok
+test core::path_utils::tests::test_resolve_path_internal_dot_path ... ok
+test core::path_utils::tests::test_resolve_path_internal_empty_path ... ok
+test core::path_utils::tests::test_resolve_path_internal_relative ... ok
+test core::path_utils::tests::test_to_ftp_path_not_under_home ... ok
+test core::path_utils::tests::test_to_ftp_path_root ... ok
+test core::logger::tests::test_log_entry_json_roundtrip ... ok
+test core::path_utils::tests::test_to_ftp_path_windows ... ok
+test core::path_utils::tests::test_validate_existing_path_not_found ... ok
+test core::logger::tests::test_log_buffer ... ok
+test core::quota::tests::test_format_size_bytes ... ok
+test core::quota::tests::test_format_size_gb ... ok
+test core::ftp_server::transfer::tests::test_get_file_mtime ... ok
+test core::quota::tests::test_format_size_kb ... ok
+test core::ftp_server::transfer::tests::test_get_file_mtime_raw ... ok
+test core::quota::tests::test_format_size_mb ... ok
+test core::quota::tests::test_quota_data_default ... ok
+test core::quota::tests::test_quota_manager_add_usage ... ok
+test core::quota::tests::test_quota_manager_check_quota ... ok
+test core::quota::tests::test_quota_usage_default ... ok
+test core::quota::tests::test_quota_manager_get_all_usage ... ok
+test core::rate_limiter::tests::test_rate_limit_config_create_limiter ... ok
+test core::rate_limiter::tests::test_rate_limit_config_new ... ok
+test core::rate_limiter::tests::test_rate_limit_config_unlimited ... ok
+test core::quota::tests::test_quota_manager_multiple_users ... ok
+test core::quota::tests::test_quota_manager_new ... ok
+test core::rate_limiter::tests::test_rate_limiter_acquire_small_amount ... ok
+test core::rate_limiter::tests::test_rate_limiter_acquire_unlimited ... ok
+test core::rate_limiter::tests::test_rate_limiter_initial_tokens ... ok
+test core::quota::tests::test_quota_manager_reset_usage ... ok
+test core::rate_limiter::tests::test_rate_limiter_limited ... ok
+test core::quota::tests::test_quota_manager_subtract_usage ... ok
+test core::rate_limiter::tests::test_rate_limiter_refill ... ok
+test core::rate_limiter::tests::test_rate_limiter_unlimited ... ok
+test core::rate_limiter::tests::test_transfer_rate_tracker_add_bytes ... ok
+test core::rate_limiter::tests::test_transfer_rate_tracker_default ... ok
+test core::rate_limiter::tests::test_transfer_rate_tracker_new ... ok
+test core::sftp_server::tests::test_build_attrs ... ok
+test core::quota::tests::test_quota_manager_subtract_usage_underflow ... ok
+test core::sftp_server::tests::test_build_attrs_dir ... ok
+test core::sftp_server::tests::test_build_data_packet ... ok
+test core::sftp_server::tests::test_build_handle_packet ... ok
+test core::sftp_server::tests::test_build_packet ... ok
+test core::sftp_server::tests::test_build_status_packet ... ok
+test core::sftp_server::tests::test_build_version_packet ... ok
+test core::quota::tests::test_quota_manager_force_flush ... ok
+test core::sftp_server::tests::test_generate_handle_sequential ... ok
+test core::quota::tests::test_quota_manager_flush_if_dirty ... ok
+test core::sftp_server::tests::test_generate_handle_wrapping ... ok
+test core::sftp_server::tests::test_max_handles ... ok
+test core::sftp_server::tests::test_max_packet_size ... ok
+test core::sftp_server::tests::test_parse_string_empty ... ok
+test core::sftp_server::tests::test_parse_string_truncated ... ok
+test core::sftp_server::tests::test_parse_string_valid ... ok
+test core::sftp_server::tests::test_parse_string_with_len_valid ... ok
+test core::quota::tests::test_quota_manager_persistence ... ok
+test core::sftp_server::tests::test_parse_u32_insufficient_data ... ok
+test core::sftp_server::tests::test_parse_u32_offset_out_of_bounds ... ok
+test core::sftp_server::tests::test_parse_u32_valid ... ok
+test core::sftp_server::tests::test_parse_u64_insufficient_data ... ok
+test core::sftp_server::tests::test_parse_u64_valid ... ok
+test core::sftp_server::tests::test_sftp_constants ... ok
+test core::sftp_server::tests::test_sftp_handle_timeout ... ok
+test core::sftp_server::tests::test_sftp_state_initial ... ok
+test core::users::tests::test_add_user_empty_home ... ok
+test core::users::tests::test_authenticate_user_not_found ... ok
+test core::metrics::tests::test_command_timer ... ok
+test core::users::tests::test_add_user_duplicate ... ok
+test core::users::tests::test_authenticate_disabled_user ... ok
+test core::users::tests::test_permissions_default ... ok
+test core::users::tests::test_permissions_default_is_none ... ok
+test core::users::tests::test_add_user_empty_username ... ok
+test core::users::tests::test_permissions_display ... ok
+test core::users::tests::test_permissions_full ... ok
+test core::users::tests::test_remove_user_not_found ... ok
+test core::users::tests::test_add_user ... ok
+test core::users::tests::test_authenticate_wrong_password ... ok
+test core::users::tests::test_iter_users ... ok
+test core::users::tests::test_authenticate_empty_password ... ok
+test core::users::tests::test_update_password_user_not_found ... ok
+test core::users::tests::test_remove_user ... ok
+test core::users::tests::test_user_manager_default ... ok
+test core::users::tests::test_password_hash_different_passwords ... ok
+test core::users::tests::test_set_user_admin ... ok
+test core::users::tests::test_user_manager_load_empty_file ... ok
+test core::users::tests::test_user_manager_new ... ok
+test core::users::tests::test_user_manager_load_invalid_json ... ok
+test core::users::tests::test_authenticate_success ... ok
+test core::users::tests::test_get_all_users ... ok
+test core::users::tests::test_user_serialization ... ok
+test core::users::tests::test_user_serialization_roundtrip ... ok
+test core::users::tests::test_set_user_enabled ... ok
+test core::users::tests::test_user_manager_reload ... ok
+test core::users::tests::test_update_home_dir ... ok
+test core::users::tests::test_password_hash_same_password_different_salt ... ok
+test core::users::tests::test_update_permissions ... ok
+test core::users::tests::test_user_manager_save_and_load ... ok
+test core::ftp_server::passive::tests::test_accept_with_validation_timeout ... ok
+test core::rate_limiter::tests::test_transfer_rate_tracker_elapsed ... ok
+test core::users::tests::test_update_password ... ok
+test core::users::tests::test_user_manager_multiple_users ... ok
+
+test result: ok. 285 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.80s
+
+     Running unittests src\service_main.rs (target\release\deps\wftpd-ca7a525e3
+363c016.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests wftpd
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+  鉁?閫氳繃: 鍗曞厓娴嬭瘯
+
+[4] 姝ｅ湪鎵ц: 缂栬瘧妫€鏌?..
+    Finished `release` profile [optimized] target(s) in 0.48s
+  鉁?閫氳繃: 缂栬瘧妫€鏌?
+
+[5] 姝ｅ湪鎵ц: Release 鏋勫缓...
+    Finished `release` profile [optimized] target(s) in 0.50s
+  鉁?閫氳繃: Release 鏋勫缓
+
+鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  椤圭洰: wftpg (GUI 瀹㈡埛绔?
+鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+[鍑嗗] 姝ｅ湪鏍煎紡鍖栦唬鐮?..
+  鉁?浠ｇ爜鏍煎紡鍖栧畬鎴?
+
+[6] 姝ｅ湪鎵ц: 浠ｇ爜鏍煎紡妫€鏌?..
+  鉁?閫氳繃: 浠ｇ爜鏍煎紡妫€鏌?
+
+[7] 姝ｅ湪鎵ц: Clippy 闈欐€佸垎鏋?..
+    Checking wftpg v3.3.26 (D:\Code\wftpd-windows\wftpg)
+error[E0133]: call to unsafe function `windows::Win32::System::Services::CloseS
+erviceHandle` is unsafe and requires unsafe block
+  --> src\core\server_manager.rs:15:21
+   |
+15 |     if let Err(e) = CloseServiceHandle(handle) {
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+   |
+   = note: consult the function's documentation for information on how to avoid
+ undefined behavior
+
+For more information about this error, try `rustc --explain E0133`.
+error: could not compile `wftpg` (lib) due to 1 previous error
+  鉂?澶辫触: Clippy 闈欐€佸垎鏋?
+
+[8] 姝ｅ湪鎵ц: 鍗曞厓娴嬭瘯...
+   Compiling wftpg v3.3.26 (D:\Code\wftpd-windows\wftpg)
+error[E0133]: call to unsafe function `Services::CloseServiceHandle` is unsafe 
+and requires unsafe block
+  --> src\core\server_manager.rs:15:21
+   |
+15 |     if let Err(e) = CloseServiceHandle(handle) {
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+   |
+   = note: consult the function's documentation for information on how to avoid
+ undefined behavior
+
+For more information about this error, try `rustc --explain E0133`.
+error: could not compile `wftpg` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `wftpg` (lib test) due to 1 previous error
+  鉂?澶辫触: 鍗曞厓娴嬭瘯
+
+[9] 姝ｅ湪鎵ц: 缂栬瘧妫€鏌?..
+    Checking wftpg v3.3.26 (D:\Code\wftpd-windows\wftpg)
+error[E0133]: call to unsafe function `Services::CloseServiceHandle` is unsafe 
+and requires unsafe block
+  --> src\core\server_manager.rs:15:21
+   |
+15 |     if let Err(e) = CloseServiceHandle(handle) {
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+   |
+   = note: consult the function's documentation for information on how to avoid
+ undefined behavior
+
+For more information about this error, try `rustc --explain E0133`.
+error: could not compile `wftpg` (lib) due to 1 previous error
+  鉂?澶辫触: 缂栬瘧妫€鏌?
+
+[10] 姝ｅ湪鎵ц: Release 鏋勫缓...
+   Compiling wftpg v3.3.26 (D:\Code\wftpd-windows\wftpg)
+error[E0133]: call to unsafe function `Services::CloseServiceHandle` is unsafe 
+and requires unsafe block
+  --> src\core\server_manager.rs:15:21
+   |
+15 |     if let Err(e) = CloseServiceHandle(handle) {
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+   |
+   = note: consult the function's documentation for information on how to avoid
+ undefined behavior
+
+For more information about this error, try `rustc --explain E0133`.
+error: could not compile `wftpg` (lib) due to 1 previous error
+  鉂?澶辫触: Release 鏋勫缓
+
+========================================
+  妫€鏌ョ粨鏋滄眹鎬?
+========================================
+  鎬绘鏌ユ暟: 10
+  閫氳繃: 10 - 4
+  澶辫触: 4
+
+  鈿狅笍  鍙戠幇 4 涓け璐ラ」锛岃淇鍚庨噸璇曘€?
+========================================

@@ -347,10 +347,10 @@ impl FtpServer {
     pub async fn stop(&self) {
         {
             let mut tx = self.shutdown_tx.lock().await;
-            if let Some(sender) = tx.take() {
-                if let Err(e) = sender.send(()) {
-                    tracing::warn!("Failed to send FTP shutdown signal: {}", e);
-                }
+            if let Some(sender) = tx.take()
+                && let Err(e) = sender.send(())
+            {
+                tracing::warn!("Failed to send FTP shutdown signal: {:?}", e);
             }
         }
         {

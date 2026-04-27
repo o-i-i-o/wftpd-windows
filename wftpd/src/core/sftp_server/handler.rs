@@ -230,10 +230,10 @@ impl russh::server::Handler for SftpHandler {
         let (auth_result, home_dir_opt) = {
             let mut users = self.user_manager.lock();
 
-            if users.get_user(user).is_none() {
-                if let Err(e) = users.reload(&self.users_path) {
-                    tracing::warn!("Failed to reload users during SFTP authentication: {}", e);
-                }
+            if users.get_user(user).is_none()
+                && let Err(e) = users.reload(&self.users_path)
+            {
+                tracing::warn!("Failed to reload users during SFTP authentication: {}", e);
             }
 
             let result = users.authenticate(user, password);
