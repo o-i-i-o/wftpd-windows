@@ -461,7 +461,6 @@ mod tests {
             if let Some(past) = past_time {
                 info.created_at = past;
             } else {
-                drop(info);
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             }
         }

@@ -560,7 +560,7 @@ impl russh::server::Handler for SftpHandler {
             match response {
                 Ok(resp) => {
                     let handle = session.handle();
-                    if let Err(e) = handle.data(channel, bytes::Bytes::from(resp)).await {
+                    if let Err(e) = handle.data(channel, resp).await {
                         tracing::warn!("Failed to send SFTP response: {:?}", e);
                     }
                 }
