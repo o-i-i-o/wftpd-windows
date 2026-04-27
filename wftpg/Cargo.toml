@@ -1,6 +1,6 @@
 [package]
 name = "wftpg"
-version = "3.3.27"
+version = "3.3.28"
 edition = "2024"
 authors = ["boss@oi-io.cc"]
 description = "SFTP+FTP GUI Management Tool for Windows (Rust + egui)"
@@ -55,6 +55,7 @@ tracing-appender = "0.2.4"
 parking_lot = "0.12.5"
 regex = "1.12.3"
 rand = "0.10.1"
+windows-service = "0.8.0"
 
 [build-dependencies]
 embed-resource = "3.0.8"

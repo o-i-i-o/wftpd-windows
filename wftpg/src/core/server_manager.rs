@@ -1,21 +1,19 @@
 //! Server Manager for Windows Service management
 //!
 //! This module provides Windows service management functionality
-//! for the wftpd service backend.
+//! for the wftpd service backend using safe windows-service crate.
 
 use anyhow::{Context, Result};
-use windows::Win32::System::Services::*;
-use windows::core::PCWSTR;
+use std::ffi::OsString;
+use std::time::Duration;
+use windows_service::service::{
+    ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceState, ServiceType,
+};
+use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
 const SERVICE_NAME: &str = "wftpd";
 const SERVICE_WAIT_MAX_ATTEMPTS: u32 = 30;
 const SERVICE_WAIT_INTERVAL_MS: u64 = 500;
-
-fn close_service_handle(handle: SC_HANDLE) {
-    if let Err(e) = unsafe { CloseServiceHandle(handle) } {
-        tracing::debug!("CloseServiceHandle error: {:?}", e);
-    }
-}
 
 pub struct ServerManager;
 
@@ -30,251 +28,160 @@ impl ServerManager {
         ServerManager
     }
 
+    fn connect_manager(&self, access: ServiceManagerAccess) -> Result<ServiceManager> {
+        ServiceManager::local_computer(None::<&str>, access)
+            .context("Failed to connect to service control manager")
+    }
+
     pub fn is_service_installed(&self) -> bool {
-        unsafe {
-            let manager_result = OpenSCManagerW(None, None, SC_MANAGER_CONNECT);
+        let manager = match self.connect_manager(ServiceManagerAccess::CONNECT) {
+            Ok(m) => m,
+            Err(_) => return false,
+        };
 
-            if let Ok(manager) = manager_result {
-                let service_name_wide: Vec<u16> = SERVICE_NAME
-                    .encode_utf16()
-                    .chain(std::iter::once(0))
-                    .collect();
-                let service_result = OpenServiceW(
-                    manager,
-                    PCWSTR(service_name_wide.as_ptr()),
-                    SERVICE_QUERY_STATUS,
-                );
-
-                close_service_handle(manager);
-
-                if let Ok(service) = service_result {
-                    close_service_handle(SC_HANDLE(service.0));
-                    return true;
-                }
-            }
-        }
-        false
+        manager
+            .open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS)
+            .is_ok()
     }
 
     pub fn is_service_running(&self) -> bool {
-        unsafe {
-            let manager = match OpenSCManagerW(None, None, SC_MANAGER_CONNECT) {
-                Ok(m) => m,
-                Err(_) => return false,
-            };
+        let manager = match self.connect_manager(ServiceManagerAccess::CONNECT) {
+            Ok(m) => m,
+            Err(_) => return false,
+        };
 
-            let service_name_wide: Vec<u16> = SERVICE_NAME
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect();
-            let service = match OpenServiceW(
-                manager,
-                PCWSTR(service_name_wide.as_ptr()),
-                SERVICE_QUERY_STATUS | SERVICE_START,
-            ) {
-                Ok(s) => s,
-                Err(_) => {
-                    close_service_handle(manager);
-                    return false;
-                }
-            };
+        let service = match manager.open_service(
+            SERVICE_NAME,
+            ServiceAccess::QUERY_STATUS | ServiceAccess::START,
+        ) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
 
-            close_service_handle(manager);
-
-            let mut status = SERVICE_STATUS_PROCESS::default();
-            let mut bytes_needed: u32 = 0;
-
-            let query_result = QueryServiceStatusEx(
-                service,
-                SC_STATUS_PROCESS_INFO,
-                Some(std::slice::from_raw_parts_mut(
-                    &mut status as *mut _ as *mut u8,
-                    std::mem::size_of::<SERVICE_STATUS_PROCESS>(),
-                )),
-                &mut bytes_needed,
-            );
-
-            close_service_handle(service);
-
-            if query_result.is_ok() {
-                return status.dwCurrentState == SERVICE_RUNNING;
-            }
+        match service.query_status() {
+            Ok(status) => status.current_state == ServiceState::Running,
+            Err(_) => false,
         }
-        false
     }
 
     pub fn install_service(&self) -> Result<()> {
-        unsafe {
-            let exe_path =
-                std::env::current_exe().context("Failed to get current executable path")?;
+        let exe_path = std::env::current_exe().context("Failed to get current executable path")?;
 
-            let exe_dir = exe_path
-                .parent()
-                .context("Failed to get executable directory")?;
+        let exe_dir = exe_path
+            .parent()
+            .context("Failed to get executable directory")?;
 
-            let service_exe = exe_dir.join("wftpd.exe");
+        let service_exe = exe_dir.join("wftpd.exe");
 
-            if !service_exe.exists() {
-                anyhow::bail!(
-                    "Backend service executable not found: {}",
-                    service_exe.display()
-                );
-            }
+        if !service_exe.exists() {
+            anyhow::bail!(
+                "Backend service executable not found: {}",
+                service_exe.display()
+            );
+        }
 
-            let exe_path_str = service_exe.to_string_lossy().to_string();
-            let exe_path_wide: Vec<u16> = exe_path_str
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect();
+        let manager = self.connect_manager(
+            ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
+        )?;
 
-            let service_name_wide: Vec<u16> = SERVICE_NAME
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect();
-            let display_name_wide: Vec<u16> = "WFTPD Service"
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect();
+        let service_info = ServiceInfo {
+            name: OsString::from(SERVICE_NAME),
+            display_name: OsString::from("WFTPD Service"),
+            service_type: ServiceType::OWN_PROCESS,
+            start_type: ServiceStartType::AutoStart,
+            error_control: ServiceErrorControl::Normal,
+            executable_path: service_exe,
+            launch_arguments: vec![],
+            dependencies: vec![],
+            account_name: None,
+            account_password: None,
+        };
 
-            let manager =
-                OpenSCManagerW(None, None, SC_MANAGER_CONNECT | SC_MANAGER_CREATE_SERVICE)
-                    .context("Failed to open service control manager")?;
-
-            let service = CreateServiceW(
-                manager,
-                PCWSTR(service_name_wide.as_ptr()),
-                PCWSTR(display_name_wide.as_ptr()),
-                SERVICE_CHANGE_CONFIG | SERVICE_START,
-                SERVICE_WIN32_OWN_PROCESS,
-                SERVICE_AUTO_START,
-                SERVICE_ERROR_NORMAL,
-                PCWSTR(exe_path_wide.as_ptr()),
-                None,
-                None,
-                None,
-                None,
-                None,
+        manager
+            .create_service(
+                &service_info,
+                ServiceAccess::CHANGE_CONFIG | ServiceAccess::START,
             )
             .context("Failed to create service")?;
 
-            close_service_handle(service);
-            close_service_handle(manager);
-
-            tracing::info!("Service installed successfully: {}", SERVICE_NAME);
-            Ok(())
-        }
+        tracing::info!("Service installed successfully: {}", SERVICE_NAME);
+        Ok(())
     }
 
     pub fn uninstall_service(&self) -> Result<()> {
-        unsafe {
-            let manager = OpenSCManagerW(None, None, SC_MANAGER_CONNECT)
-                .context("Failed to open service control manager")?;
+        let manager = self.connect_manager(ServiceManagerAccess::CONNECT)?;
 
-            let service_name_wide: Vec<u16> = SERVICE_NAME
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect();
-            let service = OpenServiceW(
-                manager,
-                PCWSTR(service_name_wide.as_ptr()),
-                SERVICE_ALL_ACCESS,
+        let service = manager
+            .open_service(
+                SERVICE_NAME,
+                ServiceAccess::DELETE | ServiceAccess::STOP | ServiceAccess::QUERY_STATUS,
             )
             .context("Failed to open service")?;
 
-            DeleteService(service).context("Failed to delete service")?;
+        service.delete().context("Failed to delete service")?;
 
-            close_service_handle(service);
-            close_service_handle(manager);
-
-            tracing::info!("Service uninstalled successfully: {}", SERVICE_NAME);
-            Ok(())
-        }
+        tracing::info!("Service uninstalled successfully: {}", SERVICE_NAME);
+        Ok(())
     }
 
     pub fn start_service(&self) -> Result<()> {
-        unsafe {
-            let manager = OpenSCManagerW(None, None, SC_MANAGER_CONNECT)
-                .context("Failed to open service control manager")?;
+        let manager = self.connect_manager(ServiceManagerAccess::CONNECT)?;
 
-            let service_name_wide: Vec<u16> = SERVICE_NAME
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect();
-            let service = OpenServiceW(
-                manager,
-                PCWSTR(service_name_wide.as_ptr()),
-                SERVICE_START | SERVICE_QUERY_STATUS,
+        let service = manager
+            .open_service(
+                SERVICE_NAME,
+                ServiceAccess::START | ServiceAccess::QUERY_STATUS,
             )
             .context("Failed to open service")?;
 
-            close_service_handle(manager);
+        service
+            .start(&[] as &[&std::ffi::OsStr])
+            .context("Failed to start service")?;
 
-            StartServiceW(service, None).context("Failed to start service")?;
-
-            let mut status = SERVICE_STATUS::default();
-            for _ in 0..SERVICE_WAIT_MAX_ATTEMPTS {
-                if QueryServiceStatus(service, &mut status).is_ok() {
-                    if status.dwCurrentState == SERVICE_RUNNING {
-                        break;
-                    }
-                    if status.dwCurrentState == SERVICE_STOPPED {
-                        close_service_handle(service);
-                        anyhow::bail!(
-                            "Service stopped immediately after start, check service configuration"
-                        );
-                    }
-                }
-                std::thread::sleep(std::time::Duration::from_millis(SERVICE_WAIT_INTERVAL_MS));
+        for _ in 0..SERVICE_WAIT_MAX_ATTEMPTS {
+            let status = service.query_status()?;
+            if status.current_state == ServiceState::Running {
+                break;
             }
-
-            close_service_handle(service);
-
-            tracing::info!("Service started successfully: {}", SERVICE_NAME);
-            Ok(())
+            if status.current_state == ServiceState::Stopped {
+                anyhow::bail!(
+                    "Service stopped immediately after start, check service configuration"
+                );
+            }
+            std::thread::sleep(Duration::from_millis(SERVICE_WAIT_INTERVAL_MS));
         }
+
+        tracing::info!("Service started successfully: {}", SERVICE_NAME);
+        Ok(())
     }
 
     pub fn stop_service(&self) -> Result<()> {
-        unsafe {
-            let manager = OpenSCManagerW(None, None, SC_MANAGER_CONNECT)
-                .context("Failed to open service control manager")?;
+        let manager = self.connect_manager(ServiceManagerAccess::CONNECT)?;
 
-            let service_name_wide: Vec<u16> = SERVICE_NAME
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect();
-            let service = OpenServiceW(
-                manager,
-                PCWSTR(service_name_wide.as_ptr()),
-                SERVICE_STOP | SERVICE_QUERY_STATUS,
+        let service = manager
+            .open_service(
+                SERVICE_NAME,
+                ServiceAccess::STOP | ServiceAccess::QUERY_STATUS,
             )
             .context("Failed to open service")?;
 
-            close_service_handle(manager);
+        service.stop().context("Failed to stop service")?;
 
-            let mut status = SERVICE_STATUS::default();
-            ControlService(service, SERVICE_CONTROL_STOP, &mut status)
-                .context("Failed to stop service")?;
-
-            for _ in 0..SERVICE_WAIT_MAX_ATTEMPTS {
-                if QueryServiceStatus(service, &mut status).is_ok()
-                    && status.dwCurrentState == SERVICE_STOPPED
-                {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(SERVICE_WAIT_INTERVAL_MS));
+        for _ in 0..SERVICE_WAIT_MAX_ATTEMPTS {
+            let status = service.query_status()?;
+            if status.current_state == ServiceState::Stopped {
+                break;
             }
-
-            close_service_handle(service);
-
-            tracing::info!("Service stopped successfully: {}", SERVICE_NAME);
-            Ok(())
+            std::thread::sleep(Duration::from_millis(SERVICE_WAIT_INTERVAL_MS));
         }
+
+        tracing::info!("Service stopped successfully: {}", SERVICE_NAME);
+        Ok(())
     }
 
     pub fn restart_service(&self) -> Result<()> {
         self.stop_service()?;
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        std::thread::sleep(Duration::from_secs(2));
         self.start_service()?;
         Ok(())
     }
