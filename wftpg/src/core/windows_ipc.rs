@@ -189,10 +189,10 @@ impl Drop for IpcServerInner {
     fn drop(&mut self) {
         unsafe {
             let handle = HANDLE(self.handle.load(Ordering::SeqCst));
-            if !handle.is_invalid() {
-                if let Err(e) = CloseHandle(handle) {
-                    tracing::debug!("CloseHandle error in Drop: {:?}", e);
-                }
+            if !handle.is_invalid()
+                && let Err(e) = CloseHandle(handle)
+            {
+                tracing::debug!("CloseHandle error in Drop: {:?}", e);
             }
         }
     }
@@ -399,10 +399,10 @@ impl IpcStream {
 impl Drop for IpcStream {
     fn drop(&mut self) {
         unsafe {
-            if !self.handle.is_invalid() {
-                if let Err(e) = CloseHandle(self.handle) {
-                    tracing::debug!("CloseHandle error in IpcStream::drop: {:?}", e);
-                }
+            if !self.handle.is_invalid()
+                && let Err(e) = CloseHandle(self.handle)
+            {
+                tracing::debug!("CloseHandle error in IpcStream::drop: {:?}", e);
             }
         }
     }

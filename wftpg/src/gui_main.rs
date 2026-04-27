@@ -756,10 +756,10 @@ fn load_gui_language() -> i18n::Language {
 
 fn save_gui_language(language: i18n::Language) {
     let path = wftpg::core::config::get_program_data_path().join("gui_config.json");
-    if let Some(parent) = path.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
-            tracing::warn!("Failed to create config directory: {}", e);
-        }
+    if let Some(parent) = path.parent()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        tracing::warn!("Failed to create config directory: {}", e);
     }
     let json = serde_json::json!({ "language": language.code() });
     if let Err(e) = std::fs::write(&path, json.to_string()) {
@@ -781,10 +781,10 @@ fn main() -> eframe::Result<()> {
     let icon = load_icon();
 
     let persistence_path = std::path::PathBuf::from("C:\\ProgramData\\wftpg\\gui_state");
-    if let Some(parent) = persistence_path.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
-            tracing::warn!("Failed to create persistence directory: {}", e);
-        }
+    if let Some(parent) = persistence_path.parent()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        tracing::warn!("Failed to create persistence directory: {}", e);
     }
 
     let options = eframe::NativeOptions {

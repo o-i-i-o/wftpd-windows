@@ -322,10 +322,10 @@ impl AboutTab {
 
 fn save_gui_language(lang: i18n::Language) {
     let path = crate::core::config::get_program_data_path().join("gui_config.json");
-    if let Some(parent) = path.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
-            tracing::warn!("Failed to create config directory: {}", e);
-        }
+    if let Some(parent) = path.parent()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        tracing::warn!("Failed to create config directory: {}", e);
     }
     let json = serde_json::json!({ "language": lang.code() });
     if let Err(e) = std::fs::write(&path, json.to_string()) {
