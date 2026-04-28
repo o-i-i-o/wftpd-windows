@@ -192,7 +192,7 @@ fn default_idle_timeout() -> u64 {
     600
 }
 
-/// FTPS (FTP over SSL/TLS) 配置
+/// FTPS (FTP over SSL/TLS) 配置 - 仅支持显式 FTPS (FTPES)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FtpsConfig {
     #[serde(default)]
@@ -200,17 +200,9 @@ pub struct FtpsConfig {
     #[serde(default)]
     pub require_ssl: bool,
     #[serde(default)]
-    pub implicit_ssl: bool,
-    #[serde(default = "default_ftps_port")]
-    pub implicit_ssl_port: u16,
-    #[serde(default)]
     pub cert_path: Option<String>,
     #[serde(default)]
     pub key_path: Option<String>,
-}
-
-fn default_ftps_port() -> u16 {
-    990
 }
 
 fn default_bind_ip() -> String {
@@ -393,8 +385,6 @@ impl Default for Config {
                     require_ssl: false,
                     cert_path: Some(cert_path),
                     key_path: Some(key_path),
-                    implicit_ssl: false,
-                    implicit_ssl_port: 990,
                 },
                 passive_ip_override: Some("".to_string()),
                 masquerade_address: Some("".to_string()),

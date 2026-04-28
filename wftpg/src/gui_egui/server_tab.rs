@@ -1008,45 +1008,6 @@ impl ServerTab {
 
                     ui.add_space(styles::SPACING_SM);
 
-                    styles::form_row(ui, &i18n::t("server.implicit_ssl"), label_width, |ui| {
-                        ui.checkbox(&mut config.ftp.ftps.implicit_ssl, "");
-                    });
-                    ui.horizontal(|ui| {
-                        ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                        ui.label(
-                            RichText::new(i18n::t("server.implicit_ssl_hint"))
-                                .size(styles::FONT_SIZE_SM)
-                                .color(styles::TEXT_MUTED_COLOR)
-                                .italics(),
-                        );
-                    });
-
-                    if config.ftp.ftps.implicit_ssl {
-                        styles::form_row(
-                            ui,
-                            &i18n::t("server.implicit_ssl_port"),
-                            label_width,
-                            |ui| {
-                                let mut port_str = config.ftp.ftps.implicit_ssl_port.to_string();
-                                styles::input_frame().show(ui, |ui| {
-                                    ui.add(
-                                        egui::TextEdit::singleline(&mut port_str)
-                                            .desired_width(80.0)
-                                            .font(egui::FontId::new(
-                                                styles::FONT_SIZE_MD,
-                                                egui::FontFamily::Proportional,
-                                            )),
-                                    );
-                                });
-                                if let Ok(p) = port_str.parse::<u16>() {
-                                    config.ftp.ftps.implicit_ssl_port = p;
-                                }
-                            },
-                        );
-                    }
-
-                    ui.add_space(styles::SPACING_SM);
-
                     let mut cert_path = config.ftp.ftps.cert_path.clone().unwrap_or_default();
                     styles::form_row(ui, &i18n::t("server.cert_file"), label_width, |ui| {
                         styles::input_frame().show(ui, |ui| {
