@@ -22,6 +22,7 @@ pub struct QuotaData {
     pub users: HashMap<String, QuotaUsage>,
 }
 
+#[derive(Debug)]
 pub struct QuotaManager {
     data_path: PathBuf,
     data: Arc<Mutex<QuotaData>>,

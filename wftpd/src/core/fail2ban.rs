@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -31,6 +32,7 @@ pub enum BanEvent {
 
 pub type BanCallback = dyn Fn(&str, BanEvent) + Send + Sync;
 
+#[derive(Debug)]
 struct Fail2BanState {
     failed_attempts: HashMap<String, HashSet<DateTime<Utc>>>,
     banned_ips: HashMap<String, DateTime<Utc>>,
@@ -41,6 +43,17 @@ pub struct Fail2BanManager {
     config: Mutex<Fail2BanConfig>,
     callbacks: Mutex<Vec<Arc<BanCallback>>>,
     cleanup_started: AtomicBool,
+}
+
+impl fmt::Debug for Fail2BanManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Fail2BanManager")
+            .field("state", &self.state)
+            .field("config", &self.config)
+            .field("callbacks", &format!("{} callbacks", self.callbacks.lock().len()))
+            .field("cleanup_started", &self.cleanup_started)
+            .finish()
+    }
 }
 
 impl Fail2BanManager {

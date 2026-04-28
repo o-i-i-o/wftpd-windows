@@ -1,6 +1,6 @@
 [package]
 name = "wftpd"
-version = "3.3.28"
+version = "4.0.1"
 edition = "2024"
 authors = ["boss@oi-io.cc"]
 description = "SFTP+FTP Server Daemon for Windows"
@@ -45,6 +45,9 @@ russh = "0.60.1"
 bytes = "1"
 
 # ========== FTP/FTPS ==========
+libunftp = { version = "0.23.0", default-features = false, features = ["aws_lc_rs", "prometheus"] }
+unftp-sbe-fs = "0.4.0"
+unftp-core = "0.1.0"
 ipnet = "2"
 socket2 = "0.6"
 

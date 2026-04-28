@@ -8,6 +8,7 @@ use std::net::{SocketAddr, SocketAddrV4};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
+#[derive(Debug)]
 pub struct UpnpManager {
     gateway: RwLock<Option<Gateway>>,
     enabled: bool,
