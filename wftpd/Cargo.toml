@@ -21,7 +21,6 @@ time = { version = "0.3", features = ["serde"] }
 
 # ========== 错误处理 ==========
 anyhow = "1"
-thiserror = "2"
 
 # ========== 日志与追踪 ==========
 tracing = "0.1.44"
@@ -30,11 +29,9 @@ tracing-appender = "0.2.5"
 
 # ========== 安全与加密 ==========
 argon2 = "0.6.0-rc.8"
-getrandom = "0.4.2"
 sha2 = "0.11"
 md-5 = "0.10"
 hex = "0.4"
-rsa = { version = "0.9", features = ["pem"] }
 rustls = "0.23.39"
 tokio-rustls = "0.26.4"
 pem = "3.0.6"
@@ -42,7 +39,6 @@ rcgen = "0.14.7"
 
 # ========== SSH/SFTP ==========
 russh = "0.60.1"
-bytes = "1"
 
 # ========== FTP/FTPS ==========
 libunftp = { version = "0.23.0", default-features = false, features = ["aws_lc_rs", "prometheus"] }
@@ -53,7 +49,6 @@ socket2 = "0.6"
 
 # ========== 文件系统 ==========
 fs2 = "0.4"
-notify = "8.2.0"
 
 # ========== Windows API ==========
 windows = { version = "0.62", features = [
@@ -77,6 +72,9 @@ igd-next = "0.16.2"
 prometheus = "0.13"
 lazy_static = "1.5"
 scopeguard = "1.2.0"
+
+[package.metadata.cargo-machete]
+ignored = ["md-5"]
 
 [build-dependencies]
 embed-resource = "3.0.9"

@@ -8,9 +8,9 @@ build = "build.rs"
 
 [dependencies]
 # ========== GUI 框架 ==========
-egui = "0.34.0"
-eframe = { version = "0.34.0", default-features = false, features = ["accesskit", "default_fonts", "glow", "persistence"] }
-egui_extras = { version = "0.34.0", default-features = false }
+egui = "0.34.1"
+eframe = { version = "0.34.1", default-features = false, features = ["accesskit", "default_fonts", "glow", "persistence"] }
+egui_extras = { version = "0.34.1", default-features = false }
 
 # ========== 文件操作 ==========
 rfd = "0.17.2"
@@ -49,7 +49,7 @@ windows = { version = "0.62", features = [
 # ========== 日志系统 ==========
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "json", "time", "chrono"] }
-tracing-appender = "0.2.4"
+tracing-appender = "0.2.5"
 
 # ========== 并发原语 ==========
 parking_lot = "0.12.5"
@@ -57,7 +57,7 @@ regex = "1.12.3"
 windows-service = "0.8.0"
 
 [build-dependencies]
-embed-resource = "3.0.8"
+embed-resource = "3.0.9"
 
 [profile.release]
 opt-level = 3
