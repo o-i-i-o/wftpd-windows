@@ -37,7 +37,9 @@ impl QuotaFilesystem {
 
     fn get_user_quota_mb(&self, username: &str) -> Option<u64> {
         let users = self.user_manager.lock();
-        users.get_user(username).and_then(|u| u.permissions.quota_mb)
+        users
+            .get_user(username)
+            .and_then(|u| u.permissions.quota_mb)
     }
 }
 
@@ -74,10 +76,7 @@ impl StorageBackend<DefaultUser> for QuotaFilesystem {
         self.inner.get(user, path, start_pos).await
     }
 
-    async fn put<
-        P: AsRef<Path> + Send + Debug,
-        R: AsyncRead + Send + Sync + Unpin + 'static,
-    >(
+    async fn put<P: AsRef<Path> + Send + Debug, R: AsyncRead + Send + Sync + Unpin + 'static>(
         &self,
         user: &DefaultUser,
         input: R,
@@ -126,7 +125,10 @@ impl StorageBackend<DefaultUser> for QuotaFilesystem {
         self.inner.del(user, path).await?;
 
         if file_size > 0
-            && let Err(e) = self.quota_manager.subtract_usage(&username, file_size).await
+            && let Err(e) = self
+                .quota_manager
+                .subtract_usage(&username, file_size)
+                .await
         {
             tracing::error!("Failed to update quota after delete: {}", e);
         }
@@ -163,7 +165,10 @@ impl StorageBackend<DefaultUser> for QuotaFilesystem {
         self.inner.rmd(user, path).await?;
 
         if total_size > 0
-            && let Err(e) = self.quota_manager.subtract_usage(&username, total_size).await
+            && let Err(e) = self
+                .quota_manager
+                .subtract_usage(&username, total_size)
+                .await
         {
             tracing::error!("Failed to update quota after rmdir: {}", e);
         }
@@ -220,7 +225,8 @@ impl QuotaFilesystem {
                 let entry = entry?;
                 let entry_path = entry.path();
                 if entry_path.is_dir() {
-                    total_size = total_size.saturating_add(Self::calculate_dir_size_sync(&entry_path)?);
+                    total_size =
+                        total_size.saturating_add(Self::calculate_dir_size_sync(&entry_path)?);
                 } else {
                     total_size = total_size.saturating_add(entry.metadata()?.len());
                 }

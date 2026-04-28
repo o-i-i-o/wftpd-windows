@@ -7,8 +7,8 @@
 //! - Graceful shutdown support
 
 use anyhow::Result;
-use libunftp::options::{FailedLoginsPolicy, Shutdown};
 use libunftp::ServerBuilder;
+use libunftp::options::{FailedLoginsPolicy, Shutdown};
 use parking_lot::Mutex;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
@@ -16,15 +16,36 @@ use std::time::Duration;
 use tokio::sync::Mutex as TokioMutex;
 use unftp_sbe_fs::Filesystem;
 
-use crate::core::config::{get_program_data_path, Config};
+use crate::core::config::{Config, get_program_data_path};
 use crate::core::fail2ban::{Fail2BanConfig, Fail2BanManager};
 use crate::core::quota::QuotaManager;
 use crate::core::users::UserManager;
 
 use super::upnp_manager::UpnpManager;
 use super::{
-    LoggingPresenceListener, QuotaDataListener, QuotaFilesystem, UpnpBinderBuilder, WftpdAuthenticator,
+    LoggingPresenceListener, QuotaDataListener, QuotaFilesystem, UpnpBinderBuilder,
+    WftpdAuthenticator,
 };
+
+struct FtpServerConfig {
+    bind_ip: String,
+    ftp_port: u16,
+    welcome_msg: String,
+    passive_ports: (u16, u16),
+    idle_timeout: u64,
+    ftps_enabled: bool,
+    ftps_cert_path: Option<String>,
+    ftps_key_path: Option<String>,
+    ftps_require_ssl: bool,
+}
+
+struct FtpServerResources {
+    user_manager: Arc<Mutex<UserManager>>,
+    quota_manager: Arc<QuotaManager>,
+    fail2ban_manager: Arc<Fail2BanManager>,
+    upnp_manager: Arc<UpnpManager>,
+    users_path: std::path::PathBuf,
+}
 
 pub struct FtpServer {
     config: Arc<Mutex<Config>>,
@@ -69,46 +90,38 @@ impl FtpServer {
     }
 
     pub async fn start(&self) -> Result<()> {
-        let (
-            bind_ip,
-            ftp_port,
-            warnings,
-            welcome_msg,
-            passive_ports,
-            idle_timeout,
-            ftps_enabled,
-            ftps_cert_path,
-            ftps_key_path,
-            ftps_require_ssl,
-        ) = {
+        let server_config = {
             let cfg = self.config.lock();
             let warnings = cfg.validate_paths();
-            (
-                cfg.ftp.bind_ip.clone(),
-                cfg.ftp.port,
-                warnings,
-                cfg.ftp.welcome_message.clone(),
-                cfg.ftp.passive_ports,
-                cfg.ftp.idle_timeout,
-                cfg.ftp.ftps.enabled,
-                cfg.ftp.ftps.cert_path.clone(),
-                cfg.ftp.ftps.key_path.clone(),
-                cfg.ftp.ftps.require_ssl,
-            )
+
+            if !warnings.is_empty() {
+                for warning in &warnings {
+                    tracing::error!("Configuration validation failed: {}", warning);
+                }
+                return Err(anyhow::anyhow!(
+                    "Configuration path validation failed: {}",
+                    warnings.join("; ")
+                ));
+            }
+
+            FtpServerConfig {
+                bind_ip: cfg.ftp.bind_ip.clone(),
+                ftp_port: cfg.ftp.port,
+                welcome_msg: cfg.ftp.welcome_message.clone(),
+                passive_ports: cfg.ftp.passive_ports,
+                idle_timeout: cfg.ftp.idle_timeout,
+                ftps_enabled: cfg.ftp.ftps.enabled,
+                ftps_cert_path: cfg.ftp.ftps.cert_path.clone(),
+                ftps_key_path: cfg.ftp.ftps.key_path.clone(),
+                ftps_require_ssl: cfg.ftp.ftps.require_ssl,
+            }
         };
 
-        if !warnings.is_empty() {
-            for warning in &warnings {
-                tracing::error!("Configuration validation failed: {}", warning);
-            }
-            return Err(anyhow::anyhow!(
-                "Configuration path validation failed: {}",
-                warnings.join("; ")
-            ));
-        }
-
-        let bind_ip_log = bind_ip.clone();
-        tracing::info!("FTP server starting on {}:{}", bind_ip_log, ftp_port);
+        tracing::info!(
+            "FTP server starting on {}:{}",
+            server_config.bind_ip,
+            server_config.ftp_port
+        );
 
         Arc::clone(&self.fail2ban_manager).start_cleanup_task();
 
@@ -130,33 +143,18 @@ impl FtpServer {
             *running = true;
         }
 
-        let user_manager_clone = Arc::clone(&self.user_manager);
-        let quota_manager_clone = Arc::clone(&self.quota_manager);
-        let fail2ban_clone = Arc::clone(&self.fail2ban_manager);
-        let upnp_clone = Arc::clone(&self.upnp_manager);
+        let resources = FtpServerResources {
+            user_manager: Arc::clone(&self.user_manager),
+            quota_manager: Arc::clone(&self.quota_manager),
+            fail2ban_manager: Arc::clone(&self.fail2ban_manager),
+            upnp_manager: Arc::clone(&self.upnp_manager),
+            users_path: get_program_data_path().join("users.json"),
+        };
+
         let running_clone = Arc::clone(&self.running);
 
-        let users_path = get_program_data_path().join("users.json");
-
         tokio::spawn(async move {
-            let result = Self::run_ftp_server(
-                bind_ip_log,
-                ftp_port,
-                welcome_msg,
-                passive_ports,
-                idle_timeout,
-                ftps_enabled,
-                ftps_cert_path,
-                ftps_key_path,
-                ftps_require_ssl,
-                user_manager_clone,
-                quota_manager_clone,
-                fail2ban_clone,
-                upnp_clone,
-                users_path,
-                shutdown_rx,
-            )
-            .await;
+            let result = Self::run_ftp_server(server_config, resources, shutdown_rx).await;
 
             if let Err(e) = result {
                 tracing::error!("FTP server error: {}", e);
@@ -171,24 +169,12 @@ impl FtpServer {
     }
 
     async fn run_ftp_server(
-        bind_ip: String,
-        ftp_port: u16,
-        welcome_msg: String,
-        passive_ports: (u16, u16),
-        idle_timeout: u64,
-        ftps_enabled: bool,
-        ftps_cert_path: Option<String>,
-        ftps_key_path: Option<String>,
-        ftps_require_ssl: bool,
-        user_manager: Arc<Mutex<UserManager>>,
-        quota_manager: Arc<QuotaManager>,
-        fail2ban_manager: Arc<Fail2BanManager>,
-        upnp_manager: Arc<UpnpManager>,
-        users_path: std::path::PathBuf,
+        config: FtpServerConfig,
+        resources: FtpServerResources,
         shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     ) -> Result<()> {
         let home_dir = {
-            let users = user_manager.lock();
+            let users = resources.user_manager.lock();
             users
                 .get_users()
                 .values()
@@ -201,20 +187,21 @@ impl FtpServer {
                 })
         };
 
-        let local_ip = Self::get_local_ip_for_bind(&bind_ip);
+        let local_ip = Self::get_local_ip_for_bind(&config.bind_ip);
 
-        let user_mgr_clone = Arc::clone(&user_manager);
-        let quota_mgr_clone = Arc::clone(&quota_manager);
+        let user_mgr_clone = Arc::clone(&resources.user_manager);
+        let quota_mgr_clone = Arc::clone(&resources.quota_manager);
 
         let storage_factory = Box::new(move || {
-            let fs = Filesystem::new(home_dir.clone()).expect("Failed to create filesystem storage");
+            let fs =
+                Filesystem::new(home_dir.clone()).expect("Failed to create filesystem storage");
             QuotaFilesystem::new(fs, quota_mgr_clone.clone(), user_mgr_clone.clone())
         });
 
         let authenticator = Arc::new(WftpdAuthenticator::new(
-            user_manager,
-            users_path,
-            Some(Arc::clone(&fail2ban_manager)),
+            resources.user_manager,
+            resources.users_path,
+            Some(Arc::clone(&resources.fail2ban_manager)),
         ));
 
         let shutdown_indicator = async {
@@ -225,9 +212,9 @@ impl FtpServer {
 
         let mut server_builder = ServerBuilder::new(storage_factory)
             .authenticator(authenticator)
-            .greeting(Box::leak(welcome_msg.into_boxed_str()))
-            .passive_ports(passive_ports.0..=passive_ports.1)
-            .idle_session_timeout(idle_timeout)
+            .greeting(Box::leak(config.welcome_msg.into_boxed_str()))
+            .passive_ports(config.passive_ports.0..=config.passive_ports.1)
+            .idle_session_timeout(config.idle_timeout)
             .notify_data(QuotaDataListener::new())
             .notify_presence(LoggingPresenceListener::new())
             .failed_logins_policy(FailedLoginsPolicy::default())
@@ -238,18 +225,19 @@ impl FtpServer {
         }
 
         if let Some(binder) = UpnpBinderBuilder::new()
-            .upnp_manager(upnp_manager)
+            .upnp_manager(resources.upnp_manager)
             .local_ip(local_ip.unwrap_or(Ipv4Addr::new(127, 0, 0, 1)))
             .build()
         {
             server_builder = server_builder.binder(binder);
         }
 
-        if ftps_enabled {
-            if let (Some(cert_path), Some(key_path)) = (ftps_cert_path, ftps_key_path) {
+        if config.ftps_enabled {
+            if let (Some(cert_path), Some(key_path)) = (config.ftps_cert_path, config.ftps_key_path)
+            {
                 server_builder = server_builder
                     .ftps(&cert_path, &key_path)
-                    .ftps_required(ftps_require_ssl, ftps_require_ssl);
+                    .ftps_required(config.ftps_require_ssl, config.ftps_require_ssl);
                 tracing::info!("FTPS enabled with certificate: {}", cert_path);
             } else {
                 tracing::warn!("FTPS enabled but certificate or key path not configured");
@@ -258,7 +246,7 @@ impl FtpServer {
 
         let server = server_builder.build()?;
 
-        let bind_addr = format!("{}:{}", bind_ip, ftp_port);
+        let bind_addr = format!("{}:{}", config.bind_ip, config.ftp_port);
 
         tracing::info!("FTP server listening on {}", bind_addr);
 

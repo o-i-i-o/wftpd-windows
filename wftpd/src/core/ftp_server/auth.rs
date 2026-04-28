@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use unftp_core::auth::{Authenticator, AuthenticationError, Credentials, Principal};
+use unftp_core::auth::{AuthenticationError, Authenticator, Credentials, Principal};
 
 use crate::core::fail2ban::Fail2BanManager;
 use crate::core::users::UserManager;

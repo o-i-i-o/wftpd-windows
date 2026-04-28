@@ -50,7 +50,10 @@ impl fmt::Debug for Fail2BanManager {
         f.debug_struct("Fail2BanManager")
             .field("state", &self.state)
             .field("config", &self.config)
-            .field("callbacks", &format!("{} callbacks", self.callbacks.lock().len()))
+            .field(
+                "callbacks",
+                &format!("{} callbacks", self.callbacks.lock().len()),
+            )
             .field("cleanup_started", &self.cleanup_started)
             .finish()
     }
