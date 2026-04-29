@@ -3,327 +3,21 @@
 //! Responsible for loading, validating and managing server configuration, supports hot reload
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Config {
-    #[serde(skip)]
-    pub server: Arc<ServerConfig>,
-    pub ftp: FtpConfig,
-    pub sftp: SftpConfig,
-    pub security: SecurityConfig,
-    pub logging: LoggingConfig,
-}
-
-impl Clone for Config {
-    fn clone(&self) -> Self {
-        Config {
-            server: Arc::clone(&self.server),
-            ftp: self.ftp.clone(),
-            sftp: self.sftp.clone(),
-            security: self.security.clone(),
-            logging: self.logging.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ServerConfig {
-    #[serde(skip)]
-    pub global_connection_count: AtomicUsize,
-    #[serde(skip)]
-    pub connection_count_per_ip: parking_lot::Mutex<std::collections::HashMap<String, usize>>,
-}
-
-impl ServerConfig {
-    pub fn new() -> Self {
-        ServerConfig {
-            global_connection_count: AtomicUsize::new(0),
-            connection_count_per_ip: parking_lot::Mutex::new(std::collections::HashMap::new()),
-        }
-    }
-
-    pub fn decrement_global(&self) {
-        self.global_connection_count.fetch_sub(1, Ordering::SeqCst);
-    }
-
-    pub fn get_global_count(&self) -> usize {
-        self.global_connection_count.load(Ordering::SeqCst)
-    }
-
-    pub fn decrement_ip(&self, ip: &str) {
-        let mut map = self.connection_count_per_ip.lock();
-        if let Some(count) = map.get_mut(ip) {
-            if *count > 0 {
-                *count -= 1;
-            }
-            if *count == 0 {
-                map.remove(ip);
-            }
-        }
-    }
-
-    pub fn get_ip_count(&self, ip: &str) -> usize {
-        let map = self.connection_count_per_ip.lock();
-        *map.get(ip).unwrap_or(&0)
-    }
-
-    pub fn get_all_ip_counts(&self) -> std::collections::HashMap<String, usize> {
-        let map = self.connection_count_per_ip.lock();
-        map.clone()
-    }
-
-    pub fn try_register(&self, client_ip: &str, max_global: usize, max_per_ip: usize) -> bool {
-        let mut map = self.connection_count_per_ip.lock();
-
-        let global_count = self.global_connection_count.load(Ordering::SeqCst);
-        if global_count >= max_global {
-            return false;
-        }
-
-        let ip_count = *map.get(client_ip).unwrap_or(&0);
-        if ip_count >= max_per_ip {
-            return false;
-        }
-
-        self.global_connection_count.fetch_add(1, Ordering::SeqCst);
-        *map.entry(client_ip.to_string()).or_insert(0) += 1;
-        true
-    }
-
-    pub fn unregister(&self, client_ip: &str) {
-        let old_global = self.global_connection_count.fetch_sub(1, Ordering::SeqCst);
-        if old_global == 0 {
-            self.global_connection_count.fetch_add(1, Ordering::SeqCst);
-            tracing::warn!("Connection count underflow prevented during unregister");
-        }
-
-        let mut map = self.connection_count_per_ip.lock();
-        if let Some(count) = map.get_mut(client_ip) {
-            if *count > 0 {
-                *count -= 1;
-            }
-            if *count == 0 {
-                map.remove(client_ip);
-            }
-        }
-    }
-
-    pub fn get_counts(&self, client_ip: &str) -> (usize, usize) {
-        let map = self.connection_count_per_ip.lock();
-        let global = self.global_connection_count.load(Ordering::SeqCst);
-        let per_ip = *map.get(client_ip).unwrap_or(&0);
-        (global, per_ip)
-    }
-}
-
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FtpConfig {
-    pub enabled: bool,
-    #[serde(default = "default_bind_ip")]
-    pub bind_ip: String,
-    #[serde(default = "default_ftp_port")]
-    pub port: u16,
-    pub welcome_message: String,
-    #[serde(default = "default_encoding")]
-    pub encoding: String,
-    #[serde(default = "default_transfer_mode")]
-    pub default_transfer_mode: String,
-    #[serde(default = "default_passive_mode")]
-    pub default_passive_mode: bool,
-    pub allow_anonymous: bool,
-    #[serde(default = "default_anonymous_home")]
-    pub anonymous_home: Option<String>,
-    pub passive_ports: (u16, u16),
-    #[serde(default)]
-    pub max_speed_kbps: u64,
-    #[serde(default = "default_passive_ip_override")]
-    pub passive_ip_override: Option<String>,
-    #[serde(default = "default_masquerade_address")]
-    pub masquerade_address: Option<String>,
-    #[serde(default = "default_masquerade_map")]
-    pub masquerade_map: HashMap<String, String>,
-    #[serde(default = "default_connection_timeout")]
-    pub connection_timeout: u64,
-    #[serde(default = "default_idle_timeout")]
-    pub idle_timeout: u64,
-    #[serde(default)]
-    pub hide_version_info: bool,
-    #[serde(default)]
-    pub ftps: FtpsConfig,
-    #[serde(default = "default_upnp_enabled")]
-    pub upnp_enabled: bool,
-    #[serde(default = "default_pooled_listener_mode")]
-    pub pooled_listener_mode: bool,
-}
-
-fn default_ftp_port() -> u16 {
-    21
-}
-
-fn default_connection_timeout() -> u64 {
-    300
-}
-
-fn default_idle_timeout() -> u64 {
-    600
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct FtpsConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub require_ssl: bool,
-    #[serde(default)]
-    pub cert_path: Option<String>,
-    #[serde(default)]
-    pub key_path: Option<String>,
-}
-
-fn default_bind_ip() -> String {
-    "0.0.0.0".to_string()
-}
-
-fn default_encoding() -> String {
-    "UTF-8".to_string()
-}
-
-fn default_transfer_mode() -> String {
-    "binary".to_string()
-}
-
-fn default_passive_mode() -> bool {
-    true
-}
-
-fn default_anonymous_home() -> Option<String> {
-    Some("".to_string())
-}
-
-fn default_passive_ip_override() -> Option<String> {
-    Some("".to_string())
-}
-
-fn default_masquerade_address() -> Option<String> {
-    Some("".to_string())
-}
-
-fn default_masquerade_map() -> HashMap<String, String> {
-    HashMap::new()
-}
-
-fn default_upnp_enabled() -> bool {
-    false // Disabled by default, enable manually when needed
-}
-
-fn default_pooled_listener_mode() -> bool {
-    true // Enable by default for better performance
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SftpConfig {
-    pub enabled: bool,
-    #[serde(default = "default_bind_ip")]
-    pub bind_ip: String,
-    #[serde(default = "default_sftp_port")]
-    pub port: u16,
-    pub host_key_path: String,
-    pub max_auth_attempts: u32,
-    pub auth_timeout: u64,
-    #[serde(default = "default_log_level")]
-    pub log_level: String,
-    #[serde(default = "default_max_sessions_per_user")]
-    pub max_sessions_per_user: u32,
-    #[serde(default = "default_key_rotation_days")]
-    pub host_key_rotation_days: u32,
-}
-
-fn default_sftp_port() -> u16 {
-    2222
-}
-
-fn default_max_sessions_per_user() -> u32 {
-    5
-}
-
-fn default_key_rotation_days() -> u32 {
-    0 // No auto-rotation by default, set to 0 to disable
-}
-
-fn default_log_level() -> String {
-    "info".to_string()
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SecurityConfig {
-    #[serde(default = "default_max_connections")]
-    pub max_connections: usize,
-    #[serde(default = "default_max_connections_per_ip")]
-    pub max_connections_per_ip: usize,
-    pub allowed_ips: Vec<String>,
-    pub denied_ips: Vec<String>,
-    // Fail2Ban integration config
-    #[serde(default = "default_fail2ban_enabled")]
-    pub fail2ban_enabled: bool,
-    #[serde(default = "default_fail2ban_threshold")]
-    pub fail2ban_threshold: u32,
-    #[serde(default = "default_fail2ban_ban_time")]
-    pub fail2ban_ban_time: u64,
-    // Symlink security config
-    #[serde(default = "default_allow_symlinks")]
-    pub allow_symlinks: bool,
-    // Max login attempts per session
-    #[serde(default = "default_max_login_attempts")]
-    pub max_login_attempts: u32,
-}
-
-fn default_allow_symlinks() -> bool {
-    false
-}
-
-fn default_max_login_attempts() -> u32 {
-    5
-}
-
-fn default_fail2ban_enabled() -> bool {
-    false // Disabled by default, enable manually when needed
-}
-
-fn default_fail2ban_threshold() -> u32 {
-    5 // Ban after 5 failures
-}
-
-fn default_fail2ban_ban_time() -> u64 {
-    3600 // Default ban for 1 hour
-}
-
-fn default_max_connections() -> usize {
-    100
-}
-
-fn default_max_connections_per_ip() -> usize {
-    10
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoggingConfig {
-    pub log_dir: String,
-    pub log_level: String,
-    pub max_log_files: usize,
-}
+#[path = "config_types.rs"]
+mod config_types;
+pub use config_types::{
+    default_bind_ip, default_connection_timeout, default_encoding, default_fail2ban_ban_time,
+    default_fail2ban_enabled, default_fail2ban_threshold, default_idle_timeout,
+    default_key_rotation_days, default_log_level, default_log_level as default_sftp_log_level,
+    default_max_connections, default_max_connections_per_ip, default_max_login_attempts,
+    default_max_sessions_per_user, default_passive_ip_override, default_passive_mode,
+    default_pooled_listener_mode, default_sftp_port, default_transfer_mode, default_upnp_enabled,
+    Config, FtpConfig, FtpsConfig, LoggingConfig, SecurityConfig, ServerConfig, SftpConfig,
+};
 
 pub fn get_program_data_path() -> PathBuf {
     let program_data = env::var("PROGRAMDATA").unwrap_or("C:\\ProgramData".to_string());
@@ -356,7 +50,7 @@ impl Default for Config {
             .to_string();
 
         Config {
-            server: Arc::new(ServerConfig::new()),
+            server: std::sync::Arc::new(ServerConfig::new()),
             ftp: FtpConfig {
                 enabled: true,
                 bind_ip: "0.0.0.0".to_string(),
@@ -377,7 +71,7 @@ impl Default for Config {
                 },
                 passive_ip_override: Some("".to_string()),
                 masquerade_address: Some("".to_string()),
-                masquerade_map: HashMap::new(),
+                masquerade_map: std::collections::HashMap::new(),
                 connection_timeout: 300,
                 idle_timeout: 600,
                 hide_version_info: false,
@@ -416,24 +110,16 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Normalize bind IP address
-    /// - If input is pure IPv6 address (without []), automatically add []
-    /// - If already [::] or other format, keep unchanged
-    /// - IPv4 address remains unchanged
     fn normalize_bind_ip(ip: &str) -> String {
         let trimmed = ip.trim();
 
-        // If already contains [], return directly
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
             return trimmed.to_string();
         }
 
-        // Check if it's an IPv6 address (contains multiple :)
         if trimmed.contains(':') && trimmed.matches(':').count() > 1 {
-            // This is an IPv6 address, add []
             format!("[{}]", trimmed)
         } else {
-            // IPv4 or special address, keep unchanged
             trimmed.to_string()
         }
     }
@@ -450,9 +136,8 @@ impl Config {
         let content = fs::read_to_string(path).context("Failed to read config file")?;
 
         let mut config: Config = toml::from_str(&content).context("Failed to parse config file")?;
-        config.server = Arc::new(ServerConfig::new());
+        config.server = std::sync::Arc::new(ServerConfig::new());
 
-        // Normalize bind IP address (automatically add [] for IPv6)
         config.ftp.bind_ip = Self::normalize_bind_ip(&config.ftp.bind_ip);
         config.sftp.bind_ip = Self::normalize_bind_ip(&config.sftp.bind_ip);
 
@@ -481,7 +166,6 @@ impl Config {
         }
 
         if self.ftp.ftps.enabled {
-            // Certificate will be auto-generated, no need to check if exists
             if let Some(cert_path) = &self.ftp.ftps.cert_path {
                 if cert_path.is_empty() {
                     warnings.push("FTPS enabled but certificate path not configured".to_string());
@@ -655,19 +339,15 @@ impl Config {
         );
     }
 
-    /// Validate configuration validity
     pub fn validate(&self) -> Result<(), String> {
-        // Validate FTP port
         if self.ftp.enabled && self.ftp.port == 0 {
             return Err("FTP port cannot be 0".to_string());
         }
 
-        // Validate SFTP port
         if self.sftp.enabled && self.sftp.port == 0 {
             return Err("SFTP port cannot be 0".to_string());
         }
 
-        // Validate passive mode port range
         if self.ftp.passive_ports.0 > self.ftp.passive_ports.1 {
             return Err(format!(
                 "Invalid passive port range: {} > {}",
@@ -675,7 +355,6 @@ impl Config {
             ));
         }
 
-        // Validate connection limits
         if self.security.max_connections == 0 {
             return Err("max_connections must be greater than 0".to_string());
         }
@@ -684,7 +363,6 @@ impl Config {
             return Err("max_connections_per_ip must be greater than 0".to_string());
         }
 
-        // Validate Fail2Ban configuration
         if self.security.fail2ban_enabled && self.security.fail2ban_threshold == 0 {
             return Err("fail2ban_threshold must be greater than 0 when enabled".to_string());
         }
@@ -693,12 +371,10 @@ impl Config {
             return Err("fail2ban_ban_time must be greater than 0 when enabled".to_string());
         }
 
-        // Validate logging configuration
         if self.logging.max_log_files == 0 {
             return Err("max_log_files must be greater than 0".to_string());
         }
 
-        // Validate IP/CIDR format
         for cidr in &self.security.allowed_ips {
             if !cidr.is_empty() && ip_matches_cidr("127.0.0.1", cidr).is_err() {
                 return Err(format!("Invalid allowed IP/CIDR format: {}", cidr));
