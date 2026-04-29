@@ -6,6 +6,7 @@
 use argon2::{Argon2, password_hash::PasswordHasher};
 use async_trait::async_trait;
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::fmt;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -20,6 +21,40 @@ use unftp_sbe_rooter::UserWithRoot;
 use crate::core::config::Config;
 use crate::core::fail2ban::Fail2BanManager;
 use crate::core::users::{Permissions, UserManager};
+
+pub struct SessionTracker {
+    sessions: parking_lot::Mutex<HashMap<String, Vec<String>>>,
+}
+
+impl SessionTracker {
+    pub fn new() -> Self {
+        SessionTracker {
+            sessions: parking_lot::Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn register(&self, username: &str, client_ip: String) {
+        let mut sessions = self.sessions.lock();
+        sessions
+            .entry(username.to_string())
+            .or_default()
+            .push(client_ip);
+    }
+
+    pub fn unregister(&self, username: &str) -> Option<String> {
+        let mut sessions = self.sessions.lock();
+        if let Some(ips) = sessions.get_mut(username) {
+            if !ips.is_empty() {
+                let ip = ips.remove(0);
+                if ips.is_empty() {
+                    sessions.remove(username);
+                }
+                return Some(ip);
+            }
+        }
+        None
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct WftpdUser {
@@ -109,6 +144,7 @@ pub struct WftpdAuthenticator {
     fail2ban_manager: Option<Arc<Fail2BanManager>>,
     dummy_hash: String,
     config: Option<Arc<Mutex<Config>>>,
+    session_tracker: Arc<SessionTracker>,
 }
 
 impl WftpdAuthenticator {
@@ -117,6 +153,7 @@ impl WftpdAuthenticator {
         users_path: std::path::PathBuf,
         fail2ban_manager: Option<Arc<Fail2BanManager>>,
         config: Option<Arc<Mutex<Config>>>,
+        session_tracker: Arc<SessionTracker>,
     ) -> Self {
         let dummy_hash = Self::generate_dummy_hash();
         WftpdAuthenticator {
@@ -125,6 +162,7 @@ impl WftpdAuthenticator {
             fail2ban_manager,
             dummy_hash,
             config,
+            session_tracker,
         }
     }
 
@@ -251,6 +289,7 @@ impl Authenticator for WftpdAuthenticator {
 
         match auth_result {
             (true, Ok(true)) => {
+                self.session_tracker.register(username, client_ip.clone());
                 if let Some(ref fail2ban_manager) = self.fail2ban_manager {
                     fail2ban_manager.reset_failures(&client_ip).await;
                 }

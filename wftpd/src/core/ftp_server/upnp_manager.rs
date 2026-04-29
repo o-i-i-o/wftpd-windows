@@ -63,10 +63,12 @@ impl UpnpManager {
             Some(gateway) => {
                 let gateway = gateway.clone();
                 let service = service.to_string();
+                let internal_port = internal_addr.port();
                 let internal_addr = SocketAddr::V4(internal_addr);
                 let result = tokio::task::spawn_blocking(move || {
-                    gateway.add_any_port(
+                    gateway.add_port(
                         PortMappingProtocol::TCP,
+                        internal_port,
                         internal_addr,
                         lease_duration,
                         &format!("WFTPG-{}", service),
@@ -76,20 +78,19 @@ impl UpnpManager {
                 .map_err(|e| anyhow::anyhow!("UPnP add_port_mapping task failed: {}", e))?;
 
                 match result {
-                    Ok(external_port) => {
+                    Ok(()) => {
                         info!(
                             "UPnP port mapping successful: external port {} -> internal {}",
-                            external_port, internal_addr
+                            internal_port, internal_addr
                         );
-                        Ok(external_port)
+                        Ok(internal_port)
                     }
                     Err(e) => {
                         warn!(
-                            "UPnP port mapping failed, using internal port {}: {}",
-                            internal_addr.port(),
-                            e
+                            "UPnP port mapping failed for port {}: {}",
+                            internal_port, e
                         );
-                        Ok(internal_addr.port())
+                        Ok(internal_port)
                     }
                 }
             }

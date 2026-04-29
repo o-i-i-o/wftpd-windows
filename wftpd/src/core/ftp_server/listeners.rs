@@ -1,9 +1,16 @@
 //! libunftp event listeners
 //!
 //! Implements DataListener and PresenceListener for logging
+//! PresenceListener also handles connection count cleanup on session end
 
 use async_trait::async_trait;
 use libunftp::notification::{DataEvent, DataListener, EventMeta, PresenceEvent, PresenceListener};
+use parking_lot::Mutex;
+use std::sync::Arc;
+
+use crate::core::config::Config;
+
+use super::auth::SessionTracker;
 
 #[derive(Debug)]
 pub struct FtpDataListener;
@@ -86,11 +93,17 @@ impl Default for FtpDataListener {
 }
 
 #[derive(Debug)]
-pub struct FtpPresenceListener;
+pub struct FtpPresenceListener {
+    session_tracker: Arc<SessionTracker>,
+    config: Arc<Mutex<Config>>,
+}
 
 impl FtpPresenceListener {
-    pub fn new() -> Self {
-        FtpPresenceListener
+    pub fn new(session_tracker: Arc<SessionTracker>, config: Arc<Mutex<Config>>) -> Self {
+        FtpPresenceListener {
+            session_tracker,
+            config,
+        }
     }
 }
 
@@ -108,6 +121,14 @@ impl PresenceListener for FtpPresenceListener {
                 );
             }
             PresenceEvent::LoggedOut => {
+                if let Some(client_ip) = self.session_tracker.unregister(&meta.username) {
+                    self.config.unregister_connection(&client_ip);
+                    tracing::debug!(
+                        username = %meta.username,
+                        ip = %client_ip,
+                        "Connection unregistered for user {} from {}", meta.username, client_ip
+                    );
+                }
                 tracing::info!(
                     username = %meta.username,
                     trace_id = %meta.trace_id,
@@ -117,11 +138,5 @@ impl PresenceListener for FtpPresenceListener {
                 );
             }
         }
-    }
-}
-
-impl Default for FtpPresenceListener {
-    fn default() -> Self {
-        Self::new()
     }
 }
