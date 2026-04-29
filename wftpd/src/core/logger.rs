@@ -2,402 +2,20 @@
 //!
 //! Based on tracing, supports log level control and log file rotation
 
-use chrono::{DateTime, Local};
 use parking_lot::RwLock;
-use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::Level;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{Layer, filter, layer::SubscriberExt};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum LogLevel {
-    Debug = 0,
-    Info = 1,
-    Warning = 2,
-    Error = 3,
-}
+#[path = "log_types.rs"]
+mod log_types;
+pub use log_types::{LogBuffer, LogEntry, LogFields, LogLevel};
 
-impl LogLevel {
-    pub fn from_tracing_level(level: Level) -> Self {
-        match level {
-            Level::TRACE | Level::DEBUG => LogLevel::Debug,
-            Level::INFO => LogLevel::Info,
-            Level::WARN => LogLevel::Warning,
-            Level::ERROR => LogLevel::Error,
-        }
-    }
-
-    fn from_str(s: &str) -> Option<Self> {
-        match s.to_uppercase().as_str() {
-            "TRACE" | "DEBUG" => Some(LogLevel::Debug),
-            "INFO" => Some(LogLevel::Info),
-            "WARN" | "WARNING" => Some(LogLevel::Warning),
-            "ERROR" => Some(LogLevel::Error),
-            _ => None,
-        }
-    }
-}
-
-impl std::fmt::Display for LogLevel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LogLevel::Debug => write!(f, "DEBUG"),
-            LogLevel::Info => write!(f, "INFO"),
-            LogLevel::Warning => write!(f, "WARN"),
-            LogLevel::Error => write!(f, "ERROR"),
-        }
-    }
-}
-
-impl Serialize for LogLevel {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for LogLevel {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Self::from_str(&s)
-            .ok_or_else(|| serde::de::Error::custom(format!("Unknown log level: {}", s)))
-    }
-}
-
-mod custom_datetime_format {
-    use chrono::{DateTime, Local, TimeZone};
-    use serde::{self, Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(date: &DateTime<Local>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&date.to_rfc3339())
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<DateTime<Local>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-
-        if let Ok(dt) = DateTime::parse_from_rfc3339(&s) {
-            return Ok(dt.with_timezone(&Local));
-        }
-
-        for fmt in &[
-            "%Y-%m-%dT%H:%M:%S%.f%:z",
-            "%Y-%m-%dT%H:%M:%S%.fZ",
-            "%Y-%m-%dT%H:%M:%S%:z",
-            "%Y-%m-%dT%H:%M:%SZ",
-        ] {
-            if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&s, fmt) {
-                return Ok(Local.from_utc_datetime(&dt));
-            }
-        }
-
-        Err(serde::de::Error::custom("Invalid datetime format"))
-    }
-}
-
-/// Unified log entry structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LogEntry {
-    #[serde(with = "custom_datetime_format")]
-    pub timestamp: DateTime<Local>,
-    pub level: LogLevel,
-    #[serde(default)]
-    pub fields: LogFields,
-}
-
-/// Log fields structure
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct LogFields {
-    #[serde(default)]
-    pub message: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_ip: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub username: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub action: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub protocol: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub operation: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file_path: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file_size: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub success: Option<bool>,
-}
-
-/// Generic log buffer, replaces LogBuffer and FileOpBuffer
-pub struct LogBuffer<T> {
-    buffer: Arc<RwLock<VecDeque<T>>>,
-    max_size: usize,
-}
-
-impl<T: Clone> LogBuffer<T> {
-    pub fn new(max_size: usize) -> Self {
-        Self {
-            buffer: Arc::new(RwLock::new(VecDeque::with_capacity(max_size))),
-            max_size,
-        }
-    }
-
-    pub fn push(&self, entry: T) {
-        let mut buf = self.buffer.write();
-        if buf.len() >= self.max_size {
-            buf.pop_front();
-        }
-        buf.push_back(entry);
-    }
-
-    pub fn get_recent(&self, count: usize) -> Vec<T> {
-        let buf = self.buffer.read();
-        buf.iter().rev().take(count).cloned().collect()
-    }
-
-    pub fn len(&self) -> usize {
-        self.buffer.read().len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.buffer.read().is_empty()
-    }
-
-    pub fn clone_inner(&self) -> Arc<RwLock<VecDeque<T>>> {
-        Arc::clone(&self.buffer)
-    }
-}
-
-impl<T: Clone> Clone for LogBuffer<T> {
-    fn clone(&self) -> Self {
-        Self {
-            buffer: Arc::clone(&self.buffer),
-            max_size: self.max_size,
-        }
-    }
-}
-
-/// System log layer
-pub struct SystemLogLayer {
-    buffer: LogBuffer<LogEntry>,
-}
-
-impl SystemLogLayer {
-    pub fn new(buffer: LogBuffer<LogEntry>) -> Self {
-        Self { buffer }
-    }
-}
-
-impl<S> Layer<S> for SystemLogLayer
-where
-    S: tracing::Subscriber,
-{
-    fn on_event(
-        &self,
-        event: &tracing::Event<'_>,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
-        let metadata = event.metadata();
-        let target = metadata.target();
-
-        if target.starts_with("file_op") {
-            return;
-        }
-
-        let level = *metadata.level();
-        let log_level = LogLevel::from_tracing_level(level);
-
-        let mut visitor = SystemFieldVisitor::new();
-        event.record(&mut visitor);
-
-        let entry = LogEntry {
-            timestamp: Local::now(),
-            level: log_level,
-            fields: LogFields {
-                message: visitor.message.unwrap_or_default(),
-                client_ip: visitor.client_ip,
-                username: visitor.username,
-                action: visitor.action,
-                protocol: visitor.protocol,
-                operation: None,
-                file_path: None,
-                file_size: None,
-                success: None,
-            },
-        };
-
-        self.buffer.push(entry);
-    }
-}
-
-/// File operation log layer
-pub struct FileOpLogLayer {
-    buffer: LogBuffer<LogEntry>,
-}
-
-impl FileOpLogLayer {
-    pub fn new(buffer: LogBuffer<LogEntry>) -> Self {
-        Self { buffer }
-    }
-}
-
-impl<S> Layer<S> for FileOpLogLayer
-where
-    S: tracing::Subscriber,
-{
-    fn on_event(
-        &self,
-        event: &tracing::Event<'_>,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
-        let metadata = event.metadata();
-        let target = metadata.target();
-
-        if !target.starts_with("file_op") {
-            return;
-        }
-
-        let level = *metadata.level();
-        let log_level = LogLevel::from_tracing_level(level);
-
-        let mut visitor = FileOpFieldVisitor::new();
-        event.record(&mut visitor);
-
-        let entry = LogEntry {
-            timestamp: Local::now(),
-            level: log_level,
-            fields: LogFields {
-                message: visitor.message.unwrap_or_default(),
-                client_ip: visitor.client_ip.clone(),
-                username: visitor.username.clone(),
-                action: None,
-                protocol: visitor.protocol.clone(),
-                operation: visitor.operation.clone(),
-                file_path: visitor.file_path.clone(),
-                file_size: visitor.file_size,
-                success: visitor.success,
-            },
-        };
-
-        self.buffer.push(entry);
-    }
-}
-
-struct SystemFieldVisitor {
-    message: Option<String>,
-    client_ip: Option<String>,
-    username: Option<String>,
-    action: Option<String>,
-    protocol: Option<String>,
-}
-
-impl SystemFieldVisitor {
-    fn new() -> Self {
-        Self {
-            message: None,
-            client_ip: None,
-            username: None,
-            action: None,
-            protocol: None,
-        }
-    }
-}
-
-impl tracing::field::Visit for SystemFieldVisitor {
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            self.message = Some(format!("{:?}", value));
-        }
-    }
-
-    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        match field.name() {
-            "message" => self.message = Some(value.to_string()),
-            "client_ip" => self.client_ip = Some(value.to_string()),
-            "username" => self.username = Some(value.to_string()),
-            "action" => self.action = Some(value.to_string()),
-            "protocol" => self.protocol = Some(value.to_string()),
-            _ => {}
-        }
-    }
-
-    fn record_i64(&mut self, _field: &tracing::field::Field, _value: i64) {}
-    fn record_u64(&mut self, _field: &tracing::field::Field, _value: u64) {}
-    fn record_bool(&mut self, _field: &tracing::field::Field, _value: bool) {}
-}
-
-struct FileOpFieldVisitor {
-    message: Option<String>,
-    client_ip: Option<String>,
-    username: Option<String>,
-    operation: Option<String>,
-    file_path: Option<String>,
-    file_size: Option<u64>,
-    protocol: Option<String>,
-    success: Option<bool>,
-}
-
-impl FileOpFieldVisitor {
-    fn new() -> Self {
-        Self {
-            message: None,
-            client_ip: None,
-            username: None,
-            operation: None,
-            file_path: None,
-            file_size: None,
-            protocol: None,
-            success: None,
-        }
-    }
-}
-
-impl tracing::field::Visit for FileOpFieldVisitor {
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            self.message = Some(format!("{:?}", value));
-        }
-    }
-
-    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        match field.name() {
-            "message" => self.message = Some(value.to_string()),
-            "client_ip" => self.client_ip = Some(value.to_string()),
-            "username" => self.username = Some(value.to_string()),
-            "operation" => self.operation = Some(value.to_string()),
-            "file_path" => self.file_path = Some(value.to_string()),
-            "protocol" => self.protocol = Some(value.to_string()),
-            _ => {}
-        }
-    }
-
-    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        if field.name() == "file_size" {
-            self.file_size = Some(value);
-        }
-    }
-
-    fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        if field.name() == "success" {
-            self.success = Some(value);
-        }
-    }
-
-    fn record_i64(&mut self, _field: &tracing::field::Field, _value: i64) {}
-}
+#[path = "log_layers.rs"]
+mod log_layers;
+use log_layers::{FileOpLogLayer, SystemLogLayer};
 
 use std::sync::OnceLock;
 
@@ -782,13 +400,26 @@ macro_rules! file_op_log {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Local;
 
     #[test]
     fn test_log_level_from_tracing() {
-        assert_eq!(LogLevel::from_tracing_level(Level::DEBUG), LogLevel::Debug);
-        assert_eq!(LogLevel::from_tracing_level(Level::INFO), LogLevel::Info);
-        assert_eq!(LogLevel::from_tracing_level(Level::WARN), LogLevel::Warning);
-        assert_eq!(LogLevel::from_tracing_level(Level::ERROR), LogLevel::Error);
+        assert_eq!(
+            LogLevel::from_tracing_level(tracing::Level::DEBUG),
+            LogLevel::Debug
+        );
+        assert_eq!(
+            LogLevel::from_tracing_level(tracing::Level::INFO),
+            LogLevel::Info
+        );
+        assert_eq!(
+            LogLevel::from_tracing_level(tracing::Level::WARN),
+            LogLevel::Warning
+        );
+        assert_eq!(
+            LogLevel::from_tracing_level(tracing::Level::ERROR),
+            LogLevel::Error
+        );
     }
 
     #[test]
