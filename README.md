@@ -11,9 +11,11 @@ WFTPG 是一个专为 Windows 平台设计的 SFTP/FTP 服务器管理工具，�
 
 ### 服务器功能
 - **SFTP 服务器** - 基于 SSH 的安全文件传输
-- **FTP 服务器** - 标准文件传输协议支持
+- **FTP 服务器** - 基于 libunftp 的高性能 FTP 实现
 - **FTPS 支持** - FTP over SSL/TLS 加密传输
 - **被动模式** - 支持被动模式传输，适应各种网络环境
+- **Pooled Listener Mode** - 高性能被动端口池模式
+- **MLSD 支持** - 机器可读的目录列表（RFC 3659）
 - **多用户管理** - 支持多用户配置，独立主目录
 
 ### 管理功能
@@ -189,6 +191,7 @@ GUI修改配置文件后无需重启服务：
 
 ### 协议实现
 - **russh** - SSH/SFTP 协议实现
+- **libunftp** - FTP/FTPS 协议实现（高性能、异步）
 - **native-tls/rustls** - TLS/SSL 支持
 - **rcgen** - 自签名证书生成
 

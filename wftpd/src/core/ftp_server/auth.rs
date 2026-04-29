@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 use std::fmt;
 use std::net::IpAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use unftp_core::auth::{
     AuthenticationError, Authenticator, Credentials, Principal, UserDetail, UserDetailError,
@@ -40,6 +40,10 @@ impl Eq for WftpdUser {}
 impl UserDetail for WftpdUser {
     fn account_enabled(&self) -> bool {
         self.enabled
+    }
+
+    fn home(&self) -> Option<&Path> {
+        Some(&self.home_dir)
     }
 }
 
@@ -354,5 +358,178 @@ impl UserDetailProvider for WftpdUserDetailProvider {
                 username
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::users::Permissions;
+    use std::path::Path;
+    use unftp_sbe_restrict::VfsOperations;
+
+    fn create_test_user() -> WftpdUser {
+        WftpdUser {
+            username: "testuser".to_string(),
+            home_dir: PathBuf::from("/home/testuser"),
+            enabled: true,
+            permissions: Permissions::full(),
+        }
+    }
+
+    #[test]
+    fn test_wftpd_user_display() {
+        let user = create_test_user();
+        let display = format!("{}", user);
+        assert!(display.contains("testuser"));
+    }
+
+    #[test]
+    fn test_wftpd_user_debug() {
+        let user = create_test_user();
+        let debug = format!("{:?}", user);
+        assert!(debug.contains("testuser"));
+    }
+
+    #[test]
+    fn test_user_detail_account_enabled() {
+        let user = create_test_user();
+        assert!(user.account_enabled());
+
+        let mut disabled_user = create_test_user();
+        disabled_user.enabled = false;
+        assert!(!disabled_user.account_enabled());
+    }
+
+    #[test]
+    fn test_user_detail_home() {
+        let user = create_test_user();
+        assert_eq!(user.home(), Some(Path::new("/home/testuser")));
+    }
+
+    #[test]
+    fn test_user_with_root() {
+        let user = create_test_user();
+        let root = user.user_root();
+        assert_eq!(root, Some(PathBuf::from("/home/testuser")));
+    }
+
+    #[test]
+    fn test_user_with_permissions_full() {
+        let user = create_test_user();
+        let perms = user.permissions();
+
+        assert!(perms.contains(VfsOperations::GET));
+        assert!(perms.contains(VfsOperations::PUT));
+        assert!(perms.contains(VfsOperations::DEL));
+        assert!(perms.contains(VfsOperations::LIST));
+        assert!(perms.contains(VfsOperations::MK_DIR));
+        assert!(perms.contains(VfsOperations::RM_DIR));
+        assert!(perms.contains(VfsOperations::RENAME));
+    }
+
+    #[test]
+    fn test_user_with_permissions_partial() {
+        let mut user = create_test_user();
+        user.permissions = Permissions {
+            can_read: true,
+            can_write: false,
+            can_delete: false,
+            can_list: true,
+            can_mkdir: false,
+            can_rmdir: false,
+            can_rename: false,
+            can_append: false,
+            quota_mb: None,
+            speed_limit_kbps: None,
+        };
+
+        let perms = user.permissions();
+        assert!(perms.contains(VfsOperations::GET));
+        assert!(perms.contains(VfsOperations::LIST));
+        assert!(!perms.contains(VfsOperations::PUT));
+        assert!(!perms.contains(VfsOperations::DEL));
+    }
+
+    #[test]
+    fn test_user_with_permissions_empty() {
+        let mut user = create_test_user();
+        user.permissions = Permissions::default();
+
+        let perms = user.permissions();
+        assert_eq!(perms, VfsOperations::empty());
+    }
+
+    #[test]
+    fn test_permissions_mapping_can_read() {
+        let mut user = create_test_user();
+        user.permissions = Permissions {
+            can_read: true,
+            ..Permissions::default()
+        };
+
+        let perms = user.permissions();
+        assert!(perms.contains(VfsOperations::GET));
+        assert!(!perms.contains(VfsOperations::PUT));
+    }
+
+    #[test]
+    fn test_permissions_mapping_can_write() {
+        let mut user = create_test_user();
+        user.permissions = Permissions {
+            can_write: true,
+            ..Permissions::default()
+        };
+
+        let perms = user.permissions();
+        assert!(perms.contains(VfsOperations::PUT));
+    }
+
+    #[test]
+    fn test_permissions_mapping_can_append() {
+        let mut user = create_test_user();
+        user.permissions = Permissions {
+            can_append: true,
+            ..Permissions::default()
+        };
+
+        let perms = user.permissions();
+        assert!(perms.contains(VfsOperations::PUT));
+    }
+
+    #[test]
+    fn test_permissions_mapping_can_mkdir() {
+        let mut user = create_test_user();
+        user.permissions = Permissions {
+            can_mkdir: true,
+            ..Permissions::default()
+        };
+
+        let perms = user.permissions();
+        assert!(perms.contains(VfsOperations::MK_DIR));
+    }
+
+    #[test]
+    fn test_permissions_mapping_can_rmdir() {
+        let mut user = create_test_user();
+        user.permissions = Permissions {
+            can_rmdir: true,
+            ..Permissions::default()
+        };
+
+        let perms = user.permissions();
+        assert!(perms.contains(VfsOperations::RM_DIR));
+    }
+
+    #[test]
+    fn test_permissions_mapping_can_rename() {
+        let mut user = create_test_user();
+        user.permissions = Permissions {
+            can_rename: true,
+            ..Permissions::default()
+        };
+
+        let perms = user.permissions();
+        assert!(perms.contains(VfsOperations::RENAME));
     }
 }
