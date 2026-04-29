@@ -255,8 +255,10 @@ impl FtpServer {
         }
 
         if config.ftps_enabled {
-            if let (Some(cert_path), Some(key_path)) = (config.ftps_cert_path.as_deref(), config.ftps_key_path.as_deref())
-            {
+            if let (Some(cert_path), Some(key_path)) = (
+                config.ftps_cert_path.as_deref(),
+                config.ftps_key_path.as_deref(),
+            ) {
                 if cert_path.is_empty() || key_path.is_empty() {
                     return Err(anyhow::anyhow!(
                         "FTPS enabled but certificate or key path is empty"

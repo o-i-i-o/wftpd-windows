@@ -60,7 +60,8 @@ impl Binder for UpnpBinder {
         if !effective_ports.contains(&port) {
             tracing::warn!(
                 "Bound port {} is outside configured passive port range {:?}",
-                port, effective_ports
+                port,
+                effective_ports
             );
         }
 
@@ -76,7 +77,8 @@ impl Binder for UpnpBinder {
             Ok(external_port) => {
                 tracing::debug!(
                     "UPnP port mapping added for passive port {} -> external {}",
-                    port, external_port
+                    port,
+                    external_port
                 );
                 self.mapped_ports.lock().push(external_port);
             }
@@ -102,7 +104,11 @@ impl Drop for UpnpBinder {
                     .remove_port_mapping(port, PortMappingProtocol::TCP)
                     .await
                 {
-                    tracing::warn!("Failed to remove UPnP port mapping for port {}: {}", port, e);
+                    tracing::warn!(
+                        "Failed to remove UPnP port mapping for port {}: {}",
+                        port,
+                        e
+                    );
                 }
             }
         });
@@ -141,9 +147,7 @@ impl UpnpBinderBuilder {
 
     pub fn build(self) -> Option<UpnpBinder> {
         match (self.upnp_manager, self.local_ip) {
-            (Some(manager), Some(ip)) => {
-                Some(UpnpBinder::new(manager, ip, self.passive_ports))
-            }
+            (Some(manager), Some(ip)) => Some(UpnpBinder::new(manager, ip, self.passive_ports)),
             _ => None,
         }
     }

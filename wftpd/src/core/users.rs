@@ -684,8 +684,12 @@ mod tests {
 
         {
             let mut manager = UserManager::new();
-            manager.add_user("user1", "pass1", &home, Permissions::full(), false).unwrap();
-            manager.add_user("user2", "pass2", &home, Permissions::full(), true).unwrap();
+            manager
+                .add_user("user1", "pass1", &home, Permissions::full(), false)
+                .unwrap();
+            manager
+                .add_user("user2", "pass2", &home, Permissions::full(), true)
+                .unwrap();
             manager.save(&path).unwrap();
         }
 
@@ -705,7 +709,9 @@ mod tests {
         let home = dir.path().to_string_lossy().to_string();
 
         let mut manager = UserManager::new();
-        manager.add_user("user1", "pass1", &home, Permissions::full(), false).unwrap();
+        manager
+            .add_user("user1", "pass1", &home, Permissions::full(), false)
+            .unwrap();
         manager.save(&path).unwrap();
 
         let mut manager2 = UserManager::new();
@@ -719,8 +725,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_string_lossy().to_string();
 
-        manager.add_user("user1", "pass1", &home, Permissions::full(), false).unwrap();
-        manager.add_user("user2", "pass2", &home, Permissions::full(), false).unwrap();
+        manager
+            .add_user("user1", "pass1", &home, Permissions::full(), false)
+            .unwrap();
+        manager
+            .add_user("user2", "pass2", &home, Permissions::full(), false)
+            .unwrap();
 
         let users = manager.get_all_users();
         assert_eq!(users.len(), 2);
@@ -732,8 +742,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_string_lossy().to_string();
 
-        manager.add_user("user1", "pass1", &home, Permissions::full(), false).unwrap();
-        manager.add_user("user2", "pass2", &home, Permissions::full(), false).unwrap();
+        manager
+            .add_user("user1", "pass1", &home, Permissions::full(), false)
+            .unwrap();
+        manager
+            .add_user("user2", "pass2", &home, Permissions::full(), false)
+            .unwrap();
 
         let count = manager.iter_users().count();
         assert_eq!(count, 2);
@@ -763,7 +777,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_string_lossy().to_string();
 
-        manager.add_user("testuser", "", &home, Permissions::full(), false).unwrap();
+        manager
+            .add_user("testuser", "", &home, Permissions::full(), false)
+            .unwrap();
 
         let result = manager.authenticate("testuser", "");
         assert!(matches!(result, Ok(true)));
@@ -825,7 +841,13 @@ mod tests {
 
         for i in 0..10 {
             manager
-                .add_user(&format!("user{}", i), &format!("pass{}", i), &home, Permissions::full(), false)
+                .add_user(
+                    &format!("user{}", i),
+                    &format!("pass{}", i),
+                    &home,
+                    Permissions::full(),
+                    false,
+                )
                 .unwrap();
         }
 

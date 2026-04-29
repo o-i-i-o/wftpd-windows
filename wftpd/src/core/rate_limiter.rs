@@ -237,7 +237,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for RateLimitedReader<R> {
             let bytes_per_second = self.limiter.bytes_per_second;
             let wait_ms = ((remaining as f64 / bytes_per_second as f64) * 1000.0).ceil() as u64;
             let wait_ms = wait_ms.clamp(REFILL_INTERVAL_MS, 100);
-            
+
             let waker = cx.waker().clone();
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(wait_ms)).await;
@@ -248,7 +248,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for RateLimitedReader<R> {
 
         let to_read = remaining.min(available);
         let mut limited_buf = ReadBuf::new(&mut buf.initialize_unfilled()[..to_read]);
-        
+
         match Pin::new(&mut self.inner).poll_read(cx, &mut limited_buf) {
             Poll::Ready(Ok(())) => {
                 let n = limited_buf.filled().len();

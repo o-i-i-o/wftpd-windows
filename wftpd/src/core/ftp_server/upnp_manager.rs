@@ -109,11 +109,10 @@ impl UpnpManager {
         let gateway_guard = self.gateway.read().await;
         if let Some(gateway) = &*gateway_guard {
             let gateway = gateway.clone();
-            let result = tokio::task::spawn_blocking(move || {
-                gateway.remove_port(protocol, external_port)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("UPnP remove_port_mapping task failed: {}", e))?;
+            let result =
+                tokio::task::spawn_blocking(move || gateway.remove_port(protocol, external_port))
+                    .await
+                    .map_err(|e| anyhow::anyhow!("UPnP remove_port_mapping task failed: {}", e))?;
 
             match result {
                 Ok(()) => {
@@ -136,9 +135,7 @@ impl UpnpManager {
         match &*gateway_guard {
             Some(gateway) => {
                 let gateway = gateway.clone();
-                match tokio::task::spawn_blocking(move || gateway.get_external_ip())
-                    .await
-                {
+                match tokio::task::spawn_blocking(move || gateway.get_external_ip()).await {
                     Ok(Ok(ip)) => {
                         info!("External IP obtained: {}", ip);
                         Some(ip.to_string())

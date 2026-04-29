@@ -62,7 +62,7 @@ impl UserWithRoot for WftpdUser {
 impl UserWithPermissions for WftpdUser {
     fn permissions(&self) -> VfsOperations {
         let mut ops = VfsOperations::empty();
-        
+
         if self.permissions.can_read {
             ops |= VfsOperations::GET;
         }
@@ -87,7 +87,7 @@ impl UserWithPermissions for WftpdUser {
         if self.permissions.can_append {
             ops |= VfsOperations::PUT;
         }
-        
+
         ops
     }
 }
@@ -127,8 +127,7 @@ impl WftpdAuthenticator {
     fn generate_dummy_hash() -> String {
         use argon2::Params;
 
-        let params = Params::new(65536, 3, 4, Some(32))
-            .unwrap_or_else(|_| Params::default());
+        let params = Params::new(65536, 3, 4, Some(32)).unwrap_or_else(|_| Params::default());
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
         argon2
             .hash_password(b"dummy_password_for_constant_time_verification")
@@ -148,7 +147,7 @@ impl WftpdAuthenticator {
     fn check_ip_security(&self, client_ip: &str) -> Result<(), AuthenticationError> {
         if let Some(config) = &self.config {
             let cfg = config.lock();
-            
+
             if !cfg.is_ip_allowed(client_ip) {
                 tracing::warn!(
                     ip = %client_ip,
@@ -158,7 +157,7 @@ impl WftpdAuthenticator {
                 );
                 return Err(AuthenticationError::BadPassword);
             }
-            
+
             if !cfg.check_connection_limits(client_ip) {
                 tracing::warn!(
                     ip = %client_ip,

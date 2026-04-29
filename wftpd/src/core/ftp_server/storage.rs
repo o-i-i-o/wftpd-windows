@@ -156,9 +156,9 @@ impl StorageBackend<WftpdUser> for QuotaFilesystem {
         match upload_result {
             Ok(bytes_written) => {
                 if let Some(reserved) = reserved_bytes
-                    && let Err(e) = self
-                        .quota_manager
-                        .commit_usage(username, reserved, bytes_written)
+                    && let Err(e) =
+                        self.quota_manager
+                            .commit_usage(username, reserved, bytes_written)
                 {
                     tracing::error!("Failed to commit quota: {}", e);
                 }
@@ -166,7 +166,8 @@ impl StorageBackend<WftpdUser> for QuotaFilesystem {
             }
             Err(e) => {
                 if let Some(reserved) = reserved_bytes
-                    && let Err(rollback_err) = self.quota_manager.rollback_reservation(username, reserved)
+                    && let Err(rollback_err) =
+                        self.quota_manager.rollback_reservation(username, reserved)
                 {
                     tracing::error!("Failed to rollback quota: {}", rollback_err);
                 }

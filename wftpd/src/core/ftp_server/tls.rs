@@ -26,7 +26,10 @@ impl TlsConfig {
                     Ok(false) => tracing::info!("Using existing FTPS certificate"),
                     Err(e) => {
                         tracing::error!("Certificate check/generation failed: {}", e);
-                        return Err(anyhow::anyhow!("Certificate check/generation failed: {}", e));
+                        return Err(anyhow::anyhow!(
+                            "Certificate check/generation failed: {}",
+                            e
+                        ));
                     }
                 }
 
@@ -45,7 +48,9 @@ impl TlsConfig {
             }
             _ => {
                 tracing::warn!("TLS requested but certificate or key path not provided");
-                Err(anyhow::anyhow!("TLS requested but certificate or key path not provided"))
+                Err(anyhow::anyhow!(
+                    "TLS requested but certificate or key path not provided"
+                ))
             }
         }
     }

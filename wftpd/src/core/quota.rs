@@ -93,14 +93,21 @@ impl QuotaManager {
             .unwrap_or(0)
     }
 
-    pub fn check_quota(&self, username: &str, quota_mb: u64, additional_bytes: u64) -> Result<bool> {
+    pub fn check_quota(
+        &self,
+        username: &str,
+        quota_mb: u64,
+        additional_bytes: u64,
+    ) -> Result<bool> {
         let data = self.data.lock();
         let usage = data.users.get(username);
         let used = usage.map(|u| u.used_bytes).unwrap_or(0);
         let reserved = usage.map(|u| u.reserved_bytes).unwrap_or(0);
 
         let quota_bytes = quota_mb * 1024 * 1024;
-        let total = used.saturating_add(reserved).saturating_add(additional_bytes);
+        let total = used
+            .saturating_add(reserved)
+            .saturating_add(additional_bytes);
         Ok(total <= quota_bytes)
     }
 
@@ -125,7 +132,12 @@ impl QuotaManager {
         Ok(true)
     }
 
-    pub fn commit_usage(&self, username: &str, reserved_bytes: u64, actual_bytes: u64) -> Result<()> {
+    pub fn commit_usage(
+        &self,
+        username: &str,
+        reserved_bytes: u64,
+        actual_bytes: u64,
+    ) -> Result<()> {
         let mut data = self.data.lock();
         if let Some(usage) = data.users.get_mut(username) {
             usage.reserved_bytes = usage.reserved_bytes.saturating_sub(reserved_bytes);
