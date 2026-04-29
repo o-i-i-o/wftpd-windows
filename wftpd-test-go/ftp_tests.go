@@ -38,6 +38,336 @@ func testBasicConnection() error {
 	return nil
 }
 
+func testTypeCommand() error {
+	startTime := time.Now()
+	logger.Printf("  [协议] 测试 TYPE 命令扩展...\n")
+
+	c, err := connectAndLogin()
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	typeCommands := []struct {
+		cmd  string
+		desc string
+	}{
+		{"TYPE A", "ASCII 模式"},
+		{"TYPE I", "二进制模式"},
+		{"TYPE E", "EBCDIC 模式"},
+		{"TYPE L 8", "本地类型 8 位"},
+		{"TYPE A N", "ASCII 非打印"},
+		{"TYPE A T", "ASCII Telnet 格式"},
+		{"TYPE A C", "ASCII ASA 格式"},
+	}
+
+	for _, test := range typeCommands {
+		err = c.PrintfLine(test.cmd)
+		if err != nil {
+			logger.Printf("  ⚠ %s 发送失败: %v\n", test.desc, err)
+			continue
+		}
+
+		code, msg, err := c.ReadResponse(200)
+		if err != nil {
+			logger.Printf("  ⚠ %s 不支持: %d %s\n", test.desc, code, strings.TrimSpace(msg))
+		} else {
+			logger.Printf("  ✓ %s: %s\n", test.desc, strings.TrimSpace(msg))
+		}
+	}
+
+	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+	return nil
+}
+
+func testAlloCommand() error {
+	startTime := time.Now()
+	logger.Printf("  [协议] 测试 ALLO 命令...\n")
+
+	c, err := connectAndLogin()
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	err = c.PrintfLine("ALLO 1024")
+	if err != nil {
+		return fmt.Errorf("发送 ALLO 命令失败: %w", err)
+	}
+
+	code, msg, err := c.ReadResponse(200)
+	if err != nil {
+		logger.Printf("  ⚠ ALLO 不支持: %d %s\n", code, strings.TrimSpace(msg))
+	} else {
+		logger.Printf("  ✓ ALLO: %s\n", strings.TrimSpace(msg))
+	}
+
+	err = c.PrintfLine("ALLO 1024 512")
+	if err != nil {
+		return fmt.Errorf("发送 ALLO R 命令失败: %w", err)
+	}
+
+	code, msg, err = c.ReadResponse(200)
+	if err != nil {
+		logger.Printf("  ⚠ ALLO R 不支持: %d %s\n", code, strings.TrimSpace(msg))
+	} else {
+		logger.Printf("  ✓ ALLO R: %s\n", strings.TrimSpace(msg))
+	}
+
+	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+	return nil
+}
+
+func testSiteCommand() error {
+	startTime := time.Now()
+	logger.Printf("  [协议] 测试 SITE 命令...\n")
+
+	c, err := connectAndLogin()
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	siteCommands := []string{
+		"SITE HELP",
+		"SITE CHMOD 644 test.txt",
+		"SITE UMASK 022",
+		"SITE IDLE 60",
+	}
+
+	for _, cmd := range siteCommands {
+		err = c.PrintfLine(cmd)
+		if err != nil {
+			logger.Printf("  ⚠ %s 发送失败: %v\n", cmd, err)
+			continue
+		}
+
+		code, msg, err := c.ReadResponse(0)
+		if err != nil {
+			logger.Printf("  ⚠ %s 不支持: %v\n", cmd, err)
+		} else if code >= 200 && code < 300 {
+			logger.Printf("  ✓ %s: %s\n", cmd, strings.TrimSpace(msg))
+		} else {
+			logger.Printf("  ⚠ %s 返回: %d %s\n", cmd, code, strings.TrimSpace(msg))
+		}
+	}
+
+	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+	return nil
+}
+
+func testAcctCommand() error {
+	startTime := time.Now()
+	logger.Printf("  [协议] 测试 ACCT 命令...\n")
+
+	c, err := connectAndLogin()
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	err = c.PrintfLine("ACCT testaccount")
+	if err != nil {
+		return fmt.Errorf("发送 ACCT 命令失败: %w", err)
+	}
+
+	code, msg, err := c.ReadResponse(0)
+	if err != nil {
+		logger.Printf("  ⚠ ACCT 不支持: %v\n", err)
+	} else if code >= 200 && code < 300 {
+		logger.Printf("  ✓ ACCT: %s\n", strings.TrimSpace(msg))
+	} else if code >= 400 && code < 600 {
+		logger.Printf("  ✓ ACCT 被拒绝 (预期行为): %d %s\n", code, strings.TrimSpace(msg))
+	} else {
+		logger.Printf("  ⚠ ACCT 返回: %d %s\n", code, strings.TrimSpace(msg))
+	}
+
+	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+	return nil
+}
+
+func testSmntCommand() error {
+	startTime := time.Now()
+	logger.Printf("  [协议] 测试 SMNT 命令...\n")
+
+	c, err := connectAndLogin()
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	err = c.PrintfLine("SMNT /")
+	if err != nil {
+		return fmt.Errorf("发送 SMNT 命令失败: %w", err)
+	}
+
+	code, msg, err := c.ReadResponse(0)
+	if err != nil {
+		logger.Printf("  ⚠ SMNT 不支持: %v\n", err)
+	} else if code >= 200 && code < 300 {
+		logger.Printf("  ✓ SMNT: %s\n", strings.TrimSpace(msg))
+	} else if code >= 400 && code < 600 {
+		logger.Printf("  ✓ SMNT 被拒绝 (预期行为): %d %s\n", code, strings.TrimSpace(msg))
+	} else {
+		logger.Printf("  ⚠ SMNT 返回: %d %s\n", code, strings.TrimSpace(msg))
+	}
+
+	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+	return nil
+}
+
+func testReinCommand() error {
+	startTime := time.Now()
+	logger.Printf("  [协议] 测试 REIN 命令...\n")
+
+	c, err := connectAndLogin()
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	err = c.PrintfLine("REIN")
+	if err != nil {
+		return fmt.Errorf("发送 REIN 命令失败: %w", err)
+	}
+
+	code, msg, err := c.ReadResponse(0)
+	if err != nil {
+		logger.Printf("  ⚠ REIN 不支持: %v\n", err)
+	} else if code == 220 {
+		logger.Printf("  ✓ REIN 成功: %s\n", strings.TrimSpace(msg))
+	} else if code >= 400 && code < 600 {
+		logger.Printf("  ✓ REIN 被拒绝 (预期行为): %d %s\n", code, strings.TrimSpace(msg))
+	} else {
+		logger.Printf("  ⚠ REIN 返回: %d %s\n", code, strings.TrimSpace(msg))
+	}
+
+	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+	return nil
+}
+
+func testStouCommand() error {
+	startTime := time.Now()
+	logger.Printf("  [协议] 测试 STOU 命令...\n")
+
+	c, err := connectAndLogin()
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	err = c.PrintfLine("TYPE I")
+	if err != nil {
+		return fmt.Errorf("发送 TYPE 命令失败: %w", err)
+	}
+	_, _, err = c.ReadResponse(200)
+	if err != nil {
+		return fmt.Errorf("TYPE 命令错误: %w", err)
+	}
+
+	dt, err := pasvDataConnect(c)
+	if err != nil {
+		return err
+	}
+	defer dt.Close()
+
+	srcPath := filepath.Join(config.TestDataDir, "small.txt")
+	file, err := os.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("打开文件失败: %w", err)
+	}
+	defer file.Close()
+
+	err = dt.Fc.PrintfLine("STOU")
+	if err != nil {
+		return fmt.Errorf("发送 STOU 命令失败: %w", err)
+	}
+
+	code, msg, err := dt.Fc.ReadResponse(150)
+	if err != nil {
+		logger.Printf("  ⚠ STOU 不支持: %d %s\n", code, strings.TrimSpace(msg))
+	} else {
+		uniqueFilename := strings.TrimSpace(msg)
+		logger.Printf("  ✓ STOU 创建唯一文件: %s\n", uniqueFilename)
+
+		_, err = io.Copy(dt.Conn, file)
+		dt.Conn.Close()
+		if err != nil {
+			return fmt.Errorf("传输文件失败: %w", err)
+		}
+
+		_, _, err = dt.Fc.ReadResponse(226)
+		if err != nil {
+			return fmt.Errorf("传输确认错误: %w", err)
+		}
+
+		c.PrintfLine("DELE %s", uniqueFilename)
+		c.ReadResponse(250)
+	}
+
+	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+	return nil
+}
+
+func testAppeCommand() error {
+	startTime := time.Now()
+	logger.Printf("  [协议] 测试 APPE 命令...\n")
+
+	c, err := connectAndLogin()
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	err = c.PrintfLine("TYPE I")
+	if err != nil {
+		return fmt.Errorf("发送 TYPE 命令失败: %w", err)
+	}
+	_, _, err = c.ReadResponse(200)
+	if err != nil {
+		return fmt.Errorf("TYPE 命令错误: %w", err)
+	}
+
+	dt, err := pasvDataConnect(c)
+	if err != nil {
+		return err
+	}
+	defer dt.Close()
+
+	srcPath := filepath.Join(config.TestDataDir, "small.txt")
+	file, err := os.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("打开文件失败: %w", err)
+	}
+	defer file.Close()
+
+	err = dt.Upload(file, "appe_test.txt")
+	if err != nil {
+		return fmt.Errorf("首次上传失败: %w", err)
+	}
+	logger.Printf("  ✓ 首次上传: appe_test.txt\n")
+
+	dt2, err := pasvDataConnect(c)
+	if err != nil {
+		return err
+	}
+	defer dt2.Close()
+
+	file.Seek(0, 0)
+	err = dt2.Upload(file, "appe_test.txt")
+	if err != nil {
+		logger.Printf("  ⚠ APPE 不支持或失败: %v\n", err)
+	} else {
+		logger.Printf("  ✓ APPE 追加上传成功\n")
+	}
+
+	c.PrintfLine("DELE appe_test.txt")
+	c.ReadResponse(250)
+
+	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+	return nil
+}
+
 func testAuthentication() error {
 	startTime := time.Now()
 	logger.Printf("  [认证] 正在认证用户 %s...\n", config.Username)

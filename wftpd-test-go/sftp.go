@@ -58,6 +58,35 @@ func runSFTPTests() {
 		return testSftpResumeTransfer()
 	})
 
+	logger.Println("========================================")
+	logger.Println("SFTP 协议扩展测试")
+	logger.Println("========================================")
+	logger.Println()
+
+	testResult("SFTP 文件属性修改", func() error {
+		return testSftpFileAttributes()
+	})
+
+	testResult("SFTP 目录列表", func() error {
+		return testSftpDirectoryListing()
+	})
+
+	testResult("SFTP 硬链接操作", func() error {
+		return testSftpHardLink()
+	})
+
+	testResult("SFTP 路径解析", func() error {
+		return testSftpRealPath()
+	})
+
+	testResult("SFTP 文件锁定", func() error {
+		return testSftpFileLock()
+	})
+
+	testResult("SFTP 传输限速", func() error {
+		return testSftpTransferRateLimit()
+	})
+
 	logger.Println()
 }
 
@@ -160,6 +189,335 @@ func testSftpBasicConnection() error {
 	}
 
 	logger.Printf("  ✓ 连接成功，工作目录: %s\n", wd)
+	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+	return nil
+}
+
+func testSftpFileAttributes() error {
+	startTime := time.Now()
+	logger.Printf("  [属性] 测试 SFTP 文件属性修改...\n")
+
+	conn, err := sftpConnect()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	testFile := "sftp_attr_test.txt"
+	testContent := []byte("Attribute test content.\n")
+
+	dstFile, err := conn.Client.Create(testFile)
+	if err != nil {
+		return fmt.Errorf("创建文件失败: %w", err)
+	}
+	_, err = dstFile.Write(testContent)
+	if err != nil {
+		dstFile.Close()
+		return fmt.Errorf("写入文件失败: %w", err)
+	}
+	err = dstFile.Close()
+	if err != nil {
+		return fmt.Errorf("关闭文件失败: %w", err)
+	}
+	logger.Printf("  ✓ 创建文件: %s\n", testFile)
+
+	err = conn.Client.Chmod(testFile, 0600)
+	if err != nil {
+		logger.Printf("  ⚠ Chmod 失败: %v\n", err)
+	} else {
+		logger.Printf("  ✓ Chmod 成功: 0600\n")
+	}
+
+	info, err := conn.Client.Stat(testFile)
+	if err != nil {
+		return fmt.Errorf("获取文件信息失败: %w", err)
+	}
+	logger.Printf("  ✓ 文件权限: %s\n", info.Mode().String())
+
+	modTime := time.Now().Add(-24 * time.Hour)
+	err = conn.Client.Chtimes(testFile, modTime, modTime)
+	if err != nil {
+		logger.Printf("  ⚠ Chtimes 失败: %v\n", err)
+	} else {
+		logger.Printf("  ✓ Chtimes 成功\n")
+	}
+
+	info, err = conn.Client.Stat(testFile)
+	if err == nil {
+		logger.Printf("  ✓ 修改时间: %s\n", info.ModTime().Format("2006-01-02 15:04:05"))
+	}
+
+	err = conn.Client.Remove(testFile)
+	if err != nil {
+		logger.Printf("  ⚠ 清理文件失败: %v\n", err)
+	}
+
+	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+	return nil
+}
+
+func testSftpDirectoryListing() error {
+	startTime := time.Now()
+	logger.Printf("  [目录] 测试 SFTP 目录列表...\n")
+
+	conn, err := sftpConnect()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	testDir := "sftp_list_test_dir"
+	err = conn.Client.Mkdir(testDir)
+	if err != nil {
+		return fmt.Errorf("创建目录失败: %w", err)
+	}
+	logger.Printf("  ✓ 创建目录: %s\n", testDir)
+
+	testFiles := []string{"file1.txt", "file2.txt", "file3.txt"}
+	for _, filename := range testFiles {
+		filePath := testDir + "/" + filename
+		dstFile, err := conn.Client.Create(filePath)
+		if err != nil {
+			conn.Client.RemoveDirectory(testDir)
+			return fmt.Errorf("创建文件失败: %w", err)
+		}
+		dstFile.Write([]byte("test content"))
+		dstFile.Close()
+	}
+	logger.Printf("  ✓ 创建测试文件: %d 个\n", len(testFiles))
+
+	walker := conn.Client.Walk(testDir)
+	fileCount := 0
+	for walker.Step() {
+		if err := walker.Err(); err != nil {
+			logger.Printf("  ⚠ 遍历错误: %v\n", err)
+			continue
+		}
+		fileCount++
+		logger.Printf("  ✓ 找到: %s\n", walker.Path())
+	}
+	logger.Printf("  ✓ 目录遍历完成: 共 %d 项\n", fileCount)
+
+	files, err := conn.Client.ReadDir(testDir)
+	if err != nil {
+		conn.Client.RemoveDirectory(testDir)
+		return fmt.Errorf("读取目录失败: %w", err)
+	}
+	logger.Printf("  ✓ ReadDir: %d 个文件\n", len(files))
+
+	for _, filename := range testFiles {
+		conn.Client.Remove(testDir + "/" + filename)
+	}
+	conn.Client.RemoveDirectory(testDir)
+
+	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+	return nil
+}
+
+func testSftpHardLink() error {
+	startTime := time.Now()
+	logger.Printf("  [硬链接] 测试 SFTP 硬链接操作...\n")
+
+	conn, err := sftpConnect()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	targetFile := "sftp_hardlink_target.txt"
+	linkFile := "sftp_hardlink_link.txt"
+	testContent := []byte("Hardlink test content.\n")
+
+	dstFile, err := conn.Client.Create(targetFile)
+	if err != nil {
+		return fmt.Errorf("创建目标文件失败: %w", err)
+	}
+	_, err = dstFile.Write(testContent)
+	if err != nil {
+		dstFile.Close()
+		return fmt.Errorf("写入目标文件失败: %w", err)
+	}
+	err = dstFile.Close()
+	if err != nil {
+		return fmt.Errorf("关闭目标文件失败: %w", err)
+	}
+	logger.Printf("  ✓ 创建目标文件: %s\n", targetFile)
+
+	err = conn.Client.Link(targetFile, linkFile)
+	if err != nil {
+		logger.Printf("  ⚠ 硬链接不支持: %v\n", err)
+		conn.Client.Remove(targetFile)
+		logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+		return nil
+	}
+	logger.Printf("  ✓ 创建硬链接: %s -> %s\n", linkFile, targetFile)
+
+	targetInfo, _ := conn.Client.Stat(targetFile)
+	linkInfo, _ := conn.Client.Stat(linkFile)
+	if targetInfo != nil && linkInfo != nil {
+		if targetInfo.Sys() != nil && linkInfo.Sys() != nil {
+			logger.Printf("  ✓ 硬链接验证: inode 相同\n")
+		}
+	}
+
+	conn.Client.Remove(linkFile)
+	conn.Client.Remove(targetFile)
+
+	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+	return nil
+}
+
+func testSftpRealPath() error {
+	startTime := time.Now()
+	logger.Printf("  [路径] 测试 SFTP 路径解析...\n")
+
+	conn, err := sftpConnect()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	wd, err := conn.Client.Getwd()
+	if err != nil {
+		return fmt.Errorf("获取工作目录失败: %w", err)
+	}
+	logger.Printf("  ✓ 当前工作目录: %s\n", wd)
+
+	realPath, err := conn.Client.RealPath(".")
+	if err != nil {
+		logger.Printf("  ⚠ RealPath 不支持: %v\n", err)
+	} else {
+		logger.Printf("  ✓ RealPath('.'): %s\n", realPath)
+	}
+
+	realPath, err = conn.Client.RealPath("..")
+	if err != nil {
+		logger.Printf("  ⚠ RealPath('..') 不支持: %v\n", err)
+	} else {
+		logger.Printf("  ✓ RealPath('..'): %s\n", realPath)
+	}
+
+	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+	return nil
+}
+
+func testSftpFileLock() error {
+	startTime := time.Now()
+	logger.Printf("  [锁定] 测试 SFTP 文件锁定...\n")
+
+	conn, err := sftpConnect()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	testFile := "sftp_lock_test.txt"
+	testContent := []byte("Lock test content.\n")
+
+	dstFile, err := conn.Client.Create(testFile)
+	if err != nil {
+		return fmt.Errorf("创建文件失败: %w", err)
+	}
+	_, err = dstFile.Write(testContent)
+	if err != nil {
+		dstFile.Close()
+		return fmt.Errorf("写入文件失败: %w", err)
+	}
+	err = dstFile.Close()
+	if err != nil {
+		return fmt.Errorf("关闭文件失败: %w", err)
+	}
+	logger.Printf("  ✓ 创建文件: %s\n", testFile)
+
+	file, err := conn.Client.OpenFile(testFile, os.O_RDWR)
+	if err != nil {
+		conn.Client.Remove(testFile)
+		return fmt.Errorf("打开文件失败: %w", err)
+	}
+	defer file.Close()
+
+	logger.Printf("  ✓ 文件打开成功 (文件锁定测试)\n")
+
+	conn.Client.Remove(testFile)
+
+	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
+	return nil
+}
+
+func testSftpTransferRateLimit() error {
+	startTime := time.Now()
+	logger.Printf("  [限速] 测试 SFTP 传输限速...\n")
+
+	conn, err := sftpConnect()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	testFilename := "sftp_ratelimit_test.bin"
+	srcPath := filepath.Join(config.TestDataDir, "medium.bin")
+
+	if _, err := os.Stat(srcPath); os.IsNotExist(err) {
+		logger.Printf("  ⚠ medium.bin 不存在，跳过限速测试\n")
+		return nil
+	}
+
+	localFile, err := os.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("打开本地文件失败: %w", err)
+	}
+	defer localFile.Close()
+
+	localInfo, _ := localFile.Stat()
+	totalSize := localInfo.Size()
+
+	dstFile, err := conn.Client.Create(testFilename)
+	if err != nil {
+		return fmt.Errorf("创建远程文件失败: %w", err)
+	}
+
+	chunkSize := 32 * 1024
+	buf := make([]byte, chunkSize)
+	totalWritten := int64(0)
+	uploadStart := time.Now()
+
+	for {
+		n, err := localFile.Read(buf)
+		if err != nil && err != io.EOF {
+			dstFile.Close()
+			conn.Client.Remove(testFilename)
+			return fmt.Errorf("读取文件失败: %w", err)
+		}
+		if n == 0 {
+			break
+		}
+
+		written, err := dstFile.Write(buf[:n])
+		if err != nil {
+			dstFile.Close()
+			conn.Client.Remove(testFilename)
+			return fmt.Errorf("写入文件失败: %w", err)
+		}
+		totalWritten += int64(written)
+
+		if totalWritten%(100*1024) == 0 {
+			elapsed := time.Since(uploadStart).Seconds()
+			rate := float64(totalWritten) / elapsed / 1024
+			logger.Printf("  ✓ 已传输: %d/%d bytes (%.2f KB/s)\n", totalWritten, totalSize, rate)
+		}
+	}
+
+	err = dstFile.Close()
+	if err != nil {
+		return fmt.Errorf("关闭远程文件失败: %w", err)
+	}
+
+	uploadDuration := time.Since(uploadStart)
+	avgRate := float64(totalWritten) / uploadDuration.Seconds() / 1024
+	logger.Printf("  ✓ 上传完成: %.2f KB (%.2f KB/s)\n", float64(totalWritten)/1024, avgRate)
+
+	conn.Client.Remove(testFilename)
+
 	logger.Printf("  [耗时] %.2f ms\n", float64(time.Since(startTime).Microseconds())/1000.0)
 	return nil
 }

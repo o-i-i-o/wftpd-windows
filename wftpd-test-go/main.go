@@ -241,14 +241,38 @@ func printReport() {
 	
 	passed := 0
 	failed := 0
+	var totalDuration time.Duration
+	var failedTests []TestResult
+	
+	ftpPassed := 0
+	ftpFailed := 0
+	sftpPassed := 0
+	sftpFailed := 0
 	
 	for i, result := range testResults {
 		status := "✓ 通过"
 		if !result.Passed {
 			status = "✗ 失败"
 			failed++
+			failedTests = append(failedTests, result)
 		} else {
 			passed++
+		}
+		
+		totalDuration += result.Duration
+		
+		if strings.HasPrefix(result.Name, "FTP") {
+			if result.Passed {
+				ftpPassed++
+			} else {
+				ftpFailed++
+			}
+		} else if strings.HasPrefix(result.Name, "SFTP") {
+			if result.Passed {
+				sftpPassed++
+			} else {
+				sftpFailed++
+			}
 		}
 		
 		logger.Printf("%2d. [%s] %s\n", i+1, status, result.Name)
@@ -259,12 +283,56 @@ func printReport() {
 	}
 	
 	logger.Println()
-	logger.Printf("总计: %d 项测试，%d 通过，%d 失败\n", passed+failed, passed, failed)
+	logger.Println("========================================")
+	logger.Println("测试统计")
+	logger.Println("========================================")
+	logger.Printf("总计: %d 项测试\n", passed+failed)
+	logger.Printf("通过: %d 项 (%.1f%%)\n", passed, float64(passed)/float64(passed+failed)*100)
+	logger.Printf("失败: %d 项 (%.1f%%)\n", failed, float64(failed)/float64(passed+failed)*100)
+	logger.Printf("总耗时: %.2f 秒\n", totalDuration.Seconds())
+	logger.Printf("平均耗时: %.2f 毫秒/测试\n", float64(totalDuration.Milliseconds())/float64(passed+failed))
+	
+	logger.Println()
+	logger.Println("========================================")
+	logger.Println("分类统计")
+	logger.Println("========================================")
+	logger.Printf("FTP 测试: %d 通过, %d 失败 (总计 %d)\n", ftpPassed, ftpFailed, ftpPassed+ftpFailed)
+	logger.Printf("SFTP 测试: %d 通过, %d 失败 (总计 %d)\n", sftpPassed, sftpFailed, sftpPassed+sftpFailed)
+	
+	if len(failedTests) > 0 {
+		logger.Println()
+		logger.Println("========================================")
+		logger.Println("失败测试详情")
+		logger.Println("========================================")
+		for i, test := range failedTests {
+			logger.Printf("%d. %s\n", i+1, test.Name)
+			logger.Printf("   错误: %v\n", test.Error)
+			logger.Printf("   耗时: %.2f ms\n", float64(test.Duration.Microseconds())/1000.0)
+		}
+	}
+	
+	logger.Println()
+	logger.Println("========================================")
+	logger.Println("测试完成")
+	logger.Println("========================================")
+	logger.Printf("测试时间: %s\n", time.Now().Format("2006-01-02 15:04:05"))
+	logger.Printf("测试结果: ")
+	if failed == 0 {
+		logger.Println("✓ 全部通过")
+	} else {
+		logger.Printf("✗ %d 项失败\n", failed)
+	}
 	logger.Println("========================================")
 }
 
 func generateTestFiles() error {
 	logger.Println("[准备] 生成测试文件...")
+	
+	emptyFile := filepath.Join(config.TestDataDir, "empty.txt")
+	if err := os.WriteFile(emptyFile, []byte{}, 0644); err != nil {
+		return fmt.Errorf("创建空文件失败: %w", err)
+	}
+	logger.Printf("  ✓ 创建空文件: %s (0 bytes)\n", emptyFile)
 	
 	smallFile := filepath.Join(config.TestDataDir, "small.txt")
 	if err := os.WriteFile(smallFile, []byte(strings.Repeat("A", 1024)), 0644); err != nil {
@@ -297,6 +365,41 @@ func generateTestFiles() error {
 	bufWriter.Flush()
 	f.Close()
 	logger.Printf("  ✓ 创建大文件: %s (10MB)\n", largeFile)
+	
+	large100MBFile := filepath.Join(config.TestDataDir, "large_100mb.bin")
+	if _, err := os.Stat(large100MBFile); os.IsNotExist(err) {
+		logger.Printf("  [提示] 正在创建超大文件 (100MB)，可能需要一些时间...\n")
+		f, err = os.Create(large100MBFile)
+		if err != nil {
+			return fmt.Errorf("创建超大文件失败: %w", err)
+		}
+		bufWriter = bufio.NewWriter(f)
+		for i := 0; i < 100*1024; i++ {
+			bufWriter.Write(make([]byte, 1024))
+		}
+		bufWriter.Flush()
+		f.Close()
+		logger.Printf("  ✓ 创建超大文件: %s (100MB)\n", large100MBFile)
+	} else {
+		logger.Printf("  ✓ 超大文件已存在: %s (100MB)\n", large100MBFile)
+	}
+	
+	binaryFile := filepath.Join(config.TestDataDir, "binary_test.bin")
+	binaryData := make([]byte, 1024)
+	for i := range binaryData {
+		binaryData[i] = byte(i % 256)
+	}
+	if err := os.WriteFile(binaryFile, binaryData, 0644); err != nil {
+		return fmt.Errorf("创建二进制文件失败: %w", err)
+	}
+	logger.Printf("  ✓ 创建二进制文件: %s (1KB)\n", binaryFile)
+	
+	unicodeFile := filepath.Join(config.TestDataDir, "unicode_test.txt")
+	unicodeContent := "测试中文内容\n日本語テスト\n한국어 테스트\nΕλληνικά\nالعربية\nעברית\nไทย\nemoji 😀🎉\n"
+	if err := os.WriteFile(unicodeFile, []byte(unicodeContent), 0644); err != nil {
+		return fmt.Errorf("创建Unicode文件失败: %w", err)
+	}
+	logger.Printf("  ✓ 创建Unicode文件: %s\n", unicodeFile)
 	
 	logger.Println()
 	return nil
@@ -405,6 +508,171 @@ func runFTPTests() {
 	
 	testResult("FTP 传输模式/结构 (MODE/STRU)", func() error {
 		return testModeAndStru()
+	})
+	
+	logger.Println("========================================")
+	logger.Println("FTP 边界条件测试")
+	logger.Println("========================================")
+	logger.Println()
+	
+	testResult("FTP 空文件传输", func() error {
+		return testEmptyFileTransfer()
+	})
+	
+	testResult("FTP 特殊字符文件名", func() error {
+		return testSpecialCharacterFilename()
+	})
+	
+	testResult("FTP 超长文件名", func() error {
+		return testLongFilename()
+	})
+	
+	testResult("FTP 超大文件传输 (100MB)", func() error {
+		return testLargeFileTransfer()
+	})
+	
+	testResult("FTP 路径遍历防护", func() error {
+		return testPathTraversalProtection()
+	})
+	
+	testResult("FTP 二进制文件传输", func() error {
+		return testBinaryFileTransfer()
+	})
+	
+	testResult("FTP Unicode文件名", func() error {
+		return testUnicodeFilename()
+	})
+	
+	logger.Println("========================================")
+	logger.Println("FTP 错误恢复测试")
+	logger.Println("========================================")
+	logger.Println()
+	
+	testResult("FTP 网络中断恢复", func() error {
+		return testNetworkInterruption()
+	})
+	
+	testResult("FTP 权限拒绝处理", func() error {
+		return testPermissionDenied()
+	})
+	
+	testResult("FTP 并发访问冲突", func() error {
+		return testConcurrentAccess()
+	})
+	
+	testResult("FTP 无效命令处理", func() error {
+		return testInvalidCommands()
+	})
+	
+	testResult("FTP 畸形命令处理", func() error {
+		return testMalformedCommands()
+	})
+	
+	testResult("FTP 超时处理", func() error {
+		return testTimeoutHandling()
+	})
+	
+	testResult("FTP 数据连接失败", func() error {
+		return testDataConnectionFailure()
+	})
+	
+	logger.Println("========================================")
+	logger.Println("FTP 安全测试")
+	logger.Println("========================================")
+	logger.Println()
+	
+	testResult("FTP 命令注入防护", func() error {
+		return testCommandInjection()
+	})
+	
+	testResult("FTP 缓冲区溢出防护", func() error {
+		return testBufferOverflow()
+	})
+	
+	testResult("FTP 未授权访问防护", func() error {
+		return testUnauthorizedAccess()
+	})
+	
+	testResult("FTP 敏感信息泄露防护", func() error {
+		return testSensitiveDataLeak()
+	})
+	
+	testResult("FTP 匿名访问控制", func() error {
+		return testAnonymousAccess()
+	})
+	
+	testResult("FTP PORT 命令安全性", func() error {
+		return testPortCommandSecurity()
+	})
+	
+	testResult("FTP PASV 命令安全性", func() error {
+		return testPasvSecurity()
+	})
+	
+	testResult("FTP 暴力破解防护", func() error {
+		return testBruteForceProtection()
+	})
+	
+	logger.Println("========================================")
+	logger.Println("FTP 协议扩展测试")
+	logger.Println("========================================")
+	logger.Println()
+	
+	testResult("FTP TYPE 命令扩展", func() error {
+		return testTypeCommand()
+	})
+	
+	testResult("FTP ALLO 命令", func() error {
+		return testAlloCommand()
+	})
+	
+	testResult("FTP SITE 命令", func() error {
+		return testSiteCommand()
+	})
+	
+	testResult("FTP ACCT 命令", func() error {
+		return testAcctCommand()
+	})
+	
+	testResult("FTP SMNT 命令", func() error {
+		return testSmntCommand()
+	})
+	
+	testResult("FTP REIN 命令", func() error {
+		return testReinCommand()
+	})
+	
+	testResult("FTP STOU 命令", func() error {
+		return testStouCommand()
+	})
+	
+	testResult("FTP APPE 命令", func() error {
+		return testAppeCommand()
+	})
+	
+	logger.Println("========================================")
+	logger.Println("FTP 性能测试")
+	logger.Println("========================================")
+	logger.Println()
+	
+	testResult("FTP 批量文件传输", func() error {
+		return testBatchTransfer()
+	})
+	
+	testResult("FTP 传输队列管理", func() error {
+		return testTransferQueue()
+	})
+	
+	testResult("FTP 带宽限制效果", func() error {
+		return testBandwidthLimit()
+	})
+	
+	testResult("FTP 资源使用情况", func() error {
+		return testResourceUsage()
+	})
+	
+	testResult("FTP 压力测试", func() error {
+		return testStressTest()
 	})
 	
 	logger.Println()
