@@ -11,7 +11,7 @@
 
 use anyhow::Result;
 use libunftp::ServerBuilder;
-use libunftp::options::{FailedLoginsPolicy, PassiveHost, Shutdown};
+use libunftp::options::{FailedLoginsBlock, FailedLoginsPolicy, PassiveHost, Shutdown};
 use parking_lot::Mutex;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
@@ -26,7 +26,8 @@ use crate::core::fail2ban::{Fail2BanConfig, Fail2BanManager};
 use crate::core::quota::QuotaManager;
 use crate::core::users::UserManager;
 
-use super::auth::{WftpdAuthenticator, WftpdUser, WftpdUserDetailProvider};
+use super::auth::{SessionTracker, WftpdAuthenticator, WftpdUser, WftpdUserDetailProvider};
+use super::cert_gen;
 use super::upnp_manager::UpnpManager;
 use super::{FtpDataListener, FtpPresenceListener, QuotaFilesystem, UpnpBinderBuilder};
 
@@ -48,9 +49,12 @@ struct FtpServerResources {
     quota_manager: Arc<QuotaManager>,
     fail2ban_manager: Arc<Fail2BanManager>,
     upnp_manager: Arc<UpnpManager>,
+    session_tracker: Arc<SessionTracker>,
     users_path: std::path::PathBuf,
     config: Arc<Mutex<Config>>,
 }
+
+static GREETING: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 pub struct FtpServer {
     config: Arc<Mutex<Config>>,
@@ -58,6 +62,7 @@ pub struct FtpServer {
     quota_manager: Arc<QuotaManager>,
     fail2ban_manager: Arc<Fail2BanManager>,
     upnp_manager: Arc<UpnpManager>,
+    session_tracker: Arc<SessionTracker>,
     running: Arc<Mutex<bool>>,
     shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
 }
@@ -89,6 +94,7 @@ impl FtpServer {
             quota_manager: Arc::new(quota_manager),
             fail2ban_manager,
             upnp_manager,
+            session_tracker: Arc::new(SessionTracker::new()),
             running: Arc::new(Mutex::new(false)),
             shutdown_tx: Arc::new(TokioMutex::new(None)),
         }
@@ -131,13 +137,6 @@ impl FtpServer {
 
         Arc::clone(&self.fail2ban_manager).start_cleanup_task();
 
-        let upnp_init = Arc::clone(&self.upnp_manager);
-        tokio::spawn(async move {
-            if let Err(e) = upnp_init.initialize().await {
-                tracing::warn!("UPnP initialization failed: {}", e);
-            }
-        });
-
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
         {
             let mut tx = self.shutdown_tx.lock().await;
@@ -149,9 +148,15 @@ impl FtpServer {
             quota_manager: Arc::clone(&self.quota_manager),
             fail2ban_manager: Arc::clone(&self.fail2ban_manager),
             upnp_manager: Arc::clone(&self.upnp_manager),
+            session_tracker: Arc::clone(&self.session_tracker),
             users_path: get_program_data_path().join("users.json"),
             config: Arc::clone(&self.config),
         };
+
+        {
+            let mut running = self.running.lock();
+            *running = true;
+        }
 
         let running_clone = Arc::clone(&self.running);
 
@@ -187,6 +192,10 @@ impl FtpServer {
             ));
         }
 
+        if let Err(e) = resources.upnp_manager.initialize().await {
+            tracing::warn!("UPnP initialization failed: {}", e);
+        }
+
         let local_ip = Self::get_local_ip_for_bind(&config.bind_ip);
 
         let user_mgr_clone = Arc::clone(&resources.user_manager);
@@ -212,6 +221,7 @@ impl FtpServer {
             resources.users_path.clone(),
             Some(Arc::clone(&resources.fail2ban_manager)),
             Some(config_clone),
+            Arc::clone(&resources.session_tracker),
         ));
 
         let user_detail_provider = Arc::new(WftpdUserDetailProvider::new(
@@ -225,7 +235,13 @@ impl FtpServer {
             Shutdown::new().grace_period(Duration::from_secs(10))
         };
 
-        let greeting: &'static str = config.welcome_msg.leak();
+        let _ = GREETING.set(config.welcome_msg);
+        let greeting: &'static str = GREETING.get().map(|s| s.as_str()).unwrap_or("Welcome");
+
+        let presence_listener = FtpPresenceListener::new(
+            Arc::clone(&resources.session_tracker),
+            Arc::clone(&resources.config),
+        );
 
         let mut server_builder =
             ServerBuilder::with_user_detail_provider(storage_factory, user_detail_provider)
@@ -234,8 +250,12 @@ impl FtpServer {
                 .passive_ports(config.passive_ports.0..=config.passive_ports.1)
                 .idle_session_timeout(config.idle_timeout)
                 .notify_data(FtpDataListener::new())
-                .notify_presence(FtpPresenceListener::new())
-                .failed_logins_policy(FailedLoginsPolicy::default())
+                .notify_presence(presence_listener)
+                .failed_logins_policy(FailedLoginsPolicy::new(
+                    u32::MAX,
+                    Duration::MAX,
+                    FailedLoginsBlock::IP,
+                ))
                 .shutdown_indicator(shutdown_indicator);
 
         if config.pooled_listener_mode {
@@ -243,7 +263,18 @@ impl FtpServer {
             server_builder = server_builder.pooled_listener_mode();
         }
 
-        server_builder = server_builder.passive_host(PassiveHost::FromConnection);
+        let upnp_external_ip = resources.upnp_manager.get_external_ip().await;
+        let passive_host = match upnp_external_ip {
+            Some(ip_str) => {
+                tracing::info!("Using UPnP external IP for passive host: {}", ip_str);
+                ip_str
+                    .parse::<Ipv4Addr>()
+                    .map(PassiveHost::Ip)
+                    .unwrap_or(PassiveHost::FromConnection)
+            }
+            None => PassiveHost::FromConnection,
+        };
+        server_builder = server_builder.passive_host(passive_host);
 
         if let Some(binder) = UpnpBinderBuilder::new()
             .upnp_manager(resources.upnp_manager)
@@ -264,6 +295,19 @@ impl FtpServer {
                         "FTPS enabled but certificate or key path is empty"
                     ));
                 }
+
+                match cert_gen::ensure_cert_exists(cert_path, key_path) {
+                    Ok(true) => tracing::info!("Generated self-signed certificate for FTPS"),
+                    Ok(false) => tracing::info!("Using existing FTPS certificate"),
+                    Err(e) => {
+                        tracing::error!("Certificate check/generation failed: {}", e);
+                        return Err(anyhow::anyhow!(
+                            "Certificate check/generation failed: {}",
+                            e
+                        ));
+                    }
+                }
+
                 server_builder = server_builder
                     .ftps(cert_path, key_path)
                     .ftps_required(config.ftps_require_ssl, config.ftps_require_ssl);

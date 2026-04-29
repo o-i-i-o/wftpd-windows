@@ -86,10 +86,7 @@ impl UpnpManager {
                         Ok(internal_port)
                     }
                     Err(e) => {
-                        warn!(
-                            "UPnP port mapping failed for port {}: {}",
-                            internal_port, e
-                        );
+                        warn!("UPnP port mapping failed for port {}: {}", internal_port, e);
                         Ok(internal_port)
                     }
                 }

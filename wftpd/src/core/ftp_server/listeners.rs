@@ -122,7 +122,7 @@ impl PresenceListener for FtpPresenceListener {
             }
             PresenceEvent::LoggedOut => {
                 if let Some(client_ip) = self.session_tracker.unregister(&meta.username) {
-                    self.config.unregister_connection(&client_ip);
+                    self.config.lock().unregister_connection(&client_ip);
                     tracing::debug!(
                         username = %meta.username,
                         ip = %client_ip,

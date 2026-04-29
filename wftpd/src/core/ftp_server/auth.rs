@@ -22,15 +22,14 @@ use crate::core::config::Config;
 use crate::core::fail2ban::Fail2BanManager;
 use crate::core::users::{Permissions, UserManager};
 
+#[derive(Debug, Default)]
 pub struct SessionTracker {
     sessions: parking_lot::Mutex<HashMap<String, Vec<String>>>,
 }
 
 impl SessionTracker {
     pub fn new() -> Self {
-        SessionTracker {
-            sessions: parking_lot::Mutex::new(HashMap::new()),
-        }
+        Self::default()
     }
 
     pub fn register(&self, username: &str, client_ip: String) {
@@ -43,14 +42,14 @@ impl SessionTracker {
 
     pub fn unregister(&self, username: &str) -> Option<String> {
         let mut sessions = self.sessions.lock();
-        if let Some(ips) = sessions.get_mut(username) {
-            if !ips.is_empty() {
-                let ip = ips.remove(0);
-                if ips.is_empty() {
-                    sessions.remove(username);
-                }
-                return Some(ip);
+        if let Some(ips) = sessions.get_mut(username)
+            && !ips.is_empty()
+        {
+            let ip = ips.remove(0);
+            if ips.is_empty() {
+                sessions.remove(username);
             }
+            return Some(ip);
         }
         None
     }
