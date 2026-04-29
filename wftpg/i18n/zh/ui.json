@@ -198,6 +198,7 @@
   "users.password_empty": "密码不能为空",
   "users.password_mismatch": "两次输入的密码不一致",
   "users.home_dir_empty": "主目录不能为空",
+  "users.permissions_empty": "必须至少选择一项权限",
   "users.add_failed": "添加失败：{0}",
   "users.user_added_perm_failed": "用户已添加，但权限更新失败：{0}",
   "users.home_dir_update_failed": "主目录更新失败：{0}",

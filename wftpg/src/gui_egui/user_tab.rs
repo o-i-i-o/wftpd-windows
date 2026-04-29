@@ -116,6 +116,9 @@ impl UserTab {
         if self.form_home_dir.trim().is_empty() {
             return Some(i18n::t("users.home_dir_empty"));
         }
+        if self.form_permissions.is_empty() {
+            return Some(i18n::t("users.permissions_empty"));
+        }
         None
     }
 
@@ -430,25 +433,10 @@ impl UserTab {
                     self.form_username.trim(),
                     &self.form_password,
                     self.form_home_dir.trim(),
+                    self.form_permissions,
                     self.form_is_admin,
                 ) {
                     Ok(_) => {
-                        let username = self.form_username.trim();
-                        match self
-                            .user_manager
-                            .update_permissions(username, self.form_permissions)
-                        {
-                            Ok(_) => {
-                                tracing::info!("User {} permissions updated", username);
-                            }
-                            Err(e) => {
-                                tracing::warn!("User {} permission update failed: {}", username, e);
-                                self.status_message = Some((
-                                    i18n::t_fmt("users.user_added_perm_failed", &[&e.to_string()]),
-                                    false,
-                                ));
-                            }
-                        }
                         self.save();
                         self.modal = ModalMode::None;
                     }

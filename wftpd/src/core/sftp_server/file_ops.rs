@@ -168,7 +168,7 @@ impl SftpState {
                             .unwrap_or(written_bytes);
 
                         if let Some(username) = &self.username
-                            && let Err(e) = self.quota_manager.add_usage(username, file_size).await
+                            && let Err(e) = self.quota_manager.add_usage(username, file_size)
                         {
                             tracing::warn!("Failed to update quota for user {}: {}", username, e);
                         }
@@ -375,8 +375,7 @@ impl SftpState {
         if let Some(quota) = quota_mb {
             let current_usage = self
                 .quota_manager
-                .get_usage(self.username.as_deref().unwrap_or("anonymous"))
-                .await;
+                .get_usage(self.username.as_deref().unwrap_or("anonymous"));
             let quota_bytes = quota * 1024 * 1024;
             if current_usage >= quota_bytes {
                 tracing::warn!(

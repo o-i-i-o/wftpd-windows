@@ -40,6 +40,14 @@ pub fn generate_self_signed_cert(cert_path: &str, key_path: &str) -> Result<()> 
 
     let key_pem = key_pair.serialize_pem();
     fs::write(key_path, key_pem).context("Failed to save private key file")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = fs::metadata(key_path)?;
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o600);
+        fs::set_permissions(key_path, permissions)?;
+    }
     info!("Private key saved to: {}", key_path);
 
     let cert_pem = cert.pem();

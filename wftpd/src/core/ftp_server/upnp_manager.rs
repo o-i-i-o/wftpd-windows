@@ -28,7 +28,11 @@ impl UpnpManager {
             return Ok(false);
         }
 
-        match search_gateway(Default::default()) {
+        let result = tokio::task::spawn_blocking(|| search_gateway(Default::default()))
+            .await
+            .map_err(|e| anyhow::anyhow!("UPnP search_gateway task failed: {}", e))?;
+
+        match result {
             Ok(gateway) => {
                 info!("UPnP/IGD gateway discovered");
                 *self.gateway.write().await = Some(gateway);
@@ -57,25 +61,33 @@ impl UpnpManager {
         let gateway_guard = self.gateway.read().await;
         match &*gateway_guard {
             Some(gateway) => {
-                match gateway.add_any_port(
-                    PortMappingProtocol::TCP,
-                    SocketAddr::V4(internal_addr),
-                    lease_duration,
-                    &format!("WFTPG-{}", service),
-                ) {
+                let gateway = gateway.clone();
+                let service = service.to_string();
+                let internal_addr = SocketAddr::V4(internal_addr);
+                let result = tokio::task::spawn_blocking(move || {
+                    gateway.add_any_port(
+                        PortMappingProtocol::TCP,
+                        internal_addr,
+                        lease_duration,
+                        &format!("WFTPG-{}", service),
+                    )
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("UPnP add_port_mapping task failed: {}", e))?;
+
+                match result {
                     Ok(external_port) => {
                         info!(
-                            "UPnP port mapping successful: external port {} -> internal {}:{}",
-                            external_port,
-                            internal_addr.ip(),
-                            internal_addr.port()
+                            "UPnP port mapping successful: external port {} -> internal {}",
+                            external_port, internal_addr
                         );
                         Ok(external_port)
                     }
-                    Err(_) => {
+                    Err(e) => {
                         warn!(
-                            "UPnP port mapping failed, using internal port {}",
-                            internal_addr.port()
+                            "UPnP port mapping failed, using internal port {}: {}",
+                            internal_addr.port(),
+                            e
                         );
                         Ok(internal_addr.port())
                     }
@@ -96,7 +108,14 @@ impl UpnpManager {
 
         let gateway_guard = self.gateway.read().await;
         if let Some(gateway) = &*gateway_guard {
-            match gateway.remove_port(protocol, external_port) {
+            let gateway = gateway.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                gateway.remove_port(protocol, external_port)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("UPnP remove_port_mapping task failed: {}", e))?;
+
+            match result {
                 Ok(()) => {
                     info!("UPnP port mapping removed: {}", external_port);
                 }
@@ -115,16 +134,25 @@ impl UpnpManager {
 
         let gateway_guard = self.gateway.read().await;
         match &*gateway_guard {
-            Some(gateway) => match gateway.get_external_ip() {
-                Ok(ip) => {
-                    info!("External IP obtained: {}", ip);
-                    Some(ip.to_string())
+            Some(gateway) => {
+                let gateway = gateway.clone();
+                match tokio::task::spawn_blocking(move || gateway.get_external_ip())
+                    .await
+                {
+                    Ok(Ok(ip)) => {
+                        info!("External IP obtained: {}", ip);
+                        Some(ip.to_string())
+                    }
+                    Ok(Err(e)) => {
+                        warn!("Failed to get external IP: {}", e);
+                        None
+                    }
+                    Err(e) => {
+                        warn!("UPnP get_external_ip task failed: {}", e);
+                        None
+                    }
                 }
-                Err(e) => {
-                    warn!("Failed to get external IP: {}", e);
-                    None
-                }
-            },
+            }
             None => None,
         }
     }

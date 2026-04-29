@@ -49,7 +49,7 @@ fn default_enabled() -> bool {
 /// 用户权限
 ///
 /// 定义用户对文件和目录的操作权限
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct Permissions {
     pub can_read: bool,
     pub can_write: bool,
@@ -78,6 +78,18 @@ impl Permissions {
             quota_mb: None,
             speed_limit_kbps: None,
         }
+    }
+
+    /// 检查是否没有任何权限
+    pub fn is_empty(&self) -> bool {
+        !self.can_read
+            && !self.can_write
+            && !self.can_delete
+            && !self.can_list
+            && !self.can_mkdir
+            && !self.can_rmdir
+            && !self.can_rename
+            && !self.can_append
     }
 
     /// 检查是否有读取权限
@@ -227,6 +239,7 @@ impl UserManager {
     /// * `username` - 用户名
     /// * `password` - 密码
     /// * `home_dir` - 用户主目录
+    /// * `permissions` - 用户权限
     /// * `is_admin` - 是否为管理员
     ///
     /// # Errors
@@ -236,6 +249,7 @@ impl UserManager {
         username: &str,
         password: &str,
         home_dir: &str,
+        permissions: Permissions,
         is_admin: bool,
     ) -> Result<(), UserError> {
         if self.users.contains_key(username) {
@@ -257,7 +271,7 @@ impl UserManager {
             username: username.to_string(),
             password_hash,
             home_dir: home_dir.to_string(),
-            permissions: Permissions::full(),
+            permissions,
             created_at: Utc::now(),
             last_login: None,
             enabled: true,

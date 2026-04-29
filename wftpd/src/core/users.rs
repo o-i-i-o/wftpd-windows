@@ -34,7 +34,7 @@ fn default_enabled() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct Permissions {
     pub can_read: bool,
     pub can_write: bool,
@@ -62,6 +62,17 @@ impl Permissions {
             quota_mb: None,
             speed_limit_kbps: None,
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        !self.can_read
+            && !self.can_write
+            && !self.can_delete
+            && !self.can_list
+            && !self.can_mkdir
+            && !self.can_rmdir
+            && !self.can_rename
+            && !self.can_append
     }
 }
 
@@ -159,7 +170,7 @@ impl UserManager {
         Ok(hash)
     }
 
-    fn verify_password(password: &str, hash: &str) -> bool {
+    pub fn verify_password(password: &str, hash: &str) -> bool {
         let parsed_hash = match PasswordHash::new(hash) {
             Ok(h) => h,
             Err(_) => return false,
@@ -174,6 +185,7 @@ impl UserManager {
         username: &str,
         password: &str,
         home_dir: &str,
+        permissions: Permissions,
         is_admin: bool,
     ) -> Result<()> {
         if self.users.contains_key(username) {
@@ -192,7 +204,7 @@ impl UserManager {
             username: username.to_string(),
             password_hash,
             home_dir: home_dir.to_string(),
-            permissions: Permissions::full(),
+            permissions,
             created_at: Utc::now(),
             last_login: None,
             enabled: true,
@@ -401,7 +413,7 @@ mod tests {
         let home = temp_dir.path().to_string_lossy().to_string();
 
         manager
-            .add_user("testuser", "password123", &home, false)
+            .add_user("testuser", "password123", &home, Permissions::full(), false)
             .unwrap();
         assert_eq!(manager.user_count(), 1);
 
@@ -419,16 +431,16 @@ mod tests {
         let home = temp_dir.path().to_string_lossy().to_string();
 
         manager
-            .add_user("testuser", "password123", &home, false)
+            .add_user("testuser", "password123", &home, Permissions::full(), false)
             .unwrap();
-        let result = manager.add_user("testuser", "password456", &home, false);
+        let result = manager.add_user("testuser", "password456", &home, Permissions::full(), false);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_add_user_empty_home() {
         let mut manager = UserManager::new();
-        let result = manager.add_user("testuser", "password123", "", false);
+        let result = manager.add_user("testuser", "password123", "", Permissions::full(), false);
         assert!(result.is_err());
     }
 
@@ -439,7 +451,7 @@ mod tests {
         let home = temp_dir.path().to_string_lossy().to_string();
 
         manager
-            .add_user("testuser", "password123", &home, false)
+            .add_user("testuser", "password123", &home, Permissions::full(), false)
             .unwrap();
         assert_eq!(manager.user_count(), 1);
 
@@ -461,7 +473,7 @@ mod tests {
         let home = temp_dir.path().to_string_lossy().to_string();
 
         manager
-            .add_user("testuser", "password123", &home, false)
+            .add_user("testuser", "password123", &home, Permissions::full(), false)
             .unwrap();
         let result = manager.authenticate("testuser", "password123").unwrap();
         assert!(result);
@@ -477,7 +489,7 @@ mod tests {
         let home = temp_dir.path().to_string_lossy().to_string();
 
         manager
-            .add_user("testuser", "password123", &home, false)
+            .add_user("testuser", "password123", &home, Permissions::full(), false)
             .unwrap();
         let result = manager.authenticate("testuser", "wrongpassword").unwrap();
         assert!(!result);
@@ -497,7 +509,7 @@ mod tests {
         let home = temp_dir.path().to_string_lossy().to_string();
 
         manager
-            .add_user("testuser", "password123", &home, false)
+            .add_user("testuser", "password123", &home, Permissions::full(), false)
             .unwrap();
         manager.set_user_enabled("testuser", false).unwrap();
 
@@ -512,7 +524,7 @@ mod tests {
         let home = temp_dir.path().to_string_lossy().to_string();
 
         manager
-            .add_user("testuser", "oldpassword", &home, false)
+            .add_user("testuser", "oldpassword", &home, Permissions::full(), false)
             .unwrap();
         manager.update_password("testuser", "newpassword").unwrap();
 
@@ -542,7 +554,7 @@ mod tests {
             .to_string();
 
         manager
-            .add_user("testuser", "password123", &home, false)
+            .add_user("testuser", "password123", &home, Permissions::full(), false)
             .unwrap();
         manager.update_home_dir("testuser", &new_home).unwrap();
 
@@ -557,7 +569,7 @@ mod tests {
         let home = temp_dir.path().to_string_lossy().to_string();
 
         manager
-            .add_user("testuser", "password123", &home, false)
+            .add_user("testuser", "password123", &home, Permissions::full(), false)
             .unwrap();
 
         let new_perms = Permissions {
@@ -589,7 +601,7 @@ mod tests {
         let home = temp_dir.path().to_string_lossy().to_string();
 
         manager
-            .add_user("testuser", "password123", &home, false)
+            .add_user("testuser", "password123", &home, Permissions::full(), false)
             .unwrap();
         manager.set_user_enabled("testuser", false).unwrap();
 
@@ -604,7 +616,7 @@ mod tests {
         let home = temp_dir.path().to_string_lossy().to_string();
 
         manager
-            .add_user("testuser", "password123", &home, false)
+            .add_user("testuser", "password123", &home, Permissions::full(), false)
             .unwrap();
         manager.set_user_admin("testuser", true).unwrap();
 
@@ -672,8 +684,8 @@ mod tests {
 
         {
             let mut manager = UserManager::new();
-            manager.add_user("user1", "pass1", &home, false).unwrap();
-            manager.add_user("user2", "pass2", &home, true).unwrap();
+            manager.add_user("user1", "pass1", &home, Permissions::full(), false).unwrap();
+            manager.add_user("user2", "pass2", &home, Permissions::full(), true).unwrap();
             manager.save(&path).unwrap();
         }
 
@@ -693,7 +705,7 @@ mod tests {
         let home = dir.path().to_string_lossy().to_string();
 
         let mut manager = UserManager::new();
-        manager.add_user("user1", "pass1", &home, false).unwrap();
+        manager.add_user("user1", "pass1", &home, Permissions::full(), false).unwrap();
         manager.save(&path).unwrap();
 
         let mut manager2 = UserManager::new();
@@ -707,8 +719,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_string_lossy().to_string();
 
-        manager.add_user("user1", "pass1", &home, false).unwrap();
-        manager.add_user("user2", "pass2", &home, false).unwrap();
+        manager.add_user("user1", "pass1", &home, Permissions::full(), false).unwrap();
+        manager.add_user("user2", "pass2", &home, Permissions::full(), false).unwrap();
 
         let users = manager.get_all_users();
         assert_eq!(users.len(), 2);
@@ -720,8 +732,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_string_lossy().to_string();
 
-        manager.add_user("user1", "pass1", &home, false).unwrap();
-        manager.add_user("user2", "pass2", &home, false).unwrap();
+        manager.add_user("user1", "pass1", &home, Permissions::full(), false).unwrap();
+        manager.add_user("user2", "pass2", &home, Permissions::full(), false).unwrap();
 
         let count = manager.iter_users().count();
         assert_eq!(count, 2);
@@ -751,7 +763,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_string_lossy().to_string();
 
-        manager.add_user("testuser", "", &home, false).unwrap();
+        manager.add_user("testuser", "", &home, Permissions::full(), false).unwrap();
 
         let result = manager.authenticate("testuser", "");
         assert!(matches!(result, Ok(true)));
@@ -765,7 +777,7 @@ mod tests {
 
         // Empty username is allowed by current implementation
         // but creates a user with empty string as key
-        let result = manager.add_user("", "password", &home, false);
+        let result = manager.add_user("", "password", &home, Permissions::full(), false);
         assert!(result.is_ok());
         assert!(manager.get_user("").is_some());
     }
@@ -813,7 +825,7 @@ mod tests {
 
         for i in 0..10 {
             manager
-                .add_user(&format!("user{}", i), &format!("pass{}", i), &home, false)
+                .add_user(&format!("user{}", i), &format!("pass{}", i), &home, Permissions::full(), false)
                 .unwrap();
         }
 
@@ -831,10 +843,10 @@ mod tests {
         let home = dir.path().to_string_lossy().to_string();
 
         manager
-            .add_user("user1", "password1", &home, false)
+            .add_user("user1", "password1", &home, Permissions::full(), false)
             .unwrap();
         manager
-            .add_user("user2", "password2", &home, false)
+            .add_user("user2", "password2", &home, Permissions::full(), false)
             .unwrap();
 
         let user1 = manager.get_user("user1").unwrap();
@@ -850,10 +862,10 @@ mod tests {
         let home = dir.path().to_string_lossy().to_string();
 
         manager
-            .add_user("user1", "samepassword", &home, false)
+            .add_user("user1", "samepassword", &home, Permissions::full(), false)
             .unwrap();
         manager
-            .add_user("user2", "samepassword", &home, false)
+            .add_user("user2", "samepassword", &home, Permissions::full(), false)
             .unwrap();
 
         let user1 = manager.get_user("user1").unwrap();

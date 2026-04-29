@@ -393,16 +393,50 @@ fn canonicalize_and_validate(
 
 /// Check if all path components contain symlinks
 fn check_path_components_for_symlinks(
-    _path: &Path,
-    _home_canon: &Path,
+    path: &Path,
+    home_canon: &Path,
     input_desc: &str,
 ) -> Result<(), PathResolveError> {
-    // Note: This function is currently a placeholder, actual check is done in canonicalize_and_validate
-    // Future: implement more granular component checking here
-    tracing::debug!(
-        "check_path_components_for_symlinks called for: {}",
-        input_desc
-    );
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => {
+                current.push(prefix.as_os_str());
+            }
+            Component::RootDir => {
+                current.push(component);
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                current.pop();
+            }
+            Component::Normal(name) => {
+                current.push(name);
+
+                if let Ok(metadata) = current.symlink_metadata()
+                    && metadata.file_type().is_symlink()
+                {
+                    tracing::warn!(
+                        "SECURITY: Symlink component detected - component: {:?}, full_path: {:?}, input: {:?}",
+                        current,
+                        path,
+                        input_desc
+                    );
+                    return Err(PathResolveError::SymlinkNotAllowed);
+                }
+
+                if !path_starts_with_ignore_case(&current, home_canon) {
+                    tracing::warn!(
+                        "SECURITY: Path component outside home - component: {:?}, home: {:?}, input: {:?}",
+                        current,
+                        home_canon,
+                        input_desc
+                    );
+                    return Err(PathResolveError::PathEscape);
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -644,7 +678,7 @@ pub fn validate_existing_path(path: &Path, home_canon: &Path) -> Result<PathBuf,
         PathResolveError::CanonicalizeFailed
     })?;
 
-    if !canon.starts_with(home_canon) {
+    if !path_starts_with_ignore_case(&canon, home_canon) {
         tracing::warn!(
             "validate_existing_path: Path escape detected - canonicalized: {:?}, home: {:?}",
             canon,

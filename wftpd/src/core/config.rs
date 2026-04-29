@@ -165,6 +165,8 @@ pub struct FtpConfig {
     pub ftps: FtpsConfig,
     #[serde(default = "default_upnp_enabled")]
     pub upnp_enabled: bool,
+    #[serde(default = "default_pooled_listener_mode")]
+    pub pooled_listener_mode: bool,
 }
 
 fn default_ftp_port() -> u16 {
@@ -225,6 +227,10 @@ fn default_masquerade_map() -> HashMap<String, String> {
 
 fn default_upnp_enabled() -> bool {
     false // Disabled by default, enable manually when needed
+}
+
+fn default_pooled_listener_mode() -> bool {
+    true // Enable by default for better performance
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -376,6 +382,7 @@ impl Default for Config {
                 idle_timeout: 600,
                 hide_version_info: false,
                 upnp_enabled: false,
+                pooled_listener_mode: true,
             },
             sftp: SftpConfig {
                 enabled: true,

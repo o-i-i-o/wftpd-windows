@@ -22,3 +22,5 @@ env/
 *~
 .trae/
 .lingma
+
+wftpd-test-go/testdata/

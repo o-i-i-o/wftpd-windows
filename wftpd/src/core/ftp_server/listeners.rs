@@ -6,16 +6,16 @@ use async_trait::async_trait;
 use libunftp::notification::{DataEvent, DataListener, EventMeta, PresenceEvent, PresenceListener};
 
 #[derive(Debug)]
-pub struct QuotaDataListener;
+pub struct FtpDataListener;
 
-impl QuotaDataListener {
+impl FtpDataListener {
     pub fn new() -> Self {
-        QuotaDataListener
+        FtpDataListener
     }
 }
 
 #[async_trait]
-impl DataListener for QuotaDataListener {
+impl DataListener for FtpDataListener {
     async fn receive_data_event(&self, event: DataEvent, meta: EventMeta) {
         match event {
             DataEvent::Put { path, bytes } => {
@@ -79,23 +79,23 @@ impl DataListener for QuotaDataListener {
     }
 }
 
-impl Default for QuotaDataListener {
+impl Default for FtpDataListener {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[derive(Debug)]
-pub struct LoggingPresenceListener;
+pub struct FtpPresenceListener;
 
-impl LoggingPresenceListener {
+impl FtpPresenceListener {
     pub fn new() -> Self {
-        LoggingPresenceListener
+        FtpPresenceListener
     }
 }
 
 #[async_trait]
-impl PresenceListener for LoggingPresenceListener {
+impl PresenceListener for FtpPresenceListener {
     async fn receive_presence_event(&self, event: PresenceEvent, meta: EventMeta) {
         match event {
             PresenceEvent::LoggedIn => {
@@ -120,7 +120,7 @@ impl PresenceListener for LoggingPresenceListener {
     }
 }
 
-impl Default for LoggingPresenceListener {
+impl Default for FtpPresenceListener {
     fn default() -> Self {
         Self::new()
     }

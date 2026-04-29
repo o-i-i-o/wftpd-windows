@@ -198,6 +198,7 @@
   "users.password_empty": "Password cannot be empty",
   "users.password_mismatch": "Passwords do not match",
   "users.home_dir_empty": "Home directory cannot be empty",
+  "users.permissions_empty": "At least one permission must be selected",
   "users.add_failed": "Add failed: {0}",
   "users.user_added_perm_failed": "User added, but permission update failed: {0}",
   "users.home_dir_update_failed": "Home directory update failed: {0}",

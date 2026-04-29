@@ -3281,6 +3281,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "unftp-sbe-restrict"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "950dd3e99e6da88b684817a85dffd0338f028c6e3a8592003a7f4b07e0c5f39f"
+dependencies = [
+ "async-trait",
+ "bitflags",
+ "tokio",
+ "unftp-core",
+]
+
+[[package]]
+name = "unftp-sbe-rooter"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "107e82276aea98fba5a30e43a9d9d61d6f37d68bb7455a76fd197a87c8028c61"
+dependencies = [
+ "async-trait",
+ "tokio",
+ "unftp-core",
+]
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3506,7 +3529,7 @@ dependencies = [
 
 [[package]]
 name = "wftpd"
-version = "4.0.1"
+version = "4.0.13"
 dependencies = [
  "anyhow",
  "argon2 0.6.0-rc.8",
@@ -3542,6 +3565,8 @@ dependencies = [
  "tracing-subscriber",
  "unftp-core",
  "unftp-sbe-fs",
+ "unftp-sbe-restrict",
+ "unftp-sbe-rooter",
  "windows",
  "windows-service",
 ]

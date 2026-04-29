@@ -1,19 +1,21 @@
 //! User quota manager
 //!
 //! Tracks user upload and download bytes, supports file size-based quota limits
+//! Uses atomic operations to prevent race conditions
 
 use anyhow::Result;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct QuotaUsage {
     pub used_bytes: u64,
+    pub reserved_bytes: u64,
     pub last_updated: chrono::DateTime<chrono::Utc>,
 }
 
@@ -55,52 +57,98 @@ impl QuotaManager {
         Ok(data)
     }
 
-    async fn save_data(&self) -> Result<()> {
-        let data = self.data.lock().await;
+    fn save_data(&self) -> Result<()> {
+        let data = self.data.lock();
         if let Some(parent) = self.data_path.parent() {
-            fs::create_dir_all(parent)?;
+            std::fs::create_dir_all(parent)?;
         }
         let content = serde_json::to_string_pretty(&*data)?;
-        fs::write(&self.data_path, content)?;
+        std::fs::write(&self.data_path, content)?;
         self.dirty.store(false, Ordering::Release);
         Ok(())
     }
 
-    /// Flush to disk only when data is modified (for periodic calls or explicit save)
-    pub async fn flush_if_dirty(&self) -> Result<()> {
+    pub fn flush_if_dirty(&self) -> Result<()> {
         if self.dirty.load(Ordering::Acquire) {
-            self.save_data().await
+            self.save_data()
         } else {
             Ok(())
         }
     }
 
-    /// Force immediate flush (ignore dirty flag)
-    pub async fn force_flush(&self) -> Result<()> {
-        self.save_data().await
+    pub fn force_flush(&self) -> Result<()> {
+        self.save_data()
     }
 
-    pub async fn get_usage(&self, username: &str) -> u64 {
-        let data = self.data.lock().await;
+    pub fn get_usage(&self, username: &str) -> u64 {
+        let data = self.data.lock();
         data.users.get(username).map(|u| u.used_bytes).unwrap_or(0)
     }
 
-    pub async fn check_quota(
-        &self,
-        username: &str,
-        quota_mb: u64,
-        additional_bytes: u64,
-    ) -> Result<bool> {
-        let data = self.data.lock().await;
-        let used = data.users.get(username).map(|u| u.used_bytes).unwrap_or(0);
-
-        let quota_bytes = quota_mb * 1024 * 1024;
-        Ok(used.saturating_add(additional_bytes) <= quota_bytes)
+    pub fn get_reserved(&self, username: &str) -> u64 {
+        let data = self.data.lock();
+        data.users
+            .get(username)
+            .map(|u| u.reserved_bytes)
+            .unwrap_or(0)
     }
 
-    pub async fn add_usage(&self, username: &str, bytes: u64) -> Result<()> {
+    pub fn check_quota(&self, username: &str, quota_mb: u64, additional_bytes: u64) -> Result<bool> {
+        let data = self.data.lock();
+        let usage = data.users.get(username);
+        let used = usage.map(|u| u.used_bytes).unwrap_or(0);
+        let reserved = usage.map(|u| u.reserved_bytes).unwrap_or(0);
+
+        let quota_bytes = quota_mb * 1024 * 1024;
+        let total = used.saturating_add(reserved).saturating_add(additional_bytes);
+        Ok(total <= quota_bytes)
+    }
+
+    pub fn try_reserve_quota(&self, username: &str, bytes: u64, quota_mb: u64) -> Result<bool> {
+        let mut data = self.data.lock();
+        let quota_bytes = quota_mb * 1024 * 1024;
+
+        let usage = data.users.entry(username.to_string()).or_default();
+        let total = usage
+            .used_bytes
+            .saturating_add(usage.reserved_bytes)
+            .saturating_add(bytes);
+
+        if total > quota_bytes {
+            return Ok(false);
+        }
+
+        usage.reserved_bytes = usage.reserved_bytes.saturating_add(bytes);
+        usage.last_updated = chrono::Utc::now();
+        self.dirty.store(true, Ordering::Release);
+
+        Ok(true)
+    }
+
+    pub fn commit_usage(&self, username: &str, reserved_bytes: u64, actual_bytes: u64) -> Result<()> {
+        let mut data = self.data.lock();
+        if let Some(usage) = data.users.get_mut(username) {
+            usage.reserved_bytes = usage.reserved_bytes.saturating_sub(reserved_bytes);
+            usage.used_bytes = usage.used_bytes.saturating_add(actual_bytes);
+            usage.last_updated = chrono::Utc::now();
+        }
+        self.dirty.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    pub fn rollback_reservation(&self, username: &str, bytes: u64) -> Result<()> {
+        let mut data = self.data.lock();
+        if let Some(usage) = data.users.get_mut(username) {
+            usage.reserved_bytes = usage.reserved_bytes.saturating_sub(bytes);
+            usage.last_updated = chrono::Utc::now();
+        }
+        self.dirty.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    pub fn add_usage(&self, username: &str, bytes: u64) -> Result<()> {
         {
-            let mut data = self.data.lock().await;
+            let mut data = self.data.lock();
             let usage = data.users.entry(username.to_string()).or_default();
             usage.used_bytes = usage.used_bytes.saturating_add(bytes);
             usage.last_updated = chrono::Utc::now();
@@ -109,9 +157,9 @@ impl QuotaManager {
         Ok(())
     }
 
-    pub async fn subtract_usage(&self, username: &str, bytes: u64) -> Result<()> {
+    pub fn subtract_usage(&self, username: &str, bytes: u64) -> Result<()> {
         {
-            let mut data = self.data.lock().await;
+            let mut data = self.data.lock();
             if let Some(usage) = data.users.get_mut(username) {
                 usage.used_bytes = usage.used_bytes.saturating_sub(bytes);
                 usage.last_updated = chrono::Utc::now();
@@ -121,25 +169,23 @@ impl QuotaManager {
         Ok(())
     }
 
-    pub async fn reset_usage(&self, username: &str) -> Result<()> {
+    pub fn reset_usage(&self, username: &str) -> Result<()> {
         {
-            let mut data = self.data.lock().await;
+            let mut data = self.data.lock();
             data.users.remove(username);
         }
         self.dirty.store(true, Ordering::Release);
         Ok(())
     }
 
-    pub async fn recalculate_usage(&self, username: &str, home_dir: &Path) -> Result<u64> {
-        let home_dir = home_dir.to_path_buf();
-        let total_size = tokio::task::spawn_blocking(move || Self::calculate_dir_size(&home_dir))
-            .await
-            .map_err(|e| anyhow::anyhow!("spawn_blocking error: {}", e))??;
+    pub fn recalculate_usage(&self, username: &str, home_dir: &Path) -> Result<u64> {
+        let total_size = Self::calculate_dir_size(home_dir)?;
 
         {
-            let mut data = self.data.lock().await;
+            let mut data = self.data.lock();
             let usage = data.users.entry(username.to_string()).or_default();
             usage.used_bytes = total_size;
+            usage.reserved_bytes = 0;
             usage.last_updated = chrono::Utc::now();
         }
         self.dirty.store(true, Ordering::Release);
@@ -169,8 +215,8 @@ impl QuotaManager {
         Ok(total_size)
     }
 
-    pub async fn get_all_usage(&self) -> HashMap<String, QuotaUsage> {
-        let data = self.data.lock().await;
+    pub fn get_all_usage(&self) -> HashMap<String, QuotaUsage> {
+        let data = self.data.lock();
         data.users.clone()
     }
 }
@@ -195,131 +241,188 @@ pub fn format_size(bytes: u64) -> String {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_quota_manager_new() {
+    #[test]
+    fn test_quota_manager_new() {
         let dir = tempfile::tempdir().unwrap();
         let manager = QuotaManager::new(dir.path());
-        let usage = manager.get_usage("testuser").await;
+        let usage = manager.get_usage("testuser");
         assert_eq!(usage, 0);
     }
 
-    #[tokio::test]
-    async fn test_quota_manager_add_usage() {
+    #[test]
+    fn test_quota_manager_add_usage() {
         let dir = tempfile::tempdir().unwrap();
         let manager = QuotaManager::new(dir.path());
 
-        manager.add_usage("testuser", 1024).await.unwrap();
-        let usage = manager.get_usage("testuser").await;
+        manager.add_usage("testuser", 1024).unwrap();
+        let usage = manager.get_usage("testuser");
         assert_eq!(usage, 1024);
 
-        manager.add_usage("testuser", 2048).await.unwrap();
-        let usage = manager.get_usage("testuser").await;
+        manager.add_usage("testuser", 2048).unwrap();
+        let usage = manager.get_usage("testuser");
         assert_eq!(usage, 3072);
     }
 
-    #[tokio::test]
-    async fn test_quota_manager_subtract_usage() {
+    #[test]
+    fn test_quota_manager_subtract_usage() {
         let dir = tempfile::tempdir().unwrap();
         let manager = QuotaManager::new(dir.path());
 
-        manager.add_usage("testuser", 1024).await.unwrap();
-        manager.subtract_usage("testuser", 512).await.unwrap();
+        manager.add_usage("testuser", 1024).unwrap();
+        manager.subtract_usage("testuser", 512).unwrap();
 
-        let usage = manager.get_usage("testuser").await;
+        let usage = manager.get_usage("testuser");
         assert_eq!(usage, 512);
     }
 
-    #[tokio::test]
-    async fn test_quota_manager_subtract_usage_underflow() {
+    #[test]
+    fn test_quota_manager_subtract_usage_underflow() {
         let dir = tempfile::tempdir().unwrap();
         let manager = QuotaManager::new(dir.path());
 
-        manager.add_usage("testuser", 100).await.unwrap();
-        manager.subtract_usage("testuser", 200).await.unwrap();
+        manager.add_usage("testuser", 100).unwrap();
+        manager.subtract_usage("testuser", 200).unwrap();
 
-        let usage = manager.get_usage("testuser").await;
+        let usage = manager.get_usage("testuser");
         assert_eq!(usage, 0);
     }
 
-    #[tokio::test]
-    async fn test_quota_manager_reset_usage() {
+    #[test]
+    fn test_quota_manager_reset_usage() {
         let dir = tempfile::tempdir().unwrap();
         let manager = QuotaManager::new(dir.path());
 
-        manager.add_usage("testuser", 1024).await.unwrap();
-        manager.reset_usage("testuser").await.unwrap();
+        manager.add_usage("testuser", 1024).unwrap();
+        manager.reset_usage("testuser").unwrap();
 
-        let usage = manager.get_usage("testuser").await;
+        let usage = manager.get_usage("testuser");
         assert_eq!(usage, 0);
     }
 
-    #[tokio::test]
-    async fn test_quota_manager_check_quota() {
+    #[test]
+    fn test_quota_manager_check_quota() {
         let dir = tempfile::tempdir().unwrap();
         let manager = QuotaManager::new(dir.path());
 
-        manager
-            .add_usage("testuser", 500 * 1024 * 1024)
-            .await
-            .unwrap();
+        manager.add_usage("testuser", 500 * 1024 * 1024).unwrap();
 
         let can_upload = manager
             .check_quota("testuser", 1024, 100 * 1024 * 1024)
-            .await
             .unwrap();
         assert!(can_upload);
 
         let cannot_upload = manager
             .check_quota("testuser", 1024, 600 * 1024 * 1024)
-            .await
             .unwrap();
         assert!(!cannot_upload);
     }
 
-    #[tokio::test]
-    async fn test_quota_manager_get_all_usage() {
+    #[test]
+    fn test_quota_manager_try_reserve_quota() {
         let dir = tempfile::tempdir().unwrap();
         let manager = QuotaManager::new(dir.path());
 
-        manager.add_usage("user1", 1024).await.unwrap();
-        manager.add_usage("user2", 2048).await.unwrap();
+        let quota_mb = 10;
+        let reserve_bytes = 5 * 1024 * 1024;
 
-        let all = manager.get_all_usage().await;
+        let success = manager
+            .try_reserve_quota("testuser", reserve_bytes, quota_mb)
+            .unwrap();
+        assert!(success);
+
+        let reserved = manager.get_reserved("testuser");
+        assert_eq!(reserved, reserve_bytes);
+
+        let fail = manager
+            .try_reserve_quota("testuser", 10 * 1024 * 1024, quota_mb)
+            .unwrap();
+        assert!(!fail);
+    }
+
+    #[test]
+    fn test_quota_manager_commit_usage() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = QuotaManager::new(dir.path());
+
+        let reserve_bytes = 5 * 1024 * 1024;
+        manager
+            .try_reserve_quota("testuser", reserve_bytes, 10)
+            .unwrap();
+
+        let actual_bytes = 4 * 1024 * 1024;
+        manager
+            .commit_usage("testuser", reserve_bytes, actual_bytes)
+            .unwrap();
+
+        let used = manager.get_usage("testuser");
+        assert_eq!(used, actual_bytes);
+
+        let reserved = manager.get_reserved("testuser");
+        assert_eq!(reserved, 0);
+    }
+
+    #[test]
+    fn test_quota_manager_rollback_reservation() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = QuotaManager::new(dir.path());
+
+        let reserve_bytes = 5 * 1024 * 1024;
+        manager
+            .try_reserve_quota("testuser", reserve_bytes, 10)
+            .unwrap();
+
+        manager
+            .rollback_reservation("testuser", reserve_bytes)
+            .unwrap();
+
+        let reserved = manager.get_reserved("testuser");
+        assert_eq!(reserved, 0);
+    }
+
+    #[test]
+    fn test_quota_manager_get_all_usage() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = QuotaManager::new(dir.path());
+
+        manager.add_usage("user1", 1024).unwrap();
+        manager.add_usage("user2", 2048).unwrap();
+
+        let all = manager.get_all_usage();
         assert_eq!(all.len(), 2);
         assert_eq!(all.get("user1").unwrap().used_bytes, 1024);
         assert_eq!(all.get("user2").unwrap().used_bytes, 2048);
     }
 
-    #[tokio::test]
-    async fn test_quota_manager_flush_if_dirty() {
+    #[test]
+    fn test_quota_manager_flush_if_dirty() {
         let dir = tempfile::tempdir().unwrap();
         let manager = QuotaManager::new(dir.path());
 
-        manager.add_usage("testuser", 1024).await.unwrap();
-        manager.flush_if_dirty().await.unwrap();
+        manager.add_usage("testuser", 1024).unwrap();
+        manager.flush_if_dirty().unwrap();
     }
 
-    #[tokio::test]
-    async fn test_quota_manager_force_flush() {
+    #[test]
+    fn test_quota_manager_force_flush() {
         let dir = tempfile::tempdir().unwrap();
         let manager = QuotaManager::new(dir.path());
 
-        manager.add_usage("testuser", 1024).await.unwrap();
-        manager.force_flush().await.unwrap();
+        manager.add_usage("testuser", 1024).unwrap();
+        manager.force_flush().unwrap();
     }
 
-    #[tokio::test]
-    async fn test_quota_manager_persistence() {
+    #[test]
+    fn test_quota_manager_persistence() {
         let dir = tempfile::tempdir().unwrap();
 
         {
             let manager = QuotaManager::new(dir.path());
-            manager.add_usage("testuser", 4096).await.unwrap();
-            manager.force_flush().await.unwrap();
+            manager.add_usage("testuser", 4096).unwrap();
+            manager.force_flush().unwrap();
         }
 
         let manager2 = QuotaManager::new(dir.path());
-        let usage = manager2.get_usage("testuser").await;
+        let usage = manager2.get_usage("testuser");
         assert_eq!(usage, 4096);
     }
 
@@ -357,19 +460,20 @@ mod tests {
     fn test_quota_usage_default() {
         let usage = QuotaUsage::default();
         assert_eq!(usage.used_bytes, 0);
+        assert_eq!(usage.reserved_bytes, 0);
     }
 
-    #[tokio::test]
-    async fn test_quota_manager_multiple_users() {
+    #[test]
+    fn test_quota_manager_multiple_users() {
         let dir = tempfile::tempdir().unwrap();
         let manager = QuotaManager::new(dir.path());
 
         for i in 0..5 {
             let username = format!("user{}", i);
-            manager.add_usage(&username, (i + 1) * 100).await.unwrap();
+            manager.add_usage(&username, (i + 1) * 100).unwrap();
         }
 
-        let all = manager.get_all_usage().await;
+        let all = manager.get_all_usage();
         assert_eq!(all.len(), 5);
 
         for i in 0..5 {

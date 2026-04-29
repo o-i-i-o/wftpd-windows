@@ -208,8 +208,7 @@ impl SftpState {
             };
             let current_usage = self
                 .quota_manager
-                .get_usage(self.username.as_deref().unwrap_or("anonymous"))
-                .await;
+                .get_usage(self.username.as_deref().unwrap_or("anonymous"));
             let quota_bytes = quota * 1024 * 1024;
             if current_usage.saturating_add(src_size) > quota_bytes {
                 return Ok(self.build_status_packet(id, 4, "Quota exceeded", ""));

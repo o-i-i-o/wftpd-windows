@@ -18,29 +18,35 @@ pub struct TlsConfig {
 }
 
 impl TlsConfig {
-    pub fn new(cert_path: Option<&str>, key_path: Option<&str>, _require_ssl: bool) -> Self {
+    pub fn new(cert_path: Option<&str>, key_path: Option<&str>) -> Result<Self> {
         match (cert_path, key_path) {
             (Some(cert), Some(key)) => {
                 match cert_gen::ensure_cert_exists(cert, key) {
                     Ok(true) => tracing::info!("Generated self-signed certificate for FTPS"),
                     Ok(false) => tracing::info!("Using existing FTPS certificate"),
-                    Err(e) => tracing::warn!("Certificate check failed: {}", e),
+                    Err(e) => {
+                        tracing::error!("Certificate check/generation failed: {}", e);
+                        return Err(anyhow::anyhow!("Certificate check/generation failed: {}", e));
+                    }
                 }
 
                 match load_tls_acceptor(cert, key) {
                     Ok(acceptor) => {
                         tracing::info!("TLS enabled with certificate: {}", cert);
-                        TlsConfig {
+                        Ok(TlsConfig {
                             acceptor: Some(Arc::new(acceptor)),
-                        }
+                        })
                     }
                     Err(e) => {
                         tracing::error!("Failed to load TLS certificate: {}", e);
-                        TlsConfig { acceptor: None }
+                        Err(anyhow::anyhow!("Failed to load TLS certificate: {}", e))
                     }
                 }
             }
-            _ => TlsConfig { acceptor: None },
+            _ => {
+                tracing::warn!("TLS requested but certificate or key path not provided");
+                Err(anyhow::anyhow!("TLS requested but certificate or key path not provided"))
+            }
         }
     }
 
