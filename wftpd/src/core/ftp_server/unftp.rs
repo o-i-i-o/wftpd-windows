@@ -341,16 +341,10 @@ impl FtpServer {
                 PassiveHost::Ip(fallback_ip)
             }
         } else {
-            let pasv_ip = server_local_ips
-                .iter()
-                .find(|ip| !ip.is_loopback() && !ip.is_link_local())
-                .copied()
-                .unwrap_or_else(|| local_ip.unwrap_or(Ipv4Addr::new(127, 0, 0, 1)));
             tracing::info!(
-                "FTP passive host set to: {} (source: wildcard bind, auto-detected local IP)",
-                pasv_ip
+                "FTP passive host set to: FromConnection (wildcard bind, uses client's destination IP)"
             );
-            PassiveHost::Ip(pasv_ip)
+            PassiveHost::FromConnection
         };
         server_builder = server_builder.passive_host(passive_host);
 

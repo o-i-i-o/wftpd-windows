@@ -50,31 +50,31 @@ pub enum PassiveHost {
 └─────────────────────────────────────────────┘
                     ↓ 不可用
 ┌─────────────────────────────────────────────┐
-│          自动检测本地IP                      │
-│    （通配符绑定时，自动选择本地IP）          │
-│         → PassiveHost::Ip(auto_ip)          │
+│          FromConnection模式                 │
+│    （通配符绑定时，使用客户端请求的目的地址）│
+│         → PassiveHost::FromConnection       │
 └─────────────────────────────────────────────┘
 ```
 
-### 通配符绑定时的IP自动检测
+### FromConnection模式原理
 
-当服务器绑定 0.0.0.0 或 :: 时，`PassiveHost::FromConnection` 在某些网络环境下可能返回 0.0.0.0（已知问题）。因此，我们使用自动检测的本地IP：
+当服务器绑定 0.0.0.0 或 :: 时，`PassiveHost::FromConnection` 会使用 TCP 连接的本地端 IP：
 
-```rust
-let pasv_ip = server_local_ips
-    .iter()
-    .find(|ip| !ip.is_loopback() && !ip.is_link_local())
-    .copied()
-    .unwrap_or_else(|| local_ip.unwrap_or(Ipv4Addr::new(127, 0, 0, 1)));
-PassiveHost::Ip(pasv_ip)
+```
+客户端请求 127.0.0.1:21 → PASV返回 127.0.0.1
+客户端请求 192.168.3.97:21 → PASV返回 192.168.3.97
+客户端请求 203.0.113.50:21 → PASV返回 203.0.113.50
 ```
 
-**选择优先级**:
-1. 排除环回地址 (127.x.x.x)
-2. 排除链路本地地址 (169.254.x.x)
-3. 选择第一个可用的私有或公网IP
-4. 回退到 `local_ip`（通过UDP探测获取）
-5. 最终回退到 127.0.0.1
+这是自动的，libunftp 通过 `tcp_stream.local_addr()` 获取客户端连接的实际目的地址。
+
+### NAT环境处理
+
+如果服务器位于 NAT 后面：
+1. 配置 UPnP 自动获取外部 IP
+2. 或配置 masquerade_address 手动指定外部 IP
+
+这两种情况下，PASV 会返回外部 IP，而不是本地 IP。
 ```
 
 ## 核心结构
