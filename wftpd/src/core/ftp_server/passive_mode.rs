@@ -186,9 +186,7 @@ pub fn select_passive_address(
                 use_epsv_recommended: matches!(client_ip, IpAddr::V6(_)),
             }
         }
-        BindAddressType::Wildcard => {
-            handle_wildcard_bind(config, &client_ip, connection_local_ip)
-        }
+        BindAddressType::Wildcard => handle_wildcard_bind(config, &client_ip, connection_local_ip),
     }
 }
 
@@ -201,9 +199,7 @@ fn handle_wildcard_bind(
 
     match client_source {
         ConnectionSource::Loopback => {
-            tracing::info!(
-                "Passive mode: Wildcard bind, loopback connection -> 127.0.0.1"
-            );
+            tracing::info!("Passive mode: Wildcard bind, loopback connection -> 127.0.0.1");
             PassiveAddressResult {
                 address: Ipv4Addr::new(127, 0, 0, 1),
                 source: PassiveAddressSource::Loopback,
@@ -309,7 +305,10 @@ pub fn is_wildcard_bind(bind_addr: &IpAddr) -> bool {
 }
 
 pub fn is_ipv6_bind(bind_addr: &IpAddr) -> bool {
-    matches!(classify_bind_address(bind_addr), BindAddressType::SpecificIpv6)
+    matches!(
+        classify_bind_address(bind_addr),
+        BindAddressType::SpecificIpv6
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -397,6 +396,137 @@ pub fn get_local_ipv4_addresses() -> Vec<Ipv4Addr> {
     ips
 }
 
+#[derive(Debug, Clone)]
+pub struct LocalIpAddress {
+    pub ipv4: Vec<Ipv4Addr>,
+    pub ipv6: Vec<Ipv6Addr>,
+}
+
+impl LocalIpAddress {
+    pub fn is_empty(&self) -> bool {
+        self.ipv4.is_empty() && self.ipv6.is_empty()
+    }
+
+    pub fn format_for_log(&self) -> String {
+        let mut parts = Vec::new();
+
+        if !self.ipv4.is_empty() {
+            let ipv4_strs: Vec<String> = self.ipv4.iter().map(|ip| ip.to_string()).collect();
+            parts.push(format!("IPv4: [{}]", ipv4_strs.join(", ")));
+        }
+
+        if !self.ipv6.is_empty() {
+            let ipv6_strs: Vec<String> = self.ipv6.iter().map(|ip| format!("[{}]", ip)).collect();
+            parts.push(format!("IPv6: [{}]", ipv6_strs.join(", ")));
+        }
+
+        if parts.is_empty() {
+            "No addresses".to_string()
+        } else {
+            parts.join(", ")
+        }
+    }
+}
+
+pub fn get_local_ip_addresses() -> LocalIpAddress {
+    let mut result = LocalIpAddress {
+        ipv4: Vec::new(),
+        ipv6: Vec::new(),
+    };
+
+    #[cfg(windows)]
+    {
+        use std::process::Command;
+        if let Ok(output) = Command::new("ipconfig").args(["/all"]).output() {
+            if let Ok(stdout) = String::from_utf8(output.stdout) {
+                for line in stdout.lines() {
+                    let line = line.trim();
+                    if line.starts_with("IPv4") || line.contains("IPv4") {
+                        if let Some(addr_str) = line.split(':').nth(1) {
+                            let addr_str = addr_str.trim();
+                            if let Some(ip_part) = addr_str.split('(').next() {
+                                if let Ok(ip) = ip_part.trim().parse::<Ipv4Addr>() {
+                                    if !result.ipv4.contains(&ip) {
+                                        result.ipv4.push(ip);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if line.starts_with("IPv6") || line.contains("IPv6") {
+                        if let Some(addr_str) = line.split(':').nth(1) {
+                            let addr_str = addr_str.trim();
+                            if let Ok(ip) = addr_str.parse::<Ipv6Addr>() {
+                                if !result.ipv6.contains(&ip) {
+                                    result.ipv6.push(ip);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        use std::fs;
+        if let Ok(entries) = fs::read_dir("/sys/class/net") {
+            for entry in entries.flatten() {
+                let path = entry.path().join("address");
+                if path.exists() {
+                    if let Ok(content) = fs::read_to_string(&path) {
+                        if content.trim().is_empty() {
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if result.is_empty() {
+        result.ipv4.push(Ipv4Addr::new(127, 0, 0, 1));
+        result.ipv6.push(Ipv6Addr::LOCALHOST);
+    }
+
+    result
+}
+
+pub fn format_listen_addresses(bind_ip: &str, port: u16) -> String {
+    let bind_addr: IpAddr = bind_ip
+        .parse()
+        .unwrap_or(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
+
+    if is_wildcard_bind(&bind_addr) {
+        let local_ips = get_local_ip_addresses();
+        let mut addresses = Vec::new();
+
+        for ip in &local_ips.ipv4 {
+            addresses.push(format!("{}:{}", ip, port));
+        }
+        for ip in &local_ips.ipv6 {
+            addresses.push(format!("[{}]:{}", ip, port));
+        }
+
+        if addresses.is_empty() {
+            format!("0.0.0.0:{} (all interfaces)", port)
+        } else {
+            format!(
+                "0.0.0.0:{} / [::]:{} (all interfaces: {})",
+                port,
+                port,
+                addresses.join(", ")
+            )
+        }
+    } else {
+        match bind_addr {
+            IpAddr::V4(ip) => format!("{}:{}", ip, port),
+            IpAddr::V6(ip) => format!("[{}]:{}", ip, port),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,11 +608,8 @@ mod tests {
             bind_address: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
             server_local_ips: vec![Ipv4Addr::new(192, 168, 1, 100)],
         };
-        let result = select_passive_address(
-            &config,
-            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 200)),
-            None,
-        );
+        let result =
+            select_passive_address(&config, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 200)), None);
         assert_eq!(result.address, Ipv4Addr::new(203, 0, 113, 50));
         assert_eq!(result.source, PassiveAddressSource::Upnp);
     }
@@ -496,11 +623,8 @@ mod tests {
             bind_address: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
             server_local_ips: vec![Ipv4Addr::new(192, 168, 1, 100)],
         };
-        let result = select_passive_address(
-            &config,
-            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 200)),
-            None,
-        );
+        let result =
+            select_passive_address(&config, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 200)), None);
         assert_eq!(result.address, Ipv4Addr::new(203, 0, 113, 50));
         assert_eq!(result.source, PassiveAddressSource::Masquerade);
     }
@@ -514,11 +638,8 @@ mod tests {
             bind_address: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 50)),
             server_local_ips: vec![],
         };
-        let result = select_passive_address(
-            &config,
-            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
-            None,
-        );
+        let result =
+            select_passive_address(&config, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)), None);
         assert_eq!(result.address, Ipv4Addr::new(192, 168, 1, 50));
         assert_eq!(result.source, PassiveAddressSource::BindAddress);
     }
@@ -532,11 +653,7 @@ mod tests {
             bind_address: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
             server_local_ips: vec![Ipv4Addr::new(192, 168, 1, 100)],
         };
-        let result = select_passive_address(
-            &config,
-            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            None,
-        );
+        let result = select_passive_address(&config, IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), None);
         assert_eq!(result.address, Ipv4Addr::new(127, 0, 0, 1));
         assert_eq!(result.source, PassiveAddressSource::Loopback);
     }
@@ -582,12 +699,16 @@ mod tests {
     fn test_is_wildcard_bind() {
         assert!(is_wildcard_bind(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))));
         assert!(is_wildcard_bind(&IpAddr::V6(Ipv6Addr::UNSPECIFIED)));
-        assert!(!is_wildcard_bind(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
+        assert!(!is_wildcard_bind(&IpAddr::V4(Ipv4Addr::new(
+            192, 168, 1, 1
+        ))));
     }
 
     #[test]
     fn test_is_ipv6_bind() {
-        assert!(is_ipv6_bind(&IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))));
+        assert!(is_ipv6_bind(&IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0xdb8, 0, 0, 0, 0, 0, 1
+        ))));
         assert!(!is_ipv6_bind(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
         assert!(!is_ipv6_bind(&IpAddr::V6(Ipv6Addr::UNSPECIFIED)));
     }

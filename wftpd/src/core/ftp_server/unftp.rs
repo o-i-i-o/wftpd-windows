@@ -27,7 +27,9 @@ use crate::core::users::UserManager;
 
 use super::auth::{SessionTracker, WftpdAuthenticator, WftpdUser, WftpdUserDetailProvider};
 use super::cert_gen;
-use super::passive_mode::{PassiveModeConfig, select_passive_address, get_local_ipv4_addresses};
+use super::passive_mode::{
+    PassiveModeConfig, format_listen_addresses, get_local_ipv4_addresses, select_passive_address,
+};
 use super::upnp_manager::UpnpManager;
 use super::{FtpDataListener, FtpPresenceListener, QuotaFilesystem, UpnpBinderBuilder};
 
@@ -135,11 +137,12 @@ impl FtpServer {
             }
         };
 
+        let listen_info = format_listen_addresses(&server_config.bind_ip, server_config.ftp_port);
         tracing::info!(
-            "FTP server starting on {}:{} (allow_nat_clients: {})",
-            server_config.bind_ip,
-            server_config.ftp_port,
-            server_config.allow_nat_clients
+            "FTP server starting - listening on {} (allow_nat_clients: {}, upnp_enabled: {})",
+            listen_info,
+            server_config.allow_nat_clients,
+            server_config.upnp_enabled
         );
 
         Arc::clone(&self.fail2ban_manager).start_cleanup_task();
@@ -300,7 +303,10 @@ impl FtpServer {
             }
         });
 
-        let bind_address: std::net::IpAddr = config.bind_ip.parse().unwrap_or(std::net::IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
+        let bind_address: std::net::IpAddr = config
+            .bind_ip
+            .parse()
+            .unwrap_or(std::net::IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
 
         let server_local_ips = get_local_ipv4_addresses();
         tracing::debug!("Server local IPv4 addresses: {:?}", server_local_ips);

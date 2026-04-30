@@ -116,7 +116,7 @@
   "server.add_new_mapping": "添加新映射：",
   "server.internal_ip_invalid": "⚠ 内部 IP 格式无效",
   "server.external_ip_invalid": "⚠ 外部 IP 格式无效",
-  "server.masquerade_priority": "优先级：映射表 > 伪装地址 > 被动模式 IP > 绑定 IP",
+  "server.masquerade_priority": "优先级：UPnP > 伪装地址 > 绑定地址（监听 0.0.0.0 时根据客户端 IP 智能选择）",
   "server.timeout_settings": "连接超时设置",
   "server.seconds": "秒",
   "server.idle_timeout_hint": "秒 (0 表示不限制)",

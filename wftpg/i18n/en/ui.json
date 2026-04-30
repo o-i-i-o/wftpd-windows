@@ -116,7 +116,7 @@
   "server.add_new_mapping": "Add new mapping:",
   "server.internal_ip_invalid": "⚠ Invalid internal IP format",
   "server.external_ip_invalid": "⚠ Invalid external IP format",
-  "server.masquerade_priority": "Priority: Map > Masquerade > Passive IP > Bind IP",
+  "server.masquerade_priority": "Priority: UPnP > Masquerade > Bind Address (smart selection based on client IP when listening on 0.0.0.0)",
   "server.timeout_settings": "Connection Timeout Settings",
   "server.seconds": "seconds",
   "server.idle_timeout_hint": "seconds (0 = unlimited)",

@@ -1,7 +1,7 @@
 {
     "enable_ftp": true,
     "enable_sftp": false,
-    "ftp_server": "192.168.110.30",
+    "ftp_server": "192.168.3.97",
     "ftp_port": 21,
     "sftp_server": "127.0.0.1",
     "sftp_port": 2222,

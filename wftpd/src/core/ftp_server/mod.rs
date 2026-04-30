@@ -17,19 +17,19 @@ mod unftp;
 pub mod upnp_manager;
 
 pub use active_mode::{
-    ActiveModeConfig, ActiveModeInfo,
-    ClientNatStatus, IpAddressClass, analyze_active_mode_connection,
-    classify_ip_address, detect_client_nat, is_loopback_ip, is_private_ip,
-    should_accept_port_command,
+    ActiveModeConfig, ActiveModeInfo, ClientNatStatus, IpAddressClass,
+    analyze_active_mode_connection, classify_ip_address, detect_client_nat, is_loopback_ip,
+    is_private_ip, should_accept_port_command,
 };
 pub use auth::{SessionTracker, WftpdAuthenticator, WftpdUser, WftpdUserDetailProvider};
 pub use binder::{UpnpBinder, UpnpBinderBuilder};
 pub use listeners::{FtpDataListener, FtpPresenceListener};
 pub use passive_mode::{
-    PassiveModeConfig, PassiveModeInfo, PassiveAddressSource, PassiveAddressResult,
-    BindAddressType, ConnectionSource, build_passive_mode_info,
-    classify_bind_address, classify_connection_source, determine_listen_address,
-    is_wildcard_bind, is_ipv6_bind, select_passive_address, get_local_ipv4_addresses,
+    BindAddressType, ConnectionSource, LocalIpAddress, PassiveAddressResult, PassiveAddressSource,
+    PassiveModeConfig, PassiveModeInfo, build_passive_mode_info, classify_bind_address,
+    classify_connection_source, determine_listen_address, format_listen_addresses,
+    get_local_ip_addresses, get_local_ipv4_addresses, is_ipv6_bind, is_wildcard_bind,
+    select_passive_address,
 };
 pub use storage::QuotaFilesystem;
 pub use unftp::FtpServer;
