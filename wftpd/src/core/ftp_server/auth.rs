@@ -163,11 +163,11 @@ impl UserWithPermissions for WftpdUser {
             ops |= VfsOperations::PUT;
         }
 
-        tracing::warn!(
+        tracing::debug!(
             username = %self.username,
             permissions = ?ops,
             raw_permissions = ?self.permissions,
-            "[FTP-DEBUG] User permissions mapped to VfsOperations"
+            "User permissions mapped to VfsOperations"
         );
 
         ops
@@ -430,11 +430,11 @@ impl UserDetailProvider for WftpdUserDetailProvider {
 
         match user {
             Some(u) => {
-                tracing::warn!(
+                tracing::debug!(
                     username = %u.username,
                     home_dir = %u.home_dir,
                     permissions = ?u.permissions,
-                    "[FTP-DEBUG] Providing user detail for FTP session"
+                    "Providing user detail for FTP session"
                 );
                 Ok(WftpdUser {
                     username: u.username,
