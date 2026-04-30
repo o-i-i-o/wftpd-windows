@@ -27,7 +27,7 @@ use crate::core::users::UserManager;
 
 use super::auth::{SessionTracker, WftpdAuthenticator, WftpdUser, WftpdUserDetailProvider};
 use super::cert_gen;
-use super::passive_mode::{PassiveModeConfig, select_passive_address};
+use super::passive_mode::{PassiveModeConfig, select_passive_address, get_local_ipv4_addresses};
 use super::upnp_manager::UpnpManager;
 use super::{FtpDataListener, FtpPresenceListener, QuotaFilesystem, UpnpBinderBuilder};
 
@@ -302,21 +302,30 @@ impl FtpServer {
 
         let bind_address: std::net::IpAddr = config.bind_ip.parse().unwrap_or(std::net::IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
 
+        let server_local_ips = get_local_ipv4_addresses();
+        tracing::debug!("Server local IPv4 addresses: {:?}", server_local_ips);
+
         let passive_config = PassiveModeConfig {
             upnp_enabled: config.upnp_enabled,
             upnp_external_ip: upnp_external_ip.and_then(|s| s.parse::<Ipv4Addr>().ok()),
             masquerade_address: masquerade_ip,
             bind_address,
+            server_local_ips,
         };
 
         let connection_ip = local_ip.unwrap_or(Ipv4Addr::new(127, 0, 0, 1));
-        let passive_result = select_passive_address(&passive_config, connection_ip);
+        let passive_result = select_passive_address(
+            &passive_config,
+            std::net::IpAddr::V4(connection_ip),
+            Some(connection_ip),
+        );
 
         let passive_host = PassiveHost::Ip(passive_result.address);
         tracing::info!(
-            "FTP passive host set to: {:?} (source: {:?})",
+            "FTP passive host set to: {:?} (source: {:?}, epsv_recommended: {})",
             passive_host,
-            passive_result.source
+            passive_result.source,
+            passive_result.use_epsv_recommended
         );
         server_builder = server_builder.passive_host(passive_host);
 

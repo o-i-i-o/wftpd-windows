@@ -29,7 +29,7 @@ pub use passive_mode::{
     PassiveModeConfig, PassiveModeInfo, PassiveAddressSource, PassiveAddressResult,
     BindAddressType, ConnectionSource, build_passive_mode_info,
     classify_bind_address, classify_connection_source, determine_listen_address,
-    is_wildcard_bind, select_passive_address,
+    is_wildcard_bind, is_ipv6_bind, select_passive_address, get_local_ipv4_addresses,
 };
 pub use storage::QuotaFilesystem;
 pub use unftp::FtpServer;
