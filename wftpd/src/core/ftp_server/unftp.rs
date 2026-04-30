@@ -469,12 +469,20 @@ mod tcp_destination_ip_tests {
         println!("  local_addr (server endpoint): {}", server_local);
         println!("  peer_addr (client source): {}", server_peer);
 
-        assert_eq!(server_local.ip(), IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            "server local_addr should be the destination IP client connected to (127.0.0.1)");
-        assert_eq!(server_local.port(), server_port,
-            "server local_addr port should match listener port");
-        assert_eq!(server_peer, client_local,
-            "server's peer_addr should match client's local_addr");
+        assert_eq!(
+            server_local.ip(),
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            "server local_addr should be the destination IP client connected to (127.0.0.1)"
+        );
+        assert_eq!(
+            server_local.port(),
+            server_port,
+            "server local_addr port should match listener port"
+        );
+        assert_eq!(
+            server_peer, client_local,
+            "server's peer_addr should match client's local_addr"
+        );
     }
 
     #[tokio::test]
@@ -497,8 +505,11 @@ mod tcp_destination_ip_tests {
         println!("Server bound to 127.0.0.1:{}", server_port);
         println!("Server local_addr after accept: {}", server_local);
 
-        assert_eq!(server_local.ip(), IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            "When bound to specific IP, local_addr should return that IP");
+        assert_eq!(
+            server_local.ip(),
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            "When bound to specific IP, local_addr should return that IP"
+        );
     }
 
     #[tokio::test]

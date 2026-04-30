@@ -105,3 +105,4 @@ tempfile = "3.27.0"
 [patch.crates-io]
 pkcs8 = { path = "../patches/pkcs8" }
 russh = { path = "../patches/russh" }
+libunftp = { path = "../patches/libunftp/libunftp-0.23.0" }
