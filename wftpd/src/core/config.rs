@@ -77,6 +77,7 @@ impl Default for Config {
                 hide_version_info: false,
                 upnp_enabled: false,
                 pooled_listener_mode: true,
+                allow_nat_clients: true,
             },
             sftp: SftpConfig {
                 enabled: true,

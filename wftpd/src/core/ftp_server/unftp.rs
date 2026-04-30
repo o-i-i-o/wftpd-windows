@@ -27,6 +27,7 @@ use crate::core::users::UserManager;
 
 use super::auth::{SessionTracker, WftpdAuthenticator, WftpdUser, WftpdUserDetailProvider};
 use super::cert_gen;
+use super::passive_mode::{PassiveModeConfig, select_passive_address};
 use super::upnp_manager::UpnpManager;
 use super::{FtpDataListener, FtpPresenceListener, QuotaFilesystem, UpnpBinderBuilder};
 
@@ -41,6 +42,9 @@ struct FtpServerConfig {
     ftps_key_path: Option<String>,
     ftps_require_ssl: bool,
     pooled_listener_mode: bool,
+    upnp_enabled: bool,
+    masquerade_address: Option<String>,
+    allow_nat_clients: bool,
 }
 
 struct FtpServerResources {
@@ -125,13 +129,17 @@ impl FtpServer {
                 ftps_key_path: cfg.ftp.ftps.key_path.clone(),
                 ftps_require_ssl: cfg.ftp.ftps.require_ssl,
                 pooled_listener_mode: cfg.ftp.pooled_listener_mode,
+                upnp_enabled: cfg.ftp.upnp_enabled,
+                masquerade_address: cfg.ftp.masquerade_address.clone(),
+                allow_nat_clients: cfg.ftp.allow_nat_clients,
             }
         };
 
         tracing::info!(
-            "FTP server starting on {}:{}",
+            "FTP server starting on {}:{} (allow_nat_clients: {})",
             server_config.bind_ip,
-            server_config.ftp_port
+            server_config.ftp_port,
+            server_config.allow_nat_clients
         );
 
         Arc::clone(&self.fail2ban_manager).start_cleanup_task();
@@ -278,18 +286,38 @@ impl FtpServer {
             server_builder = server_builder.pooled_listener_mode();
         }
 
-        let upnp_external_ip = resources.upnp_manager.get_external_ip().await;
-        let passive_host = match upnp_external_ip {
-            Some(ip_str) => {
-                tracing::info!("Using UPnP external IP for passive host: {}", ip_str);
-                ip_str
-                    .parse::<Ipv4Addr>()
-                    .map(PassiveHost::Ip)
-                    .unwrap_or(PassiveHost::FromConnection)
-            }
-            None => PassiveHost::FromConnection,
+        let upnp_external_ip = if config.upnp_enabled {
+            resources.upnp_manager.get_external_ip().await
+        } else {
+            None
         };
-        tracing::info!("FTP passive host set to: {:?}", passive_host);
+
+        let masquerade_ip = config.masquerade_address.as_ref().and_then(|s| {
+            if s.is_empty() {
+                None
+            } else {
+                s.parse::<Ipv4Addr>().ok()
+            }
+        });
+
+        let bind_address: std::net::IpAddr = config.bind_ip.parse().unwrap_or(std::net::IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
+
+        let passive_config = PassiveModeConfig {
+            upnp_enabled: config.upnp_enabled,
+            upnp_external_ip: upnp_external_ip.and_then(|s| s.parse::<Ipv4Addr>().ok()),
+            masquerade_address: masquerade_ip,
+            bind_address,
+        };
+
+        let connection_ip = local_ip.unwrap_or(Ipv4Addr::new(127, 0, 0, 1));
+        let passive_result = select_passive_address(&passive_config, connection_ip);
+
+        let passive_host = PassiveHost::Ip(passive_result.address);
+        tracing::info!(
+            "FTP passive host set to: {:?} (source: {:?})",
+            passive_host,
+            passive_result.source
+        );
         server_builder = server_builder.passive_host(passive_host);
 
         if let Some(binder) = UpnpBinderBuilder::new()

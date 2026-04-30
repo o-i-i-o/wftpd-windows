@@ -160,6 +160,8 @@ pub struct FtpConfig {
     pub upnp_enabled: bool,
     #[serde(default = "default_pooled_listener_mode")]
     pub pooled_listener_mode: bool,
+    #[serde(default = "default_allow_nat_clients")]
+    pub allow_nat_clients: bool,
 }
 
 pub fn default_ftp_port() -> u16 {
@@ -223,6 +225,10 @@ pub fn default_upnp_enabled() -> bool {
 }
 
 pub fn default_pooled_listener_mode() -> bool {
+    true
+}
+
+pub fn default_allow_nat_clients() -> bool {
     true
 }
 
