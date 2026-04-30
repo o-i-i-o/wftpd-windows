@@ -1,0 +1,240 @@
+﻿cargo :     Updating crates.io index
+所在位置 行:1 字符: 1
++ cargo test 2>&1 | Out-File -FilePath D:\Code\wftpd-windows\test_outpu ...
++ ~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Updating crates.io index:Stri 
+   ng) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   Compiling wftpd v4.0.28 (D:\Code\wftpd-windows\wftpd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.53s
+     Running unittests src\lib.rs (target\debug\deps\wftpd-cc63d005514d477c.exe
+)
+
+running 210 tests
+test core::config::tests::test_config_check_connection_limits ... ok
+test core::config::tests::test_config_default_values ... ok
+test core::config::tests::test_config_get_config_path ... ok
+test core::config::tests::test_config_connection_counting ... ok
+test core::config::tests::test_config_clone ... ok
+test core::config::tests::test_config_get_users_path ... ok
+test core::config::tests::test_config_is_ip_allowed ... ok
+test core::config::tests::test_config_is_ip_allowed_denied ... ok
+test core::config::tests::test_config_connection_per_ip_limit ... ok
+test core::config::tests::test_config_is_ip_allowed_both_empty ... ok
+test core::config::tests::test_config_is_ip_allowed_only_denied ... ok
+test core::config::tests::test_config_normalize_bind_ip ... ok
+test core::config::tests::test_config_validate_empty_cidr_skipped ... ok
+test core::config::tests::test_config_validate_fail2ban_ban_time_zero ... ok
+test core::config::tests::test_config_validate_fail2ban_threshold_zero ... ok
+test core::config::tests::test_config_validate_ftp_port_zero ... ok
+test core::config::tests::test_config_validate_large_port ... ok
+test core::config::tests::test_config_validate_pass ... ok
+test core::config::tests::test_config_validate_invalid_passive_range ... ok
+test core::config::tests::test_config_validate_paths_anonymous_no_home ... ok
+test core::config::tests::test_config_validate_sftp_port_different_from_ftp ... ok
+test core::config::tests::test_config_validate_paths_ftps_no_cert ... ok
+test core::config::tests::test_config_validate_sftp_port_zero ... ok
+test core::config::tests::test_config_validate_zero_log_files ... ok
+test core::config::tests::test_config_validate_zero_max_connections ... ok
+test core::config::tests::test_config_validate_zero_max_per_ip ... ok
+test core::config::tests::test_ftps_config_default ... ok
+test core::config::tests::test_ip_matches_cidr_empty ... ok
+test core::config::tests::test_ip_matches_cidr_exact ... ok
+test core::config::tests::test_ip_matches_cidr_invalid_cidr ... ok
+test core::config::tests::test_ip_matches_cidr_invalid_ip ... ok
+test core::config::tests::test_ip_matches_cidr_ipv4_net ... ok
+test core::config::tests::test_ip_matches_cidr_ipv6 ... ok
+test core::config::tests::test_ip_matches_cidr_wildcard ... ok
+test core::config::tests::test_server_config_connection_counting ... ok
+test core::config::tests::test_server_config_default ... ok
+test core::config::tests::test_server_config_get_all_ip_counts ... ok
+test core::config::tests::test_server_config_get_counts ... ok
+test core::config::tests::test_config_load_nonexistent ... ok
+test core::config::tests::test_server_config_limits ... ok
+test core::config::tests::test_server_config_unregister_underflow ... ok
+test core::ftp_server::active_mode::tests::test_classify_ip_address ... ok
+test core::ftp_server::active_mode::tests::test_detect_client_nat_behind_nat ... ok
+test core::ftp_server::active_mode::tests::test_detect_client_nat_direct ... ok
+test core::ftp_server::active_mode::tests::test_is_private_ipv4 ... ok
+test core::fail2ban::tests::test_config_hot_update ... ok
+test core::fail2ban::tests::test_hashset_no_duplicates ... ok
+test core::fail2ban::tests::test_fail2ban_basic ... ok
+test core::fail2ban::tests::test_event_callback ... ok
+test core::ftp_server::active_mode::tests::test_is_private_ipv6 ... ok
+test core::ftp_server::active_mode::tests::test_should_accept_port_command ... ok
+test core::ftp_server::auth::tests::test_permissions_mapping_can_append ... ok
+test core::ftp_server::auth::tests::test_permissions_mapping_can_mkdir ... ok
+test core::ftp_server::auth::tests::test_permissions_mapping_can_read ... ok
+test core::ftp_server::auth::tests::test_permissions_mapping_can_rename ... ok
+test core::ftp_server::auth::tests::test_permissions_mapping_can_rmdir ... ok
+test core::ftp_server::auth::tests::test_permissions_mapping_can_write ... ok
+test core::config::tests::test_config_save_and_load ... ok
+test core::ftp_server::auth::tests::test_user_detail_account_enabled ... ok
+test core::ftp_server::auth::tests::test_user_detail_home ... ok
+test core::ftp_server::auth::tests::test_user_with_permissions_empty ... ok
+test core::ftp_server::auth::tests::test_user_with_permissions_full ... ok
+test core::ftp_server::auth::tests::test_user_with_permissions_partial ... ok
+test core::ftp_server::auth::tests::test_user_with_root ... ok
+test core::ftp_server::auth::tests::test_wftpd_user_debug ... ok
+test core::ftp_server::auth::tests::test_wftpd_user_display ... ok
+test core::ftp_server::passive_mode::tests::test_classify_bind_address_specific_ipv6 ... ok
+test core::ftp_server::passive_mode::tests::test_classify_bind_address_specific_ipv4 ... ok
+test core::ftp_server::passive_mode::tests::test_classify_bind_address_wildcard_v4 ... ok
+test core::ftp_server::passive_mode::tests::test_classify_bind_address_wildcard_v6 ... ok
+test core::ftp_server::passive_mode::tests::test_classify_connection_source_loopback ... ok
+test core::ftp_server::passive_mode::tests::test_classify_connection_source_private ... ok
+test core::ftp_server::passive_mode::tests::test_classify_connection_source_public ... ok
+test core::ftp_server::passive_mode::tests::test_find_matching_local_ip ... ok
+test core::ftp_server::passive_mode::tests::test_is_ipv6_bind ... ok
+test core::ftp_server::passive_mode::tests::test_is_wildcard_bind ... ok
+test core::ftp_server::passive_mode::tests::test_select_passive_address_bind_address_priority ... ok
+test core::ftp_server::passive_mode::tests::test_select_passive_address_ipv6_bind ... ok
+test core::ftp_server::passive_mode::tests::test_select_passive_address_masq_priority ... ok
+test core::ftp_server::passive_mode::tests::test_select_passive_address_wildcard_loopback ... ok
+test core::ftp_server::passive_mode::tests::test_select_passive_address_upnp_priority ... ok
+test core::ftp_server::passive_mode::tests::test_select_passive_address_wildcard_private ... ok
+test core::ipc::tests::test_reload_command_serialization ... ok
+test core::ipc::tests::test_reload_response_error ... ok
+test core::ipc::tests::test_reload_response_serialization ... ok
+test core::logger::tests::test_log_level_from_tracing ... ok
+test core::logger::tests::test_log_level_ordering ... ok
+test core::path_utils::tests::test_build_safe_path_normal ... ok
+test core::path_utils::tests::test_build_safe_path_parent_escape ... ok
+test core::path_utils::tests::test_build_safe_path_too_deep ... ok
+test core::path_utils::tests::test_is_absolute_ftp_path ... ok
+test core::path_utils::tests::test_is_absolute_ftp_path_edge_cases ... ok
+test core::metrics::tests::test_metrics_recording ... ok
+test core::path_utils::tests::test_is_valid_path_component ... ok
+test core::path_utils::tests::test_is_valid_path_component_empty ... ok
+test core::path_utils::tests::test_is_valid_path_component_invalid_chars ... ok
+test core::path_utils::tests::test_is_valid_path_component_windows_reserved ... ok
+test core::path_utils::tests::test_normalize_windows_path ... ok
+test core::path_utils::tests::test_path_resolve_error_clone_copy ... ok
+test core::path_utils::tests::test_path_resolve_error_debug ... ok
+test core::path_utils::tests::test_path_resolve_error_display ... ok
+test core::path_utils::tests::test_path_starts_with_ignore_case ... ok
+test core::path_utils::tests::test_paths_equal_ignore_case ... ok
+test core::logger::tests::test_log_buffer ... ok
+test core::path_utils::tests::test_resolve_path_internal_absolute ... ok
+test core::logger::tests::test_file_op_buffer ... ok
+test core::logger::tests::test_file_op_entry_json_roundtrip ... ok
+test core::path_utils::tests::test_resolve_path_internal_absolute_with_backslash ... ok
+test core::logger::tests::test_log_entry_json_roundtrip ... ok
+test core::path_utils::tests::test_resolve_path_internal_dot_path ... ok
+test core::path_utils::tests::test_resolve_path_internal_empty_path ... ok
+test core::path_utils::tests::test_resolve_path_internal_relative ... ok
+test core::path_utils::tests::test_to_ftp_path_not_under_home ... ok
+test core::path_utils::tests::test_to_ftp_path_root ... ok
+test core::path_utils::tests::test_to_ftp_path_windows ... ok
+test core::path_utils::tests::test_validate_existing_path_not_found ... ok
+test core::quota::tests::test_format_size_bytes ... ok
+test core::quota::tests::test_format_size_gb ... ok
+test core::quota::tests::test_format_size_kb ... ok
+test core::quota::tests::test_format_size_mb ... ok
+test core::quota::tests::test_quota_data_default ... ok
+test core::quota::tests::test_quota_manager_add_usage ... ok
+test core::quota::tests::test_quota_manager_check_quota ... ok
+test core::quota::tests::test_quota_manager_commit_usage ... ok
+test core::quota::tests::test_quota_manager_get_all_usage ... ok
+test core::quota::tests::test_quota_manager_new ... ok
+test core::quota::tests::test_quota_manager_multiple_users ... ok
+test core::quota::tests::test_quota_usage_default ... ok
+test core::rate_limiter::tests::test_rate_limit_config_create_limiter ... ok
+test core::quota::tests::test_quota_manager_reset_usage ... ok
+test core::rate_limiter::tests::test_rate_limit_config_new ... ok
+test core::rate_limiter::tests::test_rate_limit_config_unlimited ... ok
+test core::metrics::tests::test_command_timer ... ok
+test core::quota::tests::test_quota_manager_rollback_reservation ... ok
+test core::rate_limiter::tests::test_rate_limiter_bucket_capacity_high_rate ... ok
+test core::rate_limiter::tests::test_rate_limiter_bucket_capacity_low_rate ... ok
+test core::rate_limiter::tests::test_rate_limiter_acquire_small_amount ... ok
+test core::rate_limiter::tests::test_rate_limiter_bucket_capacity_medium_rate ... ok
+test core::rate_limiter::tests::test_rate_limiter_acquire_unlimited ... ok
+test core::rate_limiter::tests::test_rate_limiter_initial_tokens ... ok
+test core::rate_limiter::tests::test_rate_limiter_limited ... ok
+test core::rate_limiter::tests::test_rate_limiter_unlimited ... ok
+test core::rate_limiter::tests::test_rate_limiter_refill ... ok
+test core::rate_limiter::tests::test_transfer_rate_tracker_add_bytes ... ok
+test core::rate_limiter::tests::test_transfer_rate_tracker_default ... ok
+test core::rate_limiter::tests::test_transfer_rate_tracker_new ... ok
+test core::sftp_server::state::tests::test_build_attrs ... ok
+test core::sftp_server::state::tests::test_build_attrs_dir ... ok
+test core::sftp_server::state::tests::test_build_data_packet ... ok
+test core::sftp_server::state::tests::test_build_handle_packet ... ok
+test core::sftp_server::state::tests::test_build_status_packet ... ok
+test core::sftp_server::state::tests::test_build_packet ... ok
+test core::quota::tests::test_quota_manager_subtract_usage ... ok
+test core::sftp_server::state::tests::test_build_version_packet ... ok
+test core::sftp_server::state::tests::test_generate_handle_sequential ... ok
+test core::sftp_server::state::tests::test_generate_handle_wrapping ... ok
+test core::sftp_server::state::tests::test_parse_string_empty ... ok
+test core::sftp_server::state::tests::test_parse_string_truncated ... ok
+test core::quota::tests::test_quota_manager_force_flush ... ok
+test core::quota::tests::test_quota_manager_try_reserve_quota ... ok
+test core::sftp_server::state::tests::test_parse_string_valid ... ok
+test core::sftp_server::state::tests::test_parse_string_with_len_valid ... ok
+test core::quota::tests::test_quota_manager_flush_if_dirty ... ok
+test core::sftp_server::state::tests::test_parse_u32_valid ... ok
+test core::sftp_server::state::tests::test_parse_u32_insufficient_data ... ok
+test core::sftp_server::state::tests::test_parse_u32_offset_out_of_bounds ... ok
+test core::quota::tests::test_quota_manager_subtract_usage_underflow ... ok
+test core::sftp_server::state::tests::test_parse_u64_insufficient_data ... ok
+test core::quota::tests::test_quota_manager_persistence ... ok
+test core::sftp_server::state::tests::test_sftp_state_initial ... ok
+test core::sftp_server::tests::test_max_handles ... ok
+test core::sftp_server::tests::test_max_packet_size ... ok
+test core::sftp_server::state::tests::test_parse_u64_valid ... ok
+test core::sftp_server::tests::test_sftp_constants ... ok
+test core::sftp_server::tests::test_sftp_handle_timeout ... ok
+test core::users::tests::test_add_user_empty_home ... ok
+test core::users::tests::test_authenticate_user_not_found ... ok
+test core::rate_limiter::tests::test_transfer_rate_tracker_elapsed ... ok
+test core::users::tests::test_permissions_default ... ok
+test core::users::tests::test_permissions_default_is_none ... ok
+test core::users::tests::test_permissions_display ... ok
+test core::users::tests::test_permissions_full ... ok
+test core::users::tests::test_add_user_duplicate ... ok
+test core::users::tests::test_remove_user_not_found ... ok
+test core::users::tests::test_add_user_empty_username ... ok
+test core::users::tests::test_authenticate_disabled_user ... ok
+test core::users::tests::test_add_user ... ok
+test core::users::tests::test_remove_user ... ok
+test core::users::tests::test_update_password_user_not_found ... ok
+test core::users::tests::test_authenticate_success ... ok
+test core::users::tests::test_user_manager_default ... ok
+test core::users::tests::test_user_manager_load_empty_file ... ok
+test core::users::tests::test_user_manager_load_invalid_json ... ok
+test core::users::tests::test_iter_users ... ok
+test core::users::tests::test_set_user_admin ... ok
+test core::users::tests::test_user_manager_new ... ok
+test core::users::tests::test_set_user_enabled ... ok
+test core::users::tests::test_user_serialization ... ok
+test core::users::tests::test_user_serialization_roundtrip ... ok
+test core::users::tests::test_password_hash_different_passwords ... ok
+test core::users::tests::test_authenticate_wrong_password ... ok
+test core::users::tests::test_update_home_dir ... ok
+test core::users::tests::test_password_hash_same_password_different_salt ... ok
+test core::users::tests::test_authenticate_empty_password ... ok
+test core::users::tests::test_get_all_users ... ok
+test core::users::tests::test_update_permissions ... ok
+test core::users::tests::test_user_manager_reload ... ok
+test core::users::tests::test_user_manager_save_and_load ... ok
+test core::users::tests::test_update_password ... ok
+test core::users::tests::test_user_manager_multiple_users ... ok
+
+test result: ok. 210 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.73s
+
+     Running unittests src\service_main.rs (target\debug\deps\wftpd-d49f6cf15ba
+4cff7.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests wftpd
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

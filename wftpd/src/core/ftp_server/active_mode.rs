@@ -3,7 +3,7 @@
 //! Detects whether the client is behind NAT by comparing the IP address
 //! in the PORT command with the client's actual TCP connection IP address.
 
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClientNatStatus {
@@ -24,59 +24,6 @@ pub fn detect_client_nat(port_command_ip: IpAddr, tcp_connection_ip: IpAddr) -> 
     } else {
         ClientNatStatus::BehindNat
     }
-}
-
-pub fn is_private_ip(ip: &IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ipv4) => is_private_ipv4(ipv4),
-        IpAddr::V6(ipv6) => is_private_ipv6(ipv6),
-    }
-}
-
-pub fn is_loopback_ip(ip: &IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ipv4) => ipv4.is_loopback(),
-        IpAddr::V6(ipv6) => ipv6.is_loopback(),
-    }
-}
-
-fn is_private_ipv4(ip: &Ipv4Addr) -> bool {
-    let octets = ip.octets();
-    if octets[0] == 10 {
-        return true;
-    }
-    if octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31 {
-        return true;
-    }
-    if octets[0] == 192 && octets[1] == 168 {
-        return true;
-    }
-    false
-}
-
-fn is_private_ipv6(ip: &std::net::Ipv6Addr) -> bool {
-    let segments = ip.segments();
-    if segments[0] == 0xfc00 || segments[0] == 0xfd00 {
-        return true;
-    }
-    false
-}
-
-pub fn classify_ip_address(ip: &IpAddr) -> IpAddressClass {
-    if is_loopback_ip(ip) {
-        IpAddressClass::Loopback
-    } else if is_private_ip(ip) {
-        IpAddressClass::Private
-    } else {
-        IpAddressClass::Public
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IpAddressClass {
-    Loopback,
-    Private,
-    Public,
 }
 
 pub fn should_accept_port_command(
@@ -148,7 +95,11 @@ pub fn analyze_active_mode_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::Ipv6Addr;
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    use crate::core::ftp_server::ip_utils::{
+        classify_ip_address, is_private_ipv4, is_private_ipv6, IpAddressClass,
+    };
 
     #[test]
     fn test_detect_client_nat_direct() {

@@ -10,6 +10,8 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+use crate::core::ftp_server::ip_utils::{is_private_ipv4, is_private_ipv6};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PassiveAddressSource {
     Upnp,
@@ -86,34 +88,6 @@ pub fn classify_connection_source(client_ip: &IpAddr) -> ConnectionSource {
             }
         }
     }
-}
-
-fn is_private_ipv4(ip: &Ipv4Addr) -> bool {
-    let octets = ip.octets();
-    if octets[0] == 10 {
-        return true;
-    }
-    if octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31 {
-        return true;
-    }
-    if octets[0] == 192 && octets[1] == 168 {
-        return true;
-    }
-    if octets[0] == 169 && octets[1] == 254 {
-        return true;
-    }
-    false
-}
-
-fn is_private_ipv6(ip: &Ipv6Addr) -> bool {
-    let segments = ip.segments();
-    if segments[0] == 0xfc00 || segments[0] == 0xfd00 {
-        return true;
-    }
-    if segments[0] == 0xfe80 {
-        return true;
-    }
-    false
 }
 
 #[derive(Debug, Clone)]

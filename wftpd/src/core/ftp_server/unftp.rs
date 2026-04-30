@@ -47,6 +47,7 @@ struct FtpServerConfig {
     upnp_enabled: bool,
     masquerade_address: Option<String>,
     allow_nat_clients: bool,
+    ftp_root: Option<String>,
 }
 
 struct FtpServerResources {
@@ -134,6 +135,7 @@ impl FtpServer {
                 upnp_enabled: cfg.ftp.upnp_enabled,
                 masquerade_address: cfg.ftp.masquerade_address.clone(),
                 allow_nat_clients: cfg.ftp.allow_nat_clients,
+                ftp_root: cfg.ftp.ftp_root.clone(),
             }
         };
 
@@ -210,26 +212,22 @@ impl FtpServer {
 
         let user_mgr_clone = Arc::clone(&resources.user_manager);
         let quota_mgr_clone = Arc::clone(&resources.quota_manager);
-        let home_dir_clone = {
-            let users = user_mgr_clone.lock();
-            users
-                .get_user("123")
-                .map(|u| u.home_dir.clone())
-                .unwrap_or_else(|| fallback_root.clone())
-        };
 
-        if !std::path::Path::new(&home_dir_clone).exists() {
+        let ftp_root = config.ftp_root.clone().unwrap_or_else(|| fallback_root.clone());
+
+        if !std::path::Path::new(&ftp_root).exists() {
             return Err(anyhow::anyhow!(
-                "FTP server home directory does not exist: {}",
-                home_dir_clone
+                "FTP server root directory does not exist: {}",
+                ftp_root
             ));
         }
 
+        let ftp_root_clone = ftp_root.clone();
         let storage_factory = Box::new(move || {
-            let fs = Filesystem::new(&home_dir_clone).unwrap_or_else(|e| {
+            let fs = Filesystem::new(&ftp_root_clone).unwrap_or_else(|e| {
                 tracing::error!(
                     "Failed to create filesystem storage for '{}': {}",
-                    home_dir_clone,
+                    ftp_root_clone,
                     e
                 );
                 Filesystem::new(".").unwrap_or_else(|_| {

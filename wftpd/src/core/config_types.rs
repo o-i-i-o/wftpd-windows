@@ -162,6 +162,8 @@ pub struct FtpConfig {
     pub pooled_listener_mode: bool,
     #[serde(default = "default_allow_nat_clients")]
     pub allow_nat_clients: bool,
+    #[serde(default = "default_ftp_root")]
+    pub ftp_root: Option<String>,
 }
 
 pub fn default_ftp_port() -> u16 {
@@ -230,6 +232,10 @@ pub fn default_pooled_listener_mode() -> bool {
 
 pub fn default_allow_nat_clients() -> bool {
     true
+}
+
+pub fn default_ftp_root() -> Option<String> {
+    None
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -10,6 +10,7 @@ mod active_mode;
 mod auth;
 mod binder;
 pub(crate) mod cert_gen;
+mod ip_utils;
 mod listeners;
 mod passive_mode;
 mod storage;
@@ -17,12 +18,15 @@ mod unftp;
 pub mod upnp_manager;
 
 pub use active_mode::{
-    ActiveModeConfig, ActiveModeInfo, ClientNatStatus, IpAddressClass,
-    analyze_active_mode_connection, classify_ip_address, detect_client_nat, is_loopback_ip,
-    is_private_ip, should_accept_port_command,
+    ActiveModeConfig, ActiveModeInfo, ClientNatStatus, analyze_active_mode_connection,
+    detect_client_nat, should_accept_port_command,
 };
 pub use auth::{SessionTracker, WftpdAuthenticator, WftpdUser, WftpdUserDetailProvider};
 pub use binder::{UpnpBinder, UpnpBinderBuilder};
+pub use ip_utils::{
+    IpAddressClass, classify_ip_address, is_loopback_ip, is_private_ip, is_private_ipv4,
+    is_private_ipv6,
+};
 pub use listeners::{FtpDataListener, FtpPresenceListener};
 pub use passive_mode::{
     BindAddressType, ConnectionSource, LocalIpAddress, PassiveAddressResult, PassiveAddressSource,
