@@ -77,11 +77,10 @@ impl StorageBackend<WftpdUser> for QuotaFilesystem {
         user: &WftpdUser,
         path: P,
     ) -> unftp_core::storage::Result<Vec<Fileinfo<std::path::PathBuf, Self::Metadata>>> {
-        let path_str = path.as_ref().to_string_lossy();
-        tracing::warn!(
+        tracing::debug!(
             username = %user.username,
-            path = %path_str,
-            "[FTP-DEBUG] QuotaFilesystem::list called"
+            path = %path.as_ref().to_string_lossy(),
+            "QuotaFilesystem::list"
         );
         self.inner.list(user, path).await
     }
@@ -92,12 +91,11 @@ impl StorageBackend<WftpdUser> for QuotaFilesystem {
         path: P,
         start_pos: u64,
     ) -> unftp_core::storage::Result<Box<dyn AsyncRead + Send + Sync + Unpin>> {
-        let path_str = path.as_ref().to_string_lossy();
-        tracing::warn!(
+        tracing::debug!(
             username = %user.username,
-            path = %path_str,
+            path = %path.as_ref().to_string_lossy(),
             start_pos = start_pos,
-            "[FTP-DEBUG] QuotaFilesystem::get called"
+            "QuotaFilesystem::get"
         );
         let reader = self.inner.get(user, path, start_pos).await?;
 
@@ -124,12 +122,11 @@ impl StorageBackend<WftpdUser> for QuotaFilesystem {
         path: P,
         start_pos: u64,
     ) -> unftp_core::storage::Result<u64> {
-        let path_str = path.as_ref().to_string_lossy();
-        tracing::warn!(
+        tracing::debug!(
             username = %user.username,
-            path = %path_str,
+            path = %path.as_ref().to_string_lossy(),
             start_pos = start_pos,
-            "[FTP-DEBUG] QuotaFilesystem::put called"
+            "QuotaFilesystem::put"
         );
         let username = &user.username;
         let reserved_bytes = if let Some(quota_mb) = self.get_user_quota_mb(username) {
@@ -221,11 +218,10 @@ impl StorageBackend<WftpdUser> for QuotaFilesystem {
         user: &WftpdUser,
         path: P,
     ) -> unftp_core::storage::Result<()> {
-        let path_str = path.as_ref().to_string_lossy();
-        tracing::warn!(
+        tracing::debug!(
             username = %user.username,
-            path = %path_str,
-            "[FTP-DEBUG] QuotaFilesystem::mkd called"
+            path = %path.as_ref().to_string_lossy(),
+            "QuotaFilesystem::mkd"
         );
         self.inner.mkd(user, path).await
     }
