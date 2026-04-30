@@ -314,19 +314,16 @@ impl FtpServer {
             && let Some(ref upnp_ip) = upnp_external_ip
             && let Ok(ip) = upnp_ip.parse::<Ipv4Addr>()
         {
-            tracing::info!("FTP passive host set to: {} (source: UPnP external IP)", ip);
+            tracing::info!("FTP passive host: {} (UPnP external IP)", ip);
             PassiveHost::Ip(ip)
         } else if let Some(masq_ip) = masquerade_ip
             && !masq_ip.is_unspecified()
         {
-            tracing::info!(
-                "FTP passive host set to: {} (source: masquerade address)",
-                masq_ip
-            );
+            tracing::info!("FTP passive host: {} (masquerade address)", masq_ip);
             PassiveHost::Ip(masq_ip)
         } else if !is_wildcard_bind(&bind_address) {
             if let std::net::IpAddr::V4(ipv4) = bind_address {
-                tracing::info!("FTP passive host set to: {} (source: bind address)", ipv4);
+                tracing::info!("FTP passive host: {} (bind address)", ipv4);
                 PassiveHost::Ip(ipv4)
             } else {
                 let fallback_ip = server_local_ips
@@ -334,16 +331,11 @@ impl FtpServer {
                     .find(|ip| !ip.is_loopback() && !ip.is_link_local())
                     .copied()
                     .unwrap_or_else(|| local_ip.unwrap_or(Ipv4Addr::new(127, 0, 0, 1)));
-                tracing::info!(
-                    "FTP passive host set to: {} (source: IPv6 bind fallback)",
-                    fallback_ip
-                );
+                tracing::info!("FTP passive host: {} (IPv6 bind fallback)", fallback_ip);
                 PassiveHost::Ip(fallback_ip)
             }
         } else {
-            tracing::info!(
-                "FTP passive host set to: FromConnection (wildcard bind, uses client's destination IP)"
-            );
+            tracing::info!("FTP passive host: FromConnection (TCP destination IP)");
             PassiveHost::FromConnection
         };
         server_builder = server_builder.passive_host(passive_host);

@@ -218,28 +218,37 @@ fn get_local_ip() -> std::io::Result<Ipv4Addr>
 
 ## 被动模式地址选择策略
 
-使用libunftp的`PassiveHost`枚举：
+### 优先级
+
+| 优先级 | 条件 | PASV返回地址 |
+|--------|------|--------------|
+| 1 | UPnP启用且有外部IP | UPnP公网IP |
+| 2 | 配置了masquerade_address | 伪装地址 |
+| 3 | 通配符绑定(0.0.0.0/::) | TCP连接的目的IP |
+| 4 | 绑定特定IP | 绑定地址 |
+
+### 实现代码
 
 ```rust
-pub enum PassiveHost {
-    FromConnection,    // 使用TCP连接的本地端IP（客户端请求的目的地址）
-    Ip(Ipv4Addr),      // 使用固定IP
-    Dns(String),       // 解析DNS名称
-}
+let passive_host = if config.upnp_enabled
+    && let Some(ref upnp_ip) = upnp_external_ip
+    && let Ok(ip) = upnp_ip.parse::<Ipv4Addr>()
+{
+    PassiveHost::Ip(ip)  // 优先级1: UPnP公网IP
+} else if let Some(masq_ip) = masquerade_ip
+    && !masq_ip.is_unspecified()
+{
+    PassiveHost::Ip(masq_ip)  // 优先级2: 伪装地址
+} else if !is_wildcard_bind(&bind_address) {
+    PassiveHost::Ip(bind_ipv4)  // 优先级4: 绑定地址
+} else {
+    PassiveHost::FromConnection  // 优先级3: TCP目的IP
+};
 ```
 
-### 选择逻辑
+### FromConnection模式
 
-| 条件 | PassiveHost类型 | 说明 |
-|------|-----------------|------|
-| UPnP启用且有外部IP | `Ip(upnp_ip)` | NAT环境，使用外部IP |
-| 配置了伪装地址 | `Ip(masq_ip)` | 手动指定外部IP |
-| 绑定特定IP | `Ip(bind_ip)` | 单IP服务器 |
-| 通配符绑定(0.0.0.0/::) | `FromConnection` | 使用客户端请求的目的地址 |
-
-### FromConnection模式原理
-
-当服务器绑定 0.0.0.0 或 :: 时，`PassiveHost::FromConnection` 会使用 TCP 连接的本地端 IP：
+当服务器绑定 0.0.0.0 或 :: 且未配置 UPnP/masq 时：
 
 ```
 客户端请求 127.0.0.1:21 → PASV返回 127.0.0.1
@@ -247,15 +256,7 @@ pub enum PassiveHost {
 客户端请求 203.0.113.50:21 → PASV返回 203.0.113.50
 ```
 
-这是自动的，libunftp 通过 `tcp_stream.local_addr()` 获取客户端连接的实际目的地址。
-
-### NAT环境处理
-
-如果服务器位于 NAT 后面：
-1. 配置 UPnP 自动获取外部 IP
-2. 或配置 masquerade_address 手动指定外部 IP
-
-这两种情况下，PASV 会返回外部 IP，而不是本地 IP。
+libunftp 通过 `tcp_stream.local_addr()` 获取客户端连接的实际目的地址。
 
 ## FTPS配置
 
