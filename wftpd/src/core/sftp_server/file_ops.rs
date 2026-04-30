@@ -107,6 +107,45 @@ impl SftpState {
         match file_result {
             Ok(file) => {
                 let handle = self.generate_handle();
+
+                let original_size = if file_existed {
+                    tokio::fs::metadata(&full_path)
+                        .await
+                        .map(|m| m.len())
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
+
+                let quota_reserved = if need_write || need_append {
+                    let quota_mb = self.cached_permissions.as_ref().and_then(|p| p.quota_mb);
+                    if let Some(quota) = quota_mb {
+                        let username = self.username.as_deref().unwrap_or("anonymous");
+                        let reserve_amount = 100 * 1024 * 1024;
+                        match self
+                            .quota_manager
+                            .try_reserve_quota(username, reserve_amount, quota)
+                        {
+                            Ok(true) => reserve_amount,
+                            Ok(false) => {
+                                tracing::warn!(
+                                    "SFTP OPEN denied: quota exceeded for user {:?}",
+                                    self.username
+                                );
+                                return Ok(self.build_status_packet(id, 4, "Quota exceeded", ""));
+                            }
+                            Err(e) => {
+                                tracing::error!("SFTP OPEN: quota reserve failed: {}", e);
+                                0
+                            }
+                        }
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+
                 self.handles.insert(
                     handle.clone(),
                     SftpFileHandle::File {
@@ -118,6 +157,8 @@ impl SftpState {
                         read_bytes: 0,
                         pending_flush_bytes: 0,
                         last_access: std::time::Instant::now(),
+                        quota_reserved,
+                        original_size,
                     },
                 );
                 tracing::debug!("SFTP OPEN: handle '{}' created for {}", handle, path);
@@ -143,6 +184,8 @@ impl SftpState {
                     written_bytes,
                     read_bytes,
                     mut file,
+                    quota_reserved,
+                    original_size,
                     ..
                 } => {
                     use tokio::io::AsyncWriteExt;
@@ -167,10 +210,47 @@ impl SftpState {
                             .map(|m| m.len())
                             .unwrap_or(written_bytes);
 
-                        if let Some(username) = &self.username
-                            && let Err(e) = self.quota_manager.add_usage(username, file_size)
-                        {
-                            tracing::warn!("Failed to update quota for user {}: {}", username, e);
+                        if quota_reserved > 0 {
+                            if let Some(username) = &self.username {
+                                let actual_new_bytes = if existed && file_size > original_size {
+                                    file_size - original_size
+                                } else if existed {
+                                    0
+                                } else {
+                                    file_size
+                                };
+
+                                if let Err(e) = self.quota_manager.commit_usage(
+                                    username,
+                                    quota_reserved,
+                                    actual_new_bytes,
+                                ) {
+                                    tracing::warn!(
+                                        "Failed to commit quota for user {}: {}",
+                                        username,
+                                        e
+                                    );
+                                }
+                            }
+                        } else if let Some(username) = &self.username {
+                            let actual_new_bytes = if existed && file_size > original_size {
+                                file_size - original_size
+                            } else if existed {
+                                0
+                            } else {
+                                file_size
+                            };
+
+                            if actual_new_bytes > 0
+                                && let Err(e) =
+                                    self.quota_manager.add_usage(username, actual_new_bytes)
+                            {
+                                tracing::warn!(
+                                    "Failed to update quota for user {}: {}",
+                                    username,
+                                    e
+                                );
+                            }
                         }
 
                         if existed {
@@ -191,6 +271,14 @@ impl SftpState {
                                 written_bytes,
                                 "SFTP"
                             );
+                        }
+                    } else if quota_reserved > 0 {
+                        if let Some(username) = &self.username
+                            && let Err(e) = self
+                                .quota_manager
+                                .rollback_reservation(username, quota_reserved)
+                        {
+                            tracing::warn!("Failed to rollback quota for user {}: {}", username, e);
                         }
                     }
 
@@ -368,22 +456,6 @@ impl SftpState {
 
         if let Some(limiter) = &self.rate_limiter {
             limiter.acquire(data_len).await;
-        }
-
-        let quota_mb = self.cached_permissions.as_ref().and_then(|p| p.quota_mb);
-
-        if let Some(quota) = quota_mb {
-            let current_usage = self
-                .quota_manager
-                .get_usage(self.username.as_deref().unwrap_or("anonymous"));
-            let quota_bytes = quota * 1024 * 1024;
-            if current_usage >= quota_bytes {
-                tracing::warn!(
-                    "SFTP WRITE denied: quota exceeded for user {:?}",
-                    self.username
-                );
-                return Ok(self.build_status_packet(id, 4, "Quota exceeded", ""));
-            }
         }
 
         let handle = self.handles.get_mut(&handle_str);

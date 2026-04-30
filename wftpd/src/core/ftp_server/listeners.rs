@@ -112,6 +112,15 @@ impl PresenceListener for FtpPresenceListener {
     async fn receive_presence_event(&self, event: PresenceEvent, meta: EventMeta) {
         match event {
             PresenceEvent::LoggedIn => {
+                if meta.username != "unknown" {
+                    if let Some(client_ip) = self.session_tracker.get_ip_for_user(&meta.username) {
+                        self.session_tracker.register_trace(
+                            meta.trace_id.to_string(),
+                            &meta.username,
+                            client_ip,
+                        );
+                    }
+                }
                 tracing::info!(
                     username = %meta.username,
                     trace_id = %meta.trace_id,
@@ -121,12 +130,20 @@ impl PresenceListener for FtpPresenceListener {
                 );
             }
             PresenceEvent::LoggedOut => {
-                if let Some(client_ip) = self.session_tracker.unregister(&meta.username) {
-                    self.config.lock().unregister_connection(&client_ip);
+                let client_ip = if meta.username != "unknown" {
+                    self.session_tracker.unregister(&meta.username)
+                } else {
+                    self.session_tracker
+                        .unregister_by_trace(&meta.trace_id.to_string())
+                };
+
+                if let Some(ip) = client_ip {
+                    self.config.lock().unregister_connection(&ip);
                     tracing::debug!(
                         username = %meta.username,
-                        ip = %client_ip,
-                        "Connection unregistered for user {} from {}", meta.username, client_ip
+                        trace_id = %meta.trace_id,
+                        ip = %ip,
+                        "Connection unregistered for user {} from {}", meta.username, ip
                     );
                 }
                 tracing::info!(

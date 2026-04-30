@@ -19,7 +19,7 @@ use crate::core::users::UserManager;
 
 use super::auth::WftpdUser;
 
-const ESTIMATED_MAX_FILE_SIZE: u64 = 1024 * 1024 * 1024;
+const ESTIMATED_MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct QuotaFilesystem {
@@ -77,6 +77,12 @@ impl StorageBackend<WftpdUser> for QuotaFilesystem {
         user: &WftpdUser,
         path: P,
     ) -> unftp_core::storage::Result<Vec<Fileinfo<std::path::PathBuf, Self::Metadata>>> {
+        let path_str = path.as_ref().to_string_lossy();
+        tracing::warn!(
+            username = %user.username,
+            path = %path_str,
+            "[FTP-DEBUG] QuotaFilesystem::list called"
+        );
         self.inner.list(user, path).await
     }
 
@@ -86,6 +92,13 @@ impl StorageBackend<WftpdUser> for QuotaFilesystem {
         path: P,
         start_pos: u64,
     ) -> unftp_core::storage::Result<Box<dyn AsyncRead + Send + Sync + Unpin>> {
+        let path_str = path.as_ref().to_string_lossy();
+        tracing::warn!(
+            username = %user.username,
+            path = %path_str,
+            start_pos = start_pos,
+            "[FTP-DEBUG] QuotaFilesystem::get called"
+        );
         let reader = self.inner.get(user, path, start_pos).await?;
 
         if let Some(speed_limit) = user.permissions.speed_limit_kbps
@@ -111,6 +124,13 @@ impl StorageBackend<WftpdUser> for QuotaFilesystem {
         path: P,
         start_pos: u64,
     ) -> unftp_core::storage::Result<u64> {
+        let path_str = path.as_ref().to_string_lossy();
+        tracing::warn!(
+            username = %user.username,
+            path = %path_str,
+            start_pos = start_pos,
+            "[FTP-DEBUG] QuotaFilesystem::put called"
+        );
         let username = &user.username;
         let reserved_bytes = if let Some(quota_mb) = self.get_user_quota_mb(username) {
             let reserve_amount = ESTIMATED_MAX_FILE_SIZE;
@@ -201,6 +221,12 @@ impl StorageBackend<WftpdUser> for QuotaFilesystem {
         user: &WftpdUser,
         path: P,
     ) -> unftp_core::storage::Result<()> {
+        let path_str = path.as_ref().to_string_lossy();
+        tracing::warn!(
+            username = %user.username,
+            path = %path_str,
+            "[FTP-DEBUG] QuotaFilesystem::mkd called"
+        );
         self.inner.mkd(user, path).await
     }
 

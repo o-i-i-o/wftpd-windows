@@ -24,6 +24,8 @@ pub enum SftpFileHandle {
         read_bytes: u64,
         pending_flush_bytes: u64,
         last_access: std::time::Instant,
+        quota_reserved: u64,
+        original_size: u64,
     },
     Dir {
         path: std::path::PathBuf,

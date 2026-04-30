@@ -262,6 +262,11 @@ impl SftpServer {
                                         cfg.sftp.max_sessions_per_user
                                     };
 
+                                    let allow_symlinks = {
+                                        let cfg = config_for_handler.lock();
+                                        cfg.security.allow_symlinks
+                                    };
+
                                     let handler = crate::core::sftp_server::handler::SftpHandler {
                                         user_manager,
                                         quota_manager,
@@ -281,6 +286,7 @@ impl SftpServer {
                                         client_ip: client_ip.clone(),
                                         users_path: get_program_data_path().join("users.json"),
                                         max_sessions_per_user: max_sessions,
+                                        allow_symlinks,
                                     };
 
                                     if let Err(e) = russh::server::run_stream(ssh_config, socket, handler).await {

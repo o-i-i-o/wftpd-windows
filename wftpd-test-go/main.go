@@ -17,6 +17,8 @@ import (
 
 // TestConfig 测试配置结构
 type TestConfig struct {
+	EnableFTP      bool   `json:"enable_ftp"`
+	EnableSFTP     bool   `json:"enable_sftp"`
 	FTPServer      string `json:"ftp_server"`
 	FTPPort        int    `json:"ftp_port"`
 	SFTPServer     string `json:"sftp_server"`
@@ -91,6 +93,8 @@ func (l *Logger) Print(v ...interface{}) {
 
 func loadConfig(configPath string) (TestConfig, error) {
 	cfg := TestConfig{
+		EnableFTP:      true,
+		EnableSFTP:     true,
 		FTPServer:      "127.0.0.1",
 		FTPPort:        21,
 		SFTPServer:     "127.0.0.1",
@@ -173,8 +177,14 @@ func main() {
 	logger.Println("WFTPD FTP/SFTP 测试套件")
 	logger.Println("========================================")
 	logger.Println()
-	logger.Printf("FTP 服务器: %s:%d\n", config.FTPServer, config.FTPPort)
-	logger.Printf("SFTP 服务器: %s:%d\n", config.SFTPServer, config.SFTPPort)
+	logger.Printf("FTP 测试: %v\n", map[bool]string{true: "启用", false: "禁用"}[config.EnableFTP])
+	logger.Printf("SFTP 测试: %v\n", map[bool]string{true: "启用", false: "禁用"}[config.EnableSFTP])
+	if config.EnableFTP {
+		logger.Printf("FTP 服务器: %s:%d\n", config.FTPServer, config.FTPPort)
+	}
+	if config.EnableSFTP {
+		logger.Printf("SFTP 服务器: %s:%d\n", config.SFTPServer, config.SFTPPort)
+	}
 	logger.Printf("用户名: %s\n", config.Username)
 	logger.Printf("测试数据目录: %s\n", config.TestDataDir)
 	logger.Printf("日志文件: %s\n", config.LogFile)
@@ -189,10 +199,25 @@ func main() {
 		logger.Printf("生成测试文件失败: %v\n", err)
 		return
 	}
-	
-	runFTPTests()
-	runSFTPTests()
-	
+
+	if config.EnableFTP {
+		runFTPTests()
+	} else {
+		logger.Println("========================================")
+		logger.Println("FTP 测试已禁用，跳过")
+		logger.Println("========================================")
+		logger.Println()
+	}
+
+	if config.EnableSFTP {
+		runSFTPTests()
+	} else {
+		logger.Println("========================================")
+		logger.Println("SFTP 测试已禁用，跳过")
+		logger.Println("========================================")
+		logger.Println()
+	}
+
 	printReport()
 }
 

@@ -182,7 +182,23 @@ impl SftpState {
             Err(resp) => return Ok(resp),
         };
 
+        let file_size = tokio::fs::metadata(&full_path)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
+
         if tokio::fs::remove_file(&full_path).await.is_ok() {
+            if file_size > 0 {
+                if let Some(username) = &self.username
+                    && let Err(e) = self.quota_manager.subtract_usage(username, file_size)
+                {
+                    tracing::warn!(
+                        "Failed to subtract quota for user {} after delete: {}",
+                        username,
+                        e
+                    );
+                }
+            }
             crate::file_op_log!(
                 delete,
                 self.username.as_deref().unwrap_or("anonymous"),
@@ -244,8 +260,21 @@ impl SftpState {
             Err(resp) => return Ok(resp),
         };
 
+        let dir_size = Self::calculate_dir_size(&full_path).await;
+
         match tokio::fs::remove_dir(&full_path).await {
             Ok(()) => {
+                if dir_size > 0 {
+                    if let Some(username) = &self.username
+                        && let Err(e) = self.quota_manager.subtract_usage(username, dir_size)
+                    {
+                        tracing::warn!(
+                            "Failed to subtract quota for user {} after rmdir: {}",
+                            username,
+                            e
+                        );
+                    }
+                }
                 crate::file_op_log!(
                     rmdir,
                     self.username.as_deref().unwrap_or("anonymous"),
@@ -453,5 +482,25 @@ impl SftpState {
         );
 
         Ok(self.build_packet(&payload))
+    }
+
+    fn calculate_dir_size<'a>(
+        path: &'a std::path::Path,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = u64> + Send + 'a>> {
+        Box::pin(async move {
+            let mut total_size: u64 = 0;
+            if let Ok(mut entries) = tokio::fs::read_dir(path).await {
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    if let Ok(metadata) = entry.metadata().await {
+                        if metadata.is_file() {
+                            total_size += metadata.len();
+                        } else if metadata.is_dir() {
+                            total_size += Self::calculate_dir_size(&entry.path()).await;
+                        }
+                    }
+                }
+            }
+            total_size
+        })
     }
 }

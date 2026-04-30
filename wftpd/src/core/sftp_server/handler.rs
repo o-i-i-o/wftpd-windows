@@ -36,6 +36,7 @@ pub struct SftpHandler {
     pub client_ip: String,
     pub users_path: std::path::PathBuf,
     pub max_sessions_per_user: u32,
+    pub allow_symlinks: bool,
 }
 
 impl SftpHandler {
@@ -500,6 +501,7 @@ impl russh::server::Handler for SftpHandler {
                     Arc::clone(&self.user_manager),
                     Arc::clone(&self.quota_manager),
                     self.client_ip.clone(),
+                    self.allow_symlinks,
                 );
 
                 self.sftp_state = Some(Arc::new(TokioMutex::new(state)));

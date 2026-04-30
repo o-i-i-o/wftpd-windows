@@ -25,6 +25,8 @@ use crate::core::users::{Permissions, UserManager};
 #[derive(Debug, Default)]
 pub struct SessionTracker {
     sessions: parking_lot::Mutex<HashMap<String, Vec<String>>>,
+    trace_to_ip: parking_lot::Mutex<HashMap<String, String>>,
+    trace_to_username: parking_lot::Mutex<HashMap<String, String>>,
 }
 
 impl SessionTracker {
@@ -40,6 +42,18 @@ impl SessionTracker {
             .push(client_ip);
     }
 
+    pub fn get_ip_for_user(&self, username: &str) -> Option<String> {
+        let sessions = self.sessions.lock();
+        sessions.get(username).and_then(|ips| ips.last().cloned())
+    }
+
+    pub fn register_trace(&self, trace_id: String, username: &str, client_ip: String) {
+        let mut trace_to_ip = self.trace_to_ip.lock();
+        trace_to_ip.insert(trace_id.clone(), client_ip);
+        let mut trace_to_username = self.trace_to_username.lock();
+        trace_to_username.insert(trace_id, username.to_string());
+    }
+
     pub fn unregister(&self, username: &str) -> Option<String> {
         let mut sessions = self.sessions.lock();
         if let Some(ips) = sessions.get_mut(username)
@@ -52,6 +66,29 @@ impl SessionTracker {
             return Some(ip);
         }
         None
+    }
+
+    pub fn unregister_by_trace(&self, trace_id: &str) -> Option<String> {
+        let client_ip = {
+            let mut trace_to_ip = self.trace_to_ip.lock();
+            trace_to_ip.remove(trace_id)
+        };
+        let username = {
+            let mut trace_to_username = self.trace_to_username.lock();
+            trace_to_username.remove(trace_id)
+        };
+        if let (Some(ip), Some(user)) = (&client_ip, &username) {
+            let mut sessions = self.sessions.lock();
+            if let Some(ips) = sessions.get_mut(user) {
+                if let Some(pos) = ips.iter().position(|x| x == ip) {
+                    ips.remove(pos);
+                    if ips.is_empty() {
+                        sessions.remove(user);
+                    }
+                }
+            }
+        }
+        client_ip
     }
 }
 
@@ -125,6 +162,13 @@ impl UserWithPermissions for WftpdUser {
         if self.permissions.can_append {
             ops |= VfsOperations::PUT;
         }
+
+        tracing::warn!(
+            username = %self.username,
+            permissions = ?ops,
+            raw_permissions = ?self.permissions,
+            "[FTP-DEBUG] User permissions mapped to VfsOperations"
+        );
 
         ops
     }
@@ -385,12 +429,20 @@ impl UserDetailProvider for WftpdUserDetailProvider {
         };
 
         match user {
-            Some(u) => Ok(WftpdUser {
-                username: u.username,
-                home_dir: PathBuf::from(&u.home_dir),
-                enabled: u.enabled,
-                permissions: u.permissions,
-            }),
+            Some(u) => {
+                tracing::warn!(
+                    username = %u.username,
+                    home_dir = %u.home_dir,
+                    permissions = ?u.permissions,
+                    "[FTP-DEBUG] Providing user detail for FTP session"
+                );
+                Ok(WftpdUser {
+                    username: u.username,
+                    home_dir: PathBuf::from(&u.home_dir),
+                    enabled: u.enabled,
+                    permissions: u.permissions,
+                })
+            }
             None => Err(UserDetailError::new(format!(
                 "User not found: {}",
                 username

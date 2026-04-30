@@ -167,11 +167,11 @@ pub fn default_ftp_port() -> u16 {
 }
 
 pub fn default_connection_timeout() -> u64 {
-    300
+    15
 }
 
 pub fn default_idle_timeout() -> u64 {
-    600
+    15
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

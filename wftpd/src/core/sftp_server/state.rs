@@ -29,6 +29,7 @@ pub struct SftpState {
     pub rate_limiter: Option<RateLimiter>,
     pub cache_expiry: Option<std::time::Instant>,
     pub last_handle_cleanup: std::time::Instant,
+    pub allow_symlinks: bool,
 }
 
 impl SftpState {
@@ -38,6 +39,7 @@ impl SftpState {
         user_manager: Arc<Mutex<UserManager>>,
         quota_manager: Arc<QuotaManager>,
         client_ip: String,
+        allow_symlinks: bool,
     ) -> Self {
         let mut state = SftpState {
             home_dir: home_dir.clone(),
@@ -55,6 +57,7 @@ impl SftpState {
             rate_limiter: None,
             cache_expiry: None,
             last_handle_cleanup: std::time::Instant::now(),
+            allow_symlinks,
         };
         state.cache_permissions();
         state.init_rate_limiter();
@@ -246,7 +249,7 @@ impl SftpState {
     }
 
     pub fn resolve_path(&self, path: &str) -> Result<PathBuf, PathResolveError> {
-        safe_resolve_path_with_cwd(&self.cwd, &self.home_dir, path, false)
+        safe_resolve_path_with_cwd(&self.cwd, &self.home_dir, path, self.allow_symlinks)
     }
 
     pub fn generate_handle(&mut self) -> String {
@@ -450,6 +453,7 @@ mod tests {
             Arc::new(Mutex::new(UserManager::new())),
             Arc::new(QuotaManager::new(&get_program_data_path())),
             "127.0.0.1".to_string(),
+            false,
         )
     }
 

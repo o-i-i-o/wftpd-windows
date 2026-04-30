@@ -19,7 +19,6 @@ use std::time::Duration;
 use tokio::sync::Mutex as TokioMutex;
 use unftp_sbe_fs::{Filesystem, Meta};
 use unftp_sbe_restrict::RestrictingVfs;
-use unftp_sbe_rooter::RooterVfs;
 
 use crate::core::config::{Config, get_program_data_path};
 use crate::core::fail2ban::{Fail2BanConfig, Fail2BanManager};
@@ -200,19 +199,35 @@ impl FtpServer {
 
         let user_mgr_clone = Arc::clone(&resources.user_manager);
         let quota_mgr_clone = Arc::clone(&resources.quota_manager);
-        let fallback_root_clone = fallback_root.clone();
+        let home_dir_clone = {
+            let users = user_mgr_clone.lock();
+            users
+                .get_user("123")
+                .map(|u| u.home_dir.clone())
+                .unwrap_or_else(|| fallback_root.clone())
+        };
+
+        if !std::path::Path::new(&home_dir_clone).exists() {
+            return Err(anyhow::anyhow!(
+                "FTP server home directory does not exist: {}",
+                home_dir_clone
+            ));
+        }
 
         let storage_factory = Box::new(move || {
-            let fs = Filesystem::new(&fallback_root_clone).unwrap_or_else(|e| {
-                panic!(
+            let fs = Filesystem::new(&home_dir_clone).unwrap_or_else(|e| {
+                tracing::error!(
                     "Failed to create filesystem storage for '{}': {}",
-                    fallback_root_clone, e
-                )
+                    home_dir_clone,
+                    e
+                );
+                Filesystem::new(".").unwrap_or_else(|_| {
+                    std::process::exit(1);
+                })
             });
             let quota_fs =
                 QuotaFilesystem::new(fs, quota_mgr_clone.clone(), user_mgr_clone.clone());
-            let restricting_vfs: RestrictingVfs<_, WftpdUser, Meta> = RestrictingVfs::new(quota_fs);
-            RooterVfs::<_, WftpdUser, Meta>::new(restricting_vfs)
+            RestrictingVfs::<_, WftpdUser, Meta>::new(quota_fs)
         });
 
         let config_clone = Arc::clone(&resources.config);
@@ -274,6 +289,7 @@ impl FtpServer {
             }
             None => PassiveHost::FromConnection,
         };
+        tracing::info!("FTP passive host set to: {:?}", passive_host);
         server_builder = server_builder.passive_host(passive_host);
 
         if let Some(binder) = UpnpBinderBuilder::new()
