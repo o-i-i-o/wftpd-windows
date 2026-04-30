@@ -27,9 +27,7 @@ use crate::core::users::UserManager;
 
 use super::auth::{SessionTracker, WftpdAuthenticator, WftpdUser, WftpdUserDetailProvider};
 use super::cert_gen;
-use super::passive_mode::{
-    PassiveModeConfig, format_listen_addresses, get_local_ipv4_addresses, select_passive_address,
-};
+use super::passive_mode::{format_listen_addresses, get_local_ipv4_addresses, is_wildcard_bind};
 use super::upnp_manager::UpnpManager;
 use super::{FtpDataListener, FtpPresenceListener, QuotaFilesystem, UpnpBinderBuilder};
 
@@ -312,28 +310,36 @@ impl FtpServer {
         let server_local_ips = get_local_ipv4_addresses();
         tracing::debug!("Server local IPv4 addresses: {:?}", server_local_ips);
 
-        let passive_config = PassiveModeConfig {
-            upnp_enabled: config.upnp_enabled,
-            upnp_external_ip: upnp_external_ip.and_then(|s| s.parse::<Ipv4Addr>().ok()),
-            masquerade_address: masquerade_ip,
-            bind_address,
-            server_local_ips,
+        let passive_host = if config.upnp_enabled
+            && let Some(ref upnp_ip) = upnp_external_ip
+            && let Ok(ip) = upnp_ip.parse::<Ipv4Addr>()
+        {
+            tracing::info!("FTP passive host set to: {} (source: UPnP external IP)", ip);
+            PassiveHost::Ip(ip)
+        } else if let Some(masq_ip) = masquerade_ip
+            && !masq_ip.is_unspecified()
+        {
+            tracing::info!(
+                "FTP passive host set to: {} (source: masquerade address)",
+                masq_ip
+            );
+            PassiveHost::Ip(masq_ip)
+        } else if !is_wildcard_bind(&bind_address) {
+            if let std::net::IpAddr::V4(ipv4) = bind_address {
+                tracing::info!("FTP passive host set to: {} (source: bind address)", ipv4);
+                PassiveHost::Ip(ipv4)
+            } else {
+                tracing::info!(
+                    "FTP passive host set to: FromConnection (IPv6 bind, will use IPv4 fallback)"
+                );
+                PassiveHost::FromConnection
+            }
+        } else {
+            tracing::info!(
+                "FTP passive host set to: FromConnection (wildcard bind, dynamic per connection)"
+            );
+            PassiveHost::FromConnection
         };
-
-        let connection_ip = local_ip.unwrap_or(Ipv4Addr::new(127, 0, 0, 1));
-        let passive_result = select_passive_address(
-            &passive_config,
-            std::net::IpAddr::V4(connection_ip),
-            Some(connection_ip),
-        );
-
-        let passive_host = PassiveHost::Ip(passive_result.address);
-        tracing::info!(
-            "FTP passive host set to: {:?} (source: {:?}, epsv_recommended: {})",
-            passive_host,
-            passive_result.source,
-            passive_result.use_epsv_recommended
-        );
         server_builder = server_builder.passive_host(passive_host);
 
         if let Some(binder) = UpnpBinderBuilder::new()
