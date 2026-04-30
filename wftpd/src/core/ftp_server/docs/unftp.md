@@ -235,24 +235,27 @@ pub enum PassiveHost {
 | UPnP启用且有外部IP | `Ip(upnp_ip)` | NAT环境，使用外部IP |
 | 配置了伪装地址 | `Ip(masq_ip)` | 手动指定外部IP |
 | 绑定特定IP | `Ip(bind_ip)` | 单IP服务器 |
-| 通配符绑定(0.0.0.0/::) | `FromConnection` | 多IP服务器，动态选择 |
+| 通配符绑定(0.0.0.0/::) | `Ip(auto_detected)` | 自动检测本地IP |
 
-### FromConnection模式优势
+### 通配符绑定时的IP选择
 
-当服务器绑定0.0.0.0时，`FromConnection`模式会自动根据客户端连接选择正确的本地IP：
+当服务器绑定 0.0.0.0 或 :: 时，`PassiveHost::FromConnection` 在某些网络环境下可能返回 0.0.0.0（已知问题）。因此，我们使用自动检测的本地IP：
 
-```
-主机有多个IP：
-- 192.168.1.100 (网卡A)
-- 10.0.0.1 (网卡B)
-- 203.0.113.50 (公网IP)
-
-客户端A来自192.168.1.0/24 → PASV返回192.168.1.100
-客户端B来自10.0.0.0/8 → PASV返回10.0.0.1
-客户端C来自公网 → PASV返回203.0.113.50
+```rust
+let pasv_ip = server_local_ips
+    .iter()
+    .find(|ip| !ip.is_loopback() && !ip.is_link_local())
+    .copied()
+    .unwrap_or_else(|| local_ip.unwrap_or(Ipv4Addr::new(127, 0, 0, 1)));
+PassiveHost::Ip(pasv_ip)
 ```
 
-这是自动的，无需手动选择，完美解决多IP地址场景！
+**选择优先级**:
+1. 排除环回地址 (127.x.x.x)
+2. 排除链路本地地址 (169.254.x.x)
+3. 选择第一个可用的私有或公网IP
+4. 回退到 `local_ip`（通过UDP探测获取）
+5. 最终回退到 127.0.0.1
 
 ## FTPS配置
 
