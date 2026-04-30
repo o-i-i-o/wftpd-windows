@@ -436,3 +436,98 @@ impl FtpServer {
         *self.running.lock()
     }
 }
+
+#[cfg(test)]
+mod tcp_destination_ip_tests {
+    use std::net::{IpAddr, Ipv4Addr};
+    use tokio::net::{TcpListener, TcpStream};
+
+    #[tokio::test]
+    async fn test_tcp_local_addr_returns_destination_ip() {
+        let listener = TcpListener::bind("0.0.0.0:0").await.unwrap();
+        let server_addr = listener.local_addr().unwrap();
+        let server_port = server_addr.port();
+
+        let server_handle = tokio::spawn(async move {
+            let (stream, peer_addr) = listener.accept().await.unwrap();
+            let local_addr = stream.local_addr().unwrap();
+            (local_addr, peer_addr)
+        });
+
+        let client_stream = TcpStream::connect(format!("127.0.0.1:{}", server_port))
+            .await
+            .unwrap();
+        let client_local = client_stream.local_addr().unwrap();
+        let client_peer = client_stream.peer_addr().unwrap();
+
+        let (server_local, server_peer) = server_handle.await.unwrap();
+
+        println!("Client perspective:");
+        println!("  local_addr (client source): {}", client_local);
+        println!("  peer_addr (server endpoint): {}", client_peer);
+        println!("Server perspective:");
+        println!("  local_addr (server endpoint): {}", server_local);
+        println!("  peer_addr (client source): {}", server_peer);
+
+        assert_eq!(server_local.ip(), IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            "server local_addr should be the destination IP client connected to (127.0.0.1)");
+        assert_eq!(server_local.port(), server_port,
+            "server local_addr port should match listener port");
+        assert_eq!(server_peer, client_local,
+            "server's peer_addr should match client's local_addr");
+    }
+
+    #[tokio::test]
+    async fn test_tcp_local_addr_with_specific_bind() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let server_addr = listener.local_addr().unwrap();
+        let server_port = server_addr.port();
+
+        let server_handle = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            stream.local_addr().unwrap()
+        });
+
+        TcpStream::connect(format!("127.0.0.1:{}", server_port))
+            .await
+            .unwrap();
+
+        let server_local = server_handle.await.unwrap();
+
+        println!("Server bound to 127.0.0.1:{}", server_port);
+        println!("Server local_addr after accept: {}", server_local);
+
+        assert_eq!(server_local.ip(), IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            "When bound to specific IP, local_addr should return that IP");
+    }
+
+    #[tokio::test]
+    async fn test_tcp_multiple_connections_same_port() {
+        let listener = TcpListener::bind("0.0.0.0:0").await.unwrap();
+        let server_port = listener.local_addr().unwrap().port();
+
+        let server_handle = tokio::spawn(async move {
+            let mut results = Vec::new();
+            for _ in 0..3 {
+                let (stream, _) = listener.accept().await.unwrap();
+                let local = stream.local_addr().unwrap();
+                results.push(local.ip());
+            }
+            results
+        });
+
+        for _ in 0..3 {
+            TcpStream::connect(format!("127.0.0.1:{}", server_port))
+                .await
+                .unwrap();
+        }
+
+        let results = server_handle.await.unwrap();
+
+        println!("All connections should have local_addr = 127.0.0.1");
+        for (i, ip) in results.iter().enumerate() {
+            println!("  Connection {}: {}", i, ip);
+            assert_eq!(*ip, IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+        }
+    }
+}
