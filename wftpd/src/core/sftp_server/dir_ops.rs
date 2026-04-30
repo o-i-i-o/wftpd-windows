@@ -188,16 +188,15 @@ impl SftpState {
             .unwrap_or(0);
 
         if tokio::fs::remove_file(&full_path).await.is_ok() {
-            if file_size > 0 {
-                if let Some(username) = &self.username
-                    && let Err(e) = self.quota_manager.subtract_usage(username, file_size)
-                {
-                    tracing::warn!(
-                        "Failed to subtract quota for user {} after delete: {}",
-                        username,
-                        e
-                    );
-                }
+            if file_size > 0
+                && let Some(username) = &self.username
+                && let Err(e) = self.quota_manager.subtract_usage(username, file_size)
+            {
+                tracing::warn!(
+                    "Failed to subtract quota for user {} after delete: {}",
+                    username,
+                    e
+                );
             }
             crate::file_op_log!(
                 delete,
@@ -264,16 +263,15 @@ impl SftpState {
 
         match tokio::fs::remove_dir(&full_path).await {
             Ok(()) => {
-                if dir_size > 0 {
-                    if let Some(username) = &self.username
-                        && let Err(e) = self.quota_manager.subtract_usage(username, dir_size)
-                    {
-                        tracing::warn!(
-                            "Failed to subtract quota for user {} after rmdir: {}",
-                            username,
-                            e
-                        );
-                    }
+                if dir_size > 0
+                    && let Some(username) = &self.username
+                    && let Err(e) = self.quota_manager.subtract_usage(username, dir_size)
+                {
+                    tracing::warn!(
+                        "Failed to subtract quota for user {} after rmdir: {}",
+                        username,
+                        e
+                    );
                 }
                 crate::file_op_log!(
                     rmdir,

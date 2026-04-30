@@ -98,7 +98,7 @@ mod tests {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     use crate::core::ftp_server::ip_utils::{
-        classify_ip_address, is_private_ipv4, is_private_ipv6, IpAddressClass,
+        IpAddressClass, classify_ip_address, is_private_ipv4, is_private_ipv6,
     };
 
     #[test]

@@ -272,14 +272,13 @@ impl SftpState {
                                 "SFTP"
                             );
                         }
-                    } else if quota_reserved > 0 {
-                        if let Some(username) = &self.username
-                            && let Err(e) = self
-                                .quota_manager
-                                .rollback_reservation(username, quota_reserved)
-                        {
-                            tracing::warn!("Failed to rollback quota for user {}: {}", username, e);
-                        }
+                    } else if quota_reserved > 0
+                        && let Some(username) = &self.username
+                        && let Err(e) = self
+                            .quota_manager
+                            .rollback_reservation(username, quota_reserved)
+                    {
+                        tracing::warn!("Failed to rollback quota for user {}: {}", username, e);
                     }
 
                     if read_bytes > 0 {

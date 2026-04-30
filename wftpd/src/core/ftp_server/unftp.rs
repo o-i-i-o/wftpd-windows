@@ -213,7 +213,10 @@ impl FtpServer {
         let user_mgr_clone = Arc::clone(&resources.user_manager);
         let quota_mgr_clone = Arc::clone(&resources.quota_manager);
 
-        let ftp_root = config.ftp_root.clone().unwrap_or_else(|| fallback_root.clone());
+        let ftp_root = config
+            .ftp_root
+            .clone()
+            .unwrap_or_else(|| fallback_root.clone());
 
         if !std::path::Path::new(&ftp_root).exists() {
             return Err(anyhow::anyhow!(

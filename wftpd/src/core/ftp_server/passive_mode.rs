@@ -102,32 +102,32 @@ pub fn select_passive_address(
     client_ip: IpAddr,
     connection_local_ip: Option<Ipv4Addr>,
 ) -> PassiveAddressResult {
-    if config.upnp_enabled {
-        if let Some(upnp_ip) = config.upnp_external_ip {
-            tracing::info!(
-                "Passive mode: Using UPnP external IP {} (priority: UPnP)",
-                upnp_ip
-            );
-            return PassiveAddressResult {
-                address: upnp_ip,
-                source: PassiveAddressSource::Upnp,
-                use_epsv_recommended: false,
-            };
-        }
+    if config.upnp_enabled
+        && let Some(upnp_ip) = config.upnp_external_ip
+    {
+        tracing::info!(
+            "Passive mode: Using UPnP external IP {} (priority: UPnP)",
+            upnp_ip
+        );
+        return PassiveAddressResult {
+            address: upnp_ip,
+            source: PassiveAddressSource::Upnp,
+            use_epsv_recommended: false,
+        };
     }
 
-    if let Some(masq_ip) = config.masquerade_address {
-        if !masq_ip.is_unspecified() {
-            tracing::info!(
-                "Passive mode: Using masquerade address {} (priority: masquerade)",
-                masq_ip
-            );
-            return PassiveAddressResult {
-                address: masq_ip,
-                source: PassiveAddressSource::Masquerade,
-                use_epsv_recommended: false,
-            };
-        }
+    if let Some(masq_ip) = config.masquerade_address
+        && !masq_ip.is_unspecified()
+    {
+        tracing::info!(
+            "Passive mode: Using masquerade address {} (priority: masquerade)",
+            masq_ip
+        );
+        return PassiveAddressResult {
+            address: masq_ip,
+            source: PassiveAddressSource::Masquerade,
+            use_epsv_recommended: false,
+        };
     }
 
     let bind_type = classify_bind_address(&config.bind_address);
@@ -322,19 +322,19 @@ pub fn get_local_ipv4_addresses() -> Vec<Ipv4Addr> {
     #[cfg(windows)]
     {
         use std::process::Command;
-        if let Ok(output) = Command::new("ipconfig").args(["/all"]).output() {
-            if let Ok(stdout) = String::from_utf8(output.stdout) {
-                for line in stdout.lines() {
-                    let line = line.trim();
-                    if line.starts_with("IPv4") || line.contains("IPv4") {
-                        if let Some(addr_str) = line.split(':').nth(1) {
-                            let addr_str = addr_str.trim();
-                            if let Some(ip_part) = addr_str.split('(').next() {
-                                if let Ok(ip) = ip_part.trim().parse::<Ipv4Addr>() {
-                                    ips.push(ip);
-                                }
-                            }
-                        }
+        if let Ok(output) = Command::new("ipconfig").args(["/all"]).output()
+            && let Ok(stdout) = String::from_utf8(output.stdout)
+        {
+            for line in stdout.lines() {
+                let line = line.trim();
+                if (line.starts_with("IPv4") || line.contains("IPv4"))
+                    && let Some(addr_str) = line.split(':').nth(1)
+                {
+                    let addr_str = addr_str.trim();
+                    if let Some(ip_part) = addr_str.split('(').next()
+                        && let Ok(ip) = ip_part.trim().parse::<Ipv4Addr>()
+                    {
+                        ips.push(ip);
                     }
                 }
             }
@@ -411,31 +411,30 @@ pub fn get_local_ip_addresses() -> LocalIpAddress {
     #[cfg(windows)]
     {
         use std::process::Command;
-        if let Ok(output) = Command::new("ipconfig").args(["/all"]).output() {
-            if let Ok(stdout) = String::from_utf8(output.stdout) {
-                for line in stdout.lines() {
-                    let line = line.trim();
-                    if line.starts_with("IPv4") || line.contains("IPv4") {
-                        if let Some(addr_str) = line.split(':').nth(1) {
-                            let addr_str = addr_str.trim();
-                            if let Some(ip_part) = addr_str.split('(').next() {
-                                if let Ok(ip) = ip_part.trim().parse::<Ipv4Addr>() {
-                                    if !result.ipv4.contains(&ip) {
-                                        result.ipv4.push(ip);
-                                    }
-                                }
-                            }
-                        }
+        if let Ok(output) = Command::new("ipconfig").args(["/all"]).output()
+            && let Ok(stdout) = String::from_utf8(output.stdout)
+        {
+            for line in stdout.lines() {
+                let line = line.trim();
+                if (line.starts_with("IPv4") || line.contains("IPv4"))
+                    && let Some(addr_str) = line.split(':').nth(1)
+                {
+                    let addr_str = addr_str.trim();
+                    if let Some(ip_part) = addr_str.split('(').next()
+                        && let Ok(ip) = ip_part.trim().parse::<Ipv4Addr>()
+                        && !result.ipv4.contains(&ip)
+                    {
+                        result.ipv4.push(ip);
                     }
-                    if line.starts_with("IPv6") || line.contains("IPv6") {
-                        if let Some(addr_str) = line.split(':').nth(1) {
-                            let addr_str = addr_str.trim();
-                            if let Ok(ip) = addr_str.parse::<Ipv6Addr>() {
-                                if !result.ipv6.contains(&ip) {
-                                    result.ipv6.push(ip);
-                                }
-                            }
-                        }
+                }
+                if (line.starts_with("IPv6") || line.contains("IPv6"))
+                    && let Some(addr_str) = line.split(':').nth(1)
+                {
+                    let addr_str = addr_str.trim();
+                    if let Ok(ip) = addr_str.parse::<Ipv6Addr>()
+                        && !result.ipv6.contains(&ip)
+                    {
+                        result.ipv6.push(ip);
                     }
                 }
             }

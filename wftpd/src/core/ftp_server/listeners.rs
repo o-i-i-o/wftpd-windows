@@ -112,14 +112,14 @@ impl PresenceListener for FtpPresenceListener {
     async fn receive_presence_event(&self, event: PresenceEvent, meta: EventMeta) {
         match event {
             PresenceEvent::LoggedIn => {
-                if meta.username != "unknown" {
-                    if let Some(client_ip) = self.session_tracker.get_ip_for_user(&meta.username) {
-                        self.session_tracker.register_trace(
-                            meta.trace_id.to_string(),
-                            &meta.username,
-                            client_ip,
-                        );
-                    }
+                if meta.username != "unknown"
+                    && let Some(client_ip) = self.session_tracker.get_ip_for_user(&meta.username)
+                {
+                    self.session_tracker.register_trace(
+                        meta.trace_id.to_string(),
+                        &meta.username,
+                        client_ip,
+                    );
                 }
                 tracing::info!(
                     username = %meta.username,

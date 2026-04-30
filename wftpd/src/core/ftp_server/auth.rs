@@ -79,12 +79,12 @@ impl SessionTracker {
         };
         if let (Some(ip), Some(user)) = (&client_ip, &username) {
             let mut sessions = self.sessions.lock();
-            if let Some(ips) = sessions.get_mut(user) {
-                if let Some(pos) = ips.iter().position(|x| x == ip) {
-                    ips.remove(pos);
-                    if ips.is_empty() {
-                        sessions.remove(user);
-                    }
+            if let Some(ips) = sessions.get_mut(user)
+                && let Some(pos) = ips.iter().position(|x| x == ip)
+            {
+                ips.remove(pos);
+                if ips.is_empty() {
+                    sessions.remove(user);
                 }
             }
         }
