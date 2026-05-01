@@ -611,8 +611,6 @@ impl ServerTab {
                     &i18n::t("server.idle_timeout_hint"),
                 );
 
-                ui.add_space(styles::SPACING_SM);
-
                 styles::form_row_with_suffix(
                     ui,
                     &i18n::t("server.hide_version_info"),
