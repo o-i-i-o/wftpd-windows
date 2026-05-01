@@ -613,23 +613,15 @@ impl ServerTab {
 
                 ui.add_space(styles::SPACING_SM);
 
-                styles::form_row(
+                styles::form_row_with_suffix(
                     ui,
                     &i18n::t("server.hide_version_info"),
                     label_width,
                     |ui| {
                         ui.checkbox(&mut config.ftp.hide_version_info, "");
                     },
+                    &i18n::t("server.hide_version_info_hint"),
                 );
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(i18n::t("server.hide_version_info_hint"))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::TEXT_MUTED_COLOR)
-                            .italics(),
-                    );
-                });
             });
 
             ui.add_space(styles::SPACING_MD);
