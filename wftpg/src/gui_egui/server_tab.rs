@@ -604,8 +604,6 @@ impl ServerTab {
                         .strong(),
                 );
 
-                ui.add_space(styles::SPACING_XS);
-
                 // 显示当前映射列表
                 let mut map_entries: Vec<(String, String)> = config
                     .ftp
