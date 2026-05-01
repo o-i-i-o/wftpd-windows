@@ -251,46 +251,6 @@ impl OtherTab {
                     &i18n::t("server.max_log_files_hint"),
                 );
 
-                ui.add_space(styles::SPACING_SM);
-
-                ui.label(
-                    RichText::new(i18n::t("server.notes"))
-                        .size(styles::FONT_SIZE_MD)
-                        .color(styles::TEXT_SECONDARY_COLOR)
-                        .strong(),
-                );
-
-                egui::Frame::NONE
-                    .fill(styles::BG_CARD)
-                    .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
-                    .inner_margin(egui::Margin::same(12))
-                    .corner_radius(egui::CornerRadius::same(6))
-                    .show(ui, |ui| {
-                        ui.vertical(|ui| {
-                            ui.label(
-                                RichText::new(i18n::t("server.note_1"))
-                                    .size(styles::FONT_SIZE_SM)
-                                    .color(styles::TEXT_LABEL_COLOR),
-                            );
-                            ui.label(
-                                RichText::new(i18n::t("server.note_2"))
-                                    .size(styles::FONT_SIZE_SM)
-                                    .color(styles::TEXT_LABEL_COLOR),
-                            );
-                            ui.label(
-                                RichText::new(i18n::t("server.note_3"))
-                                    .size(styles::FONT_SIZE_SM)
-                                    .color(styles::TEXT_LABEL_COLOR),
-                            );
-                            ui.label(
-                                RichText::new(i18n::t("server.note_4"))
-                                    .size(styles::FONT_SIZE_SM)
-                                    .color(styles::TEXT_LABEL_COLOR),
-                            );
-                        });
-                    });
-            });
-
             ui.add_space(styles::SPACING_MD);
 
             styles::card_frame().show(ui, |ui| {

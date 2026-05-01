@@ -598,6 +598,50 @@ impl SecurityTab {
                 ui.add_space(styles::SPACING_MD);
             }
 
+            styles::form_row_with_suffix(
+                ui,
+                &i18n::t("security.max_login_attempts"),
+                label_width,
+                |ui| {
+                    let response = styles::input_frame().show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.max_login_attempts_buf)
+                                .desired_width(100.0)
+                                .font(egui::FontId::new(
+                                    styles::FONT_SIZE_MD,
+                                    egui::FontFamily::Proportional,
+                                )),
+                        )
+                    });
+
+                    if response.response.lost_focus() {
+                        if let Ok(v) = self.max_login_attempts_buf.parse::<u32>() {
+                            if v == 0 {
+                                self.max_login_attempts_error =
+                                    Some(i18n::t("security.must_greater_0"));
+                            } else {
+                                self.max_login_attempts_error = None;
+                            }
+                        } else {
+                            self.max_login_attempts_error =
+                                Some(i18n::t("security.enter_valid_number"));
+                        }
+                    }
+                },
+                &i18n::t("security.max_login_attempts_hint"),
+            );
+
+            if let Some(err) = &self.max_login_attempts_error {
+                ui.horizontal(|ui| {
+                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
+                    ui.label(
+                        RichText::new(format!("⚠ {}", err))
+                            .size(styles::FONT_SIZE_SM)
+                            .color(styles::DANGER_COLOR),
+                    );
+                });
+            }
+
             styles::form_row(
                 ui,
                 &i18n::t("security.max_connections"),
@@ -686,10 +730,15 @@ impl SecurityTab {
 
             ui.add_space(styles::SPACING_XS);
 
-            styles::form_row(ui, &i18n::t("security.allow_symlinks"), label_width, |ui| {
-                ui.checkbox(&mut self.allow_symlinks, "")
-                    .on_hover_text(i18n::t("security.allow_symlinks_hint"));
-            });
+            styles::form_row_with_suffix(
+                ui,
+                &i18n::t("security.allow_symlinks"),
+                label_width,
+                |ui| {
+                    ui.checkbox(&mut self.allow_symlinks, "");
+                },
+                &i18n::t("security.allow_symlinks_hint"),
+            );
 
             if !self.allow_symlinks {
                 ui.horizontal(|ui| {
@@ -707,39 +756,6 @@ impl SecurityTab {
                         RichText::new(i18n::t("security.symlink_enabled_warning"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::WARNING_COLOR),
-                    );
-                });
-            }
-        });
-
-        ui.add_space(styles::SPACING_MD);
-
-        styles::card_frame().show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "🔐", &i18n::t("security.login_security"));
-
-            let label_width = (ui.available_width() * 0.2).clamp(100.0, 160.0);
-
-            styles::form_row(
-                ui,
-                &i18n::t("security.max_login_attempts"),
-                label_width,
-                |ui| {
-                    ui.add_sized(
-                        [120.0, 24.0],
-                        egui::TextEdit::singleline(&mut self.max_login_attempts_buf),
-                    )
-                    .on_hover_text(i18n::t("security.max_login_attempts_hint"));
-                },
-            );
-
-            if let Some(err) = &self.max_login_attempts_error {
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(err)
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::DANGER_COLOR),
                     );
                 });
             }
