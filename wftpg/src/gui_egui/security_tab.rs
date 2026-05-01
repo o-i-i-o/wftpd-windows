@@ -5,7 +5,6 @@ use crate::core::ipc::IpcClient;
 use crate::gui_egui::styles;
 use egui::RichText;
 use std::sync::mpsc;
-use std::time::Instant;
 
 #[derive(Debug, Clone)]
 struct ValidationError {
@@ -161,7 +160,6 @@ pub struct SecurityTab {
     save_sender: Option<mpsc::Sender<SaveResult>>,
     save_receiver: Option<mpsc::Receiver<SaveResult>>,
     is_saving: bool,
-    last_save_time: Option<Instant>,
 }
 
 impl SecurityTab {
@@ -206,7 +204,6 @@ impl SecurityTab {
             save_sender: Some(tx),
             save_receiver: Some(rx),
             is_saving: false,
-            last_save_time: None,
         }
     }
 
@@ -417,7 +414,6 @@ impl SecurityTab {
             self.is_saving = false;
             match result {
                 SaveResult::Success(msg) => {
-                    self.last_save_time = Some(Instant::now());
                     self.status_message = Some((msg, true));
                 }
                 SaveResult::Error(e) => {
@@ -427,42 +423,32 @@ impl SecurityTab {
         }
     }
 
-    fn format_last_save(&self) -> String {
-        match self.last_save_time {
-            Some(t) => styles::format_elapsed_time(
-                t.elapsed(),
-                "security.saved_n_seconds_ago",
-                "security.saved_n_minutes_ago",
-                "security.saved_n_hours_ago",
-            ),
-            None => i18n::t("security.not_saved"),
-        }
-    }
-
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.check_save_result();
 
-        ui.horizontal(|ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.add(styles::save_button(self.is_saving, &i18n::t("security.save_config"), &i18n::t("security.saving"))).clicked() && !self.is_saving {
-                    self.save_async(ui.ctx());
-                }
-
-                ui.label(
-                    RichText::new(self.format_last_save())
-                        .size(styles::FONT_SIZE_SM)
-                        .color(styles::TEXT_MUTED_COLOR),
-                );
-
-                if let Some((msg, success)) = &self.status_message {
-                    styles::status_message(ui, msg, *success);
-                }
-            });
-        });
-
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            styles::section_header(ui, "🔐", &i18n::t("security.login_security"));
+
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("🔐").size(styles::FONT_SIZE_LG));
+                ui.label(
+                    RichText::new(i18n::t("security.login_security"))
+                        .size(styles::FONT_SIZE_LG)
+                        .strong()
+                        .color(styles::TEXT_PRIMARY_COLOR),
+                );
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.add(styles::save_button(self.is_saving, &i18n::t("security.save_config"), &i18n::t("security.saving"))).clicked() && !self.is_saving {
+                        self.save_async(ui.ctx());
+                    }
+
+                    if let Some((msg, success)) = &self.status_message {
+                        styles::status_message(ui, msg, *success);
+                    }
+                });
+            });
+            ui.add_space(styles::SPACING_SM);
 
             let available_width = ui.available_width();
             let label_width = (available_width * 0.2).clamp(100.0, 160.0);
@@ -687,7 +673,27 @@ impl SecurityTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            styles::section_header(ui, "🌐", &i18n::t("security.ip_access_control"));
+
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("🌐").size(styles::FONT_SIZE_LG));
+                ui.label(
+                    RichText::new(i18n::t("security.ip_access_control"))
+                        .size(styles::FONT_SIZE_LG)
+                        .strong()
+                        .color(styles::TEXT_PRIMARY_COLOR),
+                );
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.add(styles::save_button(self.is_saving, &i18n::t("security.save_config"), &i18n::t("security.saving"))).clicked() && !self.is_saving {
+                        self.save_async(ui.ctx());
+                    }
+
+                    if let Some((msg, success)) = &self.status_message {
+                        styles::status_message(ui, msg, *success);
+                    }
+                });
+            });
+            ui.add_space(styles::SPACING_SM);
 
             ui.label(
                 RichText::new(i18n::t("security.allowed_ips"))
