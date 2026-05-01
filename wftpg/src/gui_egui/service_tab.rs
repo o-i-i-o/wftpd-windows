@@ -246,14 +246,6 @@ impl ServiceTab {
             self.refresh_status();
         }
 
-        ui.horizontal(|ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if let Some((msg, ok)) = &self.status_message {
-                    styles::status_message(ui, msg, *ok);
-                }
-            });
-        });
-
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             self.section_header(ui, "📋", &i18n::t("service.service_info"));
@@ -334,7 +326,23 @@ impl ServiceTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            self.section_header(ui, "⚙", &i18n::t("service.service_ops"));
+
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("⚙").size(styles::FONT_SIZE_LG));
+                ui.label(
+                    RichText::new(i18n::t("service.service_ops"))
+                        .size(styles::FONT_SIZE_LG)
+                        .strong()
+                        .color(styles::TEXT_PRIMARY_COLOR),
+                );
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some((msg, ok)) = &self.status_message {
+                        styles::status_message(ui, msg, *ok);
+                    }
+                });
+            });
+            ui.add_space(styles::SPACING_SM);
 
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
