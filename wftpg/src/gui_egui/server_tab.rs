@@ -101,14 +101,6 @@ impl ServerTab {
             }
         }
 
-        if config.logging.log_dir.trim().is_empty() {
-            errors.push(i18n::t("server.log_dir_empty"));
-        }
-
-        if config.logging.max_log_files == 0 {
-            errors.push(i18n::t("server.max_log_files_zero"));
-        }
-
         errors
     }
 
@@ -270,15 +262,7 @@ impl ServerTab {
         let ctx = ui.ctx().clone();
 
         self.config_manager.modify(|config| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("⚙").size(styles::FONT_SIZE_XL));
-                ui.label(
-                    RichText::new(i18n::t("server.title"))
-                        .size(styles::FONT_SIZE_XL)
-                        .strong()
-                        .color(styles::TEXT_PRIMARY_COLOR),
-                );
-
+            ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let save_text = i18n::t("server.save_config");
                     let save_btn = if is_saving {
@@ -1309,132 +1293,6 @@ impl ServerTab {
                             .italics(),
                     );
                 });
-            });
-
-            ui.add_space(styles::SPACING_MD);
-
-            styles::card_frame().show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                Self::section_header(ui, "📋", &i18n::t("server.global_log_settings"));
-
-                let available_width = ui.available_width();
-                let label_width = (available_width * 0.15).clamp(100.0, 160.0);
-
-                let mut log_dir = config.logging.log_dir.clone();
-                styles::form_row(ui, &i18n::t("server.log_dir"), label_width, |ui| {
-                    styles::input_frame().show(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut log_dir)
-                                .desired_width(ui.available_width() - 80.0)
-                                .font(egui::FontId::new(
-                                    styles::FONT_SIZE_MD,
-                                    egui::FontFamily::Proportional,
-                                )),
-                        );
-                    });
-                    if ui.button(i18n::t("server.browse")).clicked()
-                        && let Some(path) = Self::pick_folder(&i18n::t("server.select_log_dir"))
-                    {
-                        log_dir = path.to_string_lossy().to_string();
-                    }
-                });
-                config.logging.log_dir = log_dir;
-
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(i18n::t("server.log_dir_hint"))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::TEXT_MUTED_COLOR)
-                            .italics(),
-                    );
-                });
-
-                styles::form_row(ui, &i18n::t("server.log_level"), label_width, |ui| {
-                    let levels = ["trace", "debug", "info", "warn", "error"];
-                    egui::ComboBox::from_id_salt("log_level")
-                        .selected_text(&config.logging.log_level)
-                        .width(100.0)
-                        .show_ui(ui, |ui| {
-                            for level in levels {
-                                ui.selectable_value(
-                                    &mut config.logging.log_level,
-                                    level.to_string(),
-                                    level,
-                                );
-                            }
-                        });
-                });
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(i18n::t("server.log_level_hint"))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::TEXT_MUTED_COLOR)
-                            .italics(),
-                    );
-                });
-
-                styles::form_row_with_suffix(
-                    ui,
-                    &i18n::t("server.max_log_files"),
-                    label_width,
-                    |ui| {
-                        let mut files_str = config.logging.max_log_files.to_string();
-                        styles::input_frame().show(ui, |ui| {
-                            ui.add(
-                                egui::TextEdit::singleline(&mut files_str)
-                                    .desired_width(80.0)
-                                    .font(egui::FontId::new(
-                                        styles::FONT_SIZE_MD,
-                                        egui::FontFamily::Proportional,
-                                    )),
-                            );
-                        });
-                        if let Ok(v) = files_str.parse::<usize>() {
-                            config.logging.max_log_files = v;
-                        }
-                    },
-                    &i18n::t("server.max_log_files_hint"),
-                );
-
-                ui.add_space(styles::SPACING_SM);
-
-                ui.label(
-                    RichText::new(i18n::t("server.notes"))
-                        .size(styles::FONT_SIZE_MD)
-                        .color(styles::TEXT_SECONDARY_COLOR)
-                        .strong(),
-                );
-
-                egui::Frame::NONE
-                    .fill(styles::BG_INFO)
-                    .inner_margin(egui::Margin::same(12))
-                    .corner_radius(egui::CornerRadius::same(6))
-                    .show(ui, |ui| {
-                        ui.vertical(|ui| {
-                            ui.label(
-                                RichText::new(i18n::t("server.note_1"))
-                                    .size(styles::FONT_SIZE_SM)
-                                    .color(styles::TEXT_LABEL_COLOR),
-                            );
-                            ui.label(
-                                RichText::new(i18n::t("server.note_2"))
-                                    .size(styles::FONT_SIZE_SM)
-                                    .color(styles::TEXT_LABEL_COLOR),
-                            );
-                            ui.label(
-                                RichText::new(i18n::t("server.note_3"))
-                                    .size(styles::FONT_SIZE_SM)
-                                    .color(styles::TEXT_LABEL_COLOR),
-                            );
-                            ui.label(
-                                RichText::new(i18n::t("server.note_4"))
-                                    .size(styles::FONT_SIZE_SM)
-                                    .color(styles::TEXT_LABEL_COLOR),
-                            );
-                        });
-                    });
             });
         });
 

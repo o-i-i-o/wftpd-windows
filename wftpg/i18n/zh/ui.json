@@ -32,6 +32,7 @@
   "tab.service": "系统服务",
   "tab.system_log": "运行日志",
   "tab.file_log": "文件日志",
+  "tab.other": "其他",
   "tab.about": "关于",
 
   "server.title": "服务器配置",

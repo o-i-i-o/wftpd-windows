@@ -549,8 +549,6 @@ impl UserTab {
 
         self.show_modal(&ctx);
 
-        styles::page_header(ui, "👥", &i18n::t("users.title"));
-
         ui.horizontal(|ui| {
             if ui
                 .add(styles::primary_button(&i18n::t("users.add_user")))

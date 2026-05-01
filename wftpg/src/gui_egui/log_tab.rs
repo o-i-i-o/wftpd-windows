@@ -343,8 +343,6 @@ impl LogTab {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        styles::page_header(ui, "📋", &i18n::t("log.title"));
-
         let ctx = ui.ctx().clone();
         self.check_log_events(&ctx);
 

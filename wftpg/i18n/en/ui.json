@@ -32,6 +32,7 @@
   "tab.service": "Service",
   "tab.system_log": "System Log",
   "tab.file_log": "File Log",
+  "tab.other": "Other",
   "tab.about": "About",
 
   "server.title": "Server Configuration",

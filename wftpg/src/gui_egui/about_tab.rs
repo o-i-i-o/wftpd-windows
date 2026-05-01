@@ -163,10 +163,6 @@ impl AboutTab {
 
         self.show_licenses_modal(&ctx);
 
-        ui.horizontal(|ui| {
-            styles::page_header(ui, "ℹ", &i18n::t("about.title"));
-        });
-
         ui.add_space(styles::SPACING_MD);
 
         styles::card_frame().show(ui, |ui| {
@@ -255,37 +251,6 @@ impl AboutTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "🌐", &i18n::t("about.language"));
-
-            ui.vertical(|ui| {
-                ui.label(
-                    RichText::new(i18n::t("about.language_hint"))
-                        .size(styles::FONT_SIZE_MD)
-                        .color(styles::TEXT_SECONDARY_COLOR),
-                );
-                ui.add_space(styles::SPACING_SM);
-
-                ui.horizontal(|ui| {
-                    for lang in i18n::Language::all() {
-                        let is_current = *lang == i18n::current_language();
-                        let btn = if is_current {
-                            styles::primary_button(lang.display_name())
-                        } else {
-                            styles::secondary_button(lang.display_name())
-                        };
-                        if ui.add(btn).clicked() {
-                            i18n::set_language(*lang);
-                            save_gui_language(*lang);
-                        }
-                    }
-                });
-            });
-        });
-
-        ui.add_space(styles::SPACING_MD);
-
-        styles::card_frame().show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
             Self::section_header(ui, "📄", &i18n::t("about.license_title"));
 
             ui.vertical(|ui| {
@@ -317,18 +282,5 @@ impl AboutTab {
                 }
             });
         });
-    }
-}
-
-fn save_gui_language(lang: i18n::Language) {
-    let path = crate::core::config::get_program_data_path().join("gui_config.json");
-    if let Some(parent) = path.parent()
-        && let Err(e) = std::fs::create_dir_all(parent)
-    {
-        tracing::warn!("Failed to create config directory: {}", e);
-    }
-    let json = serde_json::json!({ "language": lang.code() });
-    if let Err(e) = std::fs::write(&path, json.to_string()) {
-        tracing::warn!("Failed to save language preference: {}", e);
     }
 }

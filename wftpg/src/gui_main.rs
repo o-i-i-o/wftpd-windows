@@ -11,7 +11,8 @@ use wftpg::core::config_manager::ConfigManager;
 use wftpg::core::i18n;
 use wftpg::core::server_manager::ServerManager;
 use wftpg::gui_egui::{
-    about_tab, file_log_tab, log_tab, security_tab, server_tab, service_tab, styles, user_tab,
+    about_tab, file_log_tab, log_tab, other_tab, security_tab, server_tab, service_tab, styles,
+    user_tab,
 };
 
 #[cfg(windows)]
@@ -129,6 +130,7 @@ struct WftpgApp {
     service_tab: Option<service_tab::ServiceTab>,
     log_tab: Option<log_tab::LogTab>,
     file_log_tab: Option<file_log_tab::FileLogTab>,
+    other_tab: Option<other_tab::OtherTab>,
     about_tab: Option<about_tab::AboutTab>,
     show_service_install_dialog: bool,
     service_install_status: ServiceInstallStatus,
@@ -140,7 +142,6 @@ struct WftpgApp {
     init_start_time: Instant,
     cached_styles: CachedStyles,
     pending_unset_topmost: bool,
-    language: i18n::Language,
 }
 
 impl WftpgApp {
@@ -197,6 +198,7 @@ impl WftpgApp {
             service_tab: None,
             log_tab: None,
             file_log_tab: None,
+            other_tab: None,
             about_tab: None,
             show_service_install_dialog: false,
             service_install_status: ServiceInstallStatus::None,
@@ -208,7 +210,6 @@ impl WftpgApp {
             init_start_time: Instant::now(),
             cached_styles: CachedStyles::new(),
             pending_unset_topmost: false,
-            language,
         }
     }
 
@@ -320,7 +321,10 @@ impl WftpgApp {
             5 if self.file_log_tab.is_none() => {
                 self.file_log_tab = Some(file_log_tab::FileLogTab::new());
             }
-            6 if self.about_tab.is_none() => {
+            6 if self.other_tab.is_none() => {
+                self.other_tab = Some(other_tab::OtherTab::new(self.config_manager.clone()));
+            }
+            7 if self.about_tab.is_none() => {
                 self.about_tab = Some(about_tab::AboutTab::new());
             }
             _ => {}
@@ -535,18 +539,24 @@ impl App for WftpgApp {
                 ui.add_space(12.0);
 
                 self.cached_styles.tab_frame.show(ui, |ui| {
+                    let available = ui.available_width();
+                    let tabs = [
+                        ("⚙", i18n::t("tab.server"), 0usize),
+                        ("👤", i18n::t("tab.users"), 1),
+                        ("🔒", i18n::t("tab.security"), 2),
+                        ("🖥", i18n::t("tab.service"), 3),
+                        ("📋", i18n::t("tab.system_log"), 4),
+                        ("📁", i18n::t("tab.file_log"), 5),
+                        ("🔧", i18n::t("tab.other"), 6),
+                        ("ℹ", i18n::t("tab.about"), 7),
+                    ];
+
+                    let tab_count = tabs.len();
+                    let total_gap = 6.0 * (tab_count - 1) as f32;
+                    let tab_width = ((available - total_gap) / tab_count as f32).max(80.0);
+
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
-
-                        let tabs = [
-                            ("⚙", i18n::t("tab.server"), 0usize),
-                            ("👤", i18n::t("tab.users"), 1),
-                            ("🔒", i18n::t("tab.security"), 2),
-                            ("🖥", i18n::t("tab.service"), 3),
-                            ("📋", i18n::t("tab.system_log"), 4),
-                            ("📁", i18n::t("tab.file_log"), 5),
-                            ("ℹ", i18n::t("tab.about"), 6),
-                        ];
 
                         for (icon, label, idx) in &tabs {
                             let selected = self.current_tab == *idx;
@@ -576,7 +586,7 @@ impl App for WftpgApp {
                                     egui::Stroke::new(1.0, styles::BORDER_COLOR)
                                 })
                                 .corner_radius(egui::CornerRadius::same(6))
-                                .min_size(egui::vec2(110.0, 42.0));
+                                .min_size(egui::vec2(tab_width, 42.0));
 
                             let resp = ui.add(btn);
                             if resp.clicked() {
@@ -624,6 +634,11 @@ impl App for WftpgApp {
                                 }
                             }
                             6 => {
+                                if let Some(tab) = self.other_tab.as_mut() {
+                                    tab.ui(ui);
+                                }
+                            }
+                            7 => {
                                 if let Some(tab) = self.about_tab.as_mut() {
                                     tab.ui(ui);
                                 }
@@ -642,7 +657,6 @@ impl App for WftpgApp {
 
     /// 在应用程序退出前调用，用于清理 egui 资源
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        save_gui_language(self.language);
         tracing::info!("GUI application closing, cleaning up egui resources...");
     }
 }
@@ -752,19 +766,6 @@ fn load_gui_language() -> i18n::Language {
         return i18n::Language::from_code(lang_code);
     }
     i18n::Language::Zh
-}
-
-fn save_gui_language(language: i18n::Language) {
-    let path = wftpg::core::config::get_program_data_path().join("gui_config.json");
-    if let Some(parent) = path.parent()
-        && let Err(e) = std::fs::create_dir_all(parent)
-    {
-        tracing::warn!("Failed to create config directory: {}", e);
-    }
-    let json = serde_json::json!({ "language": language.code() });
-    if let Err(e) = std::fs::write(&path, json.to_string()) {
-        tracing::warn!("Failed to save language preference: {}", e);
-    }
 }
 
 fn main() -> eframe::Result<()> {

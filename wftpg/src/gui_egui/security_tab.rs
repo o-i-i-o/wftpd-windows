@@ -460,7 +460,6 @@ impl SecurityTab {
         self.check_save_result();
 
         ui.horizontal(|ui| {
-            styles::page_header(ui, "🔒", &i18n::t("security.title"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let save_text = i18n::t("security.save_config");
                 let save_btn = if self.is_saving {

@@ -247,7 +247,6 @@ impl ServiceTab {
         }
 
         ui.horizontal(|ui| {
-            styles::page_header(ui, "🖥", &i18n::t("service.title"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some((msg, ok)) = &self.status_message {
                     styles::status_message(ui, msg, *ok);
