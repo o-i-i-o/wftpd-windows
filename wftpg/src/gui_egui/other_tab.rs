@@ -168,6 +168,37 @@ impl OtherTab {
 
             styles::card_frame().show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
+                styles::section_header(ui, "🌐", &i18n::t("about.language"));
+
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new(i18n::t("about.language_hint"))
+                            .size(styles::FONT_SIZE_MD)
+                            .color(styles::TEXT_SECONDARY_COLOR),
+                    );
+                    ui.add_space(styles::SPACING_SM);
+
+                    ui.horizontal(|ui| {
+                        for lang in i18n::Language::all() {
+                            let is_current = *lang == i18n::current_language();
+                            let btn = if is_current {
+                                styles::primary_button(lang.display_name())
+                            } else {
+                                styles::secondary_button(lang.display_name())
+                            };
+                            if ui.add(btn).clicked() {
+                                i18n::set_language(*lang);
+                                save_gui_language(*lang);
+                            }
+                        }
+                    });
+                });
+            });
+
+            ui.add_space(styles::SPACING_MD);
+
+            styles::card_frame().show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 styles::section_header(ui, "📋", &i18n::t("server.global_log_settings"));
 
                 let available_width = ui.available_width();
@@ -203,30 +234,27 @@ impl OtherTab {
                     );
                 });
 
-                styles::form_row(ui, &i18n::t("server.log_level"), label_width, |ui| {
-                    let levels = ["trace", "debug", "info", "warn", "error"];
-                    egui::ComboBox::from_id_salt("other_log_level")
-                        .selected_text(&config.logging.log_level)
-                        .width(100.0)
-                        .show_ui(ui, |ui| {
-                            for level in levels {
-                                ui.selectable_value(
-                                    &mut config.logging.log_level,
-                                    level.to_string(),
-                                    level,
-                                );
-                            }
-                        });
-                });
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(i18n::t("server.log_level_hint"))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::TEXT_MUTED_COLOR)
-                            .italics(),
-                    );
-                });
+                styles::form_row_with_suffix(
+                    ui,
+                    &i18n::t("server.log_level"),
+                    label_width,
+                    |ui| {
+                        let levels = ["trace", "debug", "info", "warn", "error"];
+                        egui::ComboBox::from_id_salt("other_log_level")
+                            .selected_text(&config.logging.log_level)
+                            .width(100.0)
+                            .show_ui(ui, |ui| {
+                                for level in levels {
+                                    ui.selectable_value(
+                                        &mut config.logging.log_level,
+                                        level.to_string(),
+                                        level,
+                                    );
+                                }
+                            });
+                    },
+                    &i18n::t("server.log_level_hint"),
+                );
 
                 styles::form_row_with_suffix(
                     ui,
@@ -250,37 +278,6 @@ impl OtherTab {
                     },
                     &i18n::t("server.max_log_files_hint"),
                 );
-            });
-
-            ui.add_space(styles::SPACING_MD);
-
-            styles::card_frame().show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                styles::section_header(ui, "🌐", &i18n::t("about.language"));
-
-                ui.vertical(|ui| {
-                    ui.label(
-                        RichText::new(i18n::t("about.language_hint"))
-                            .size(styles::FONT_SIZE_MD)
-                            .color(styles::TEXT_SECONDARY_COLOR),
-                    );
-                    ui.add_space(styles::SPACING_SM);
-
-                    ui.horizontal(|ui| {
-                        for lang in i18n::Language::all() {
-                            let is_current = *lang == i18n::current_language();
-                            let btn = if is_current {
-                                styles::primary_button(lang.display_name())
-                            } else {
-                                styles::secondary_button(lang.display_name())
-                            };
-                            if ui.add(btn).clicked() {
-                                i18n::set_language(*lang);
-                                save_gui_language(*lang);
-                            }
-                        }
-                    });
-                });
             });
         });
 

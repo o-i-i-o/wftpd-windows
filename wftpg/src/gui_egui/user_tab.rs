@@ -624,7 +624,7 @@ impl UserTab {
                 .sense(egui::Sense::hover());
 
             table
-                .header(styles::FONT_SIZE_MD, |mut header| {
+                .header(styles::FONT_SIZE_LG, |mut header| {
                     header.col(|ui| {
                         ui.with_layout(
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
