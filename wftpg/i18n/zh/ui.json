@@ -60,7 +60,7 @@
   "server.select_anonymous_dir": "选择匿名用户目录",
   "server.ftps_settings": "显式 FTPS 设置",
   "server.enable_ftps": "启用显式 FTPS (FTPES)",
-  "server.require_ssl": "要求 SSL/TLS 加密",
+  "server.require_ssl": "强制加密",
   "server.cert_path": "证书路径",
   "server.key_path": "私钥路径",
   "server.select_cert": "选择证书文件",

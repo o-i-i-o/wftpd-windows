@@ -60,7 +60,7 @@
   "server.select_anonymous_dir": "Select anonymous user directory",
   "server.ftps_settings": "Explicit FTPS Settings",
   "server.enable_ftps": "Enable Explicit FTPS (FTPES)",
-  "server.require_ssl": "Require SSL/TLS Encryption",
+  "server.require_ssl": "Force Encryption",
   "server.cert_path": "Certificate Path",
   "server.key_path": "Private Key Path",
   "server.select_cert": "Select Certificate File",

@@ -646,18 +646,15 @@ impl ServerTab {
                 let label_width = (available_width * 0.15).clamp(100.0, 160.0);
 
                 if config.ftp.ftps.enabled {
-                    styles::form_row(ui, &i18n::t("server.require_ssl"), label_width, |ui| {
-                        ui.checkbox(&mut config.ftp.ftps.require_ssl, "");
-                    });
-                    ui.horizontal(|ui| {
-                        ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                        ui.label(
-                            RichText::new(i18n::t("server.require_ssl_hint"))
-                                .size(styles::FONT_SIZE_SM)
-                                .color(styles::TEXT_MUTED_COLOR)
-                                .italics(),
-                        );
-                    });
+                    styles::form_row_with_suffix(
+                        ui,
+                        &i18n::t("server.require_ssl"),
+                        label_width,
+                        |ui| {
+                            ui.checkbox(&mut config.ftp.ftps.require_ssl, "");
+                        },
+                        &i18n::t("server.require_ssl_hint"),
+                    );
 
                     ui.add_space(styles::SPACING_SM);
 
@@ -920,16 +917,6 @@ impl ServerTab {
                         );
                     });
                 });
-
-                ui.add_space(styles::SPACING_SM);
-
-                ui.label(
-                    RichText::new(i18n::t("server.security_enhancement"))
-                        .size(styles::FONT_SIZE_MD)
-                        .color(styles::TEXT_SECONDARY_COLOR)
-                        .strong(),
-                );
-                ui.add_space(styles::SPACING_SM);
 
                 styles::form_row(
                     ui,
