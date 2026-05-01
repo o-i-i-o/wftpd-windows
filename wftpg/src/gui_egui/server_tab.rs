@@ -661,7 +661,8 @@ impl ServerTab {
 
                 if !map_entries.is_empty() {
                     egui::Frame::NONE
-                        .fill(styles::BG_SECONDARY)
+                        .fill(styles::BG_CARD)
+                        .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
                         .inner_margin(egui::Margin::same(8))
                         .corner_radius(egui::CornerRadius::same(6))
                         .show(ui, |ui| {

@@ -107,10 +107,10 @@ struct CachedStyles {
 impl CachedStyles {
     fn new() -> Self {
         Self {
-            loading_frame: egui::Frame::new().fill(styles::BG_PRIMARY),
-            error_frame: egui::Frame::new().fill(styles::BG_PRIMARY),
+            loading_frame: egui::Frame::new().fill(styles::BG_CARD),
+            error_frame: egui::Frame::new().fill(styles::BG_CARD),
             main_frame: egui::Frame::new()
-                .fill(styles::BG_PRIMARY)
+                .fill(styles::BG_CARD)
                 .inner_margin(egui::Margin::same(16)),
             tab_frame: egui::Frame::new()
                 .fill(styles::BG_CARD)
@@ -417,7 +417,8 @@ impl WftpgApp {
                             ui.add_space(styles::SPACING_SM);
 
                             egui::Frame::new()
-                                .fill(styles::BG_SECONDARY)
+                                .fill(styles::BG_CARD)
+                                .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
                                 .inner_margin(egui::Margin::same(8))
                                 .corner_radius(egui::CornerRadius::same(4))
                                 .show(ui, |ui| {

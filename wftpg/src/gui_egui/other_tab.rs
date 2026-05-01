@@ -261,7 +261,8 @@ impl OtherTab {
                 );
 
                 egui::Frame::NONE
-                    .fill(styles::BG_INFO)
+                    .fill(styles::BG_CARD)
+                    .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
                     .inner_margin(egui::Margin::same(12))
                     .corner_radius(egui::CornerRadius::same(6))
                     .show(ui, |ui| {
