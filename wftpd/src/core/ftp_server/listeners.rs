@@ -27,59 +27,80 @@ impl DataListener for FtpDataListener {
         match event {
             DataEvent::Put { path, bytes } => {
                 tracing::info!(
+                    target: "file_op",
                     username = %meta.username,
-                    path = %path,
-                    bytes = bytes,
-                    action = "UPLOAD",
+                    client_ip = %meta.trace_id,
+                    operation = "UPLOAD",
+                    file_path = %path,
+                    file_size = bytes,
                     protocol = "FTP",
-                    "User {} uploaded {} bytes to {}", meta.username, bytes, path
+                    success = true,
+                    "File uploaded successfully"
                 );
             }
             DataEvent::Got { path, bytes } => {
                 tracing::info!(
+                    target: "file_op",
                     username = %meta.username,
-                    path = %path,
-                    bytes = bytes,
-                    action = "DOWNLOAD",
+                    client_ip = %meta.trace_id,
+                    operation = "DOWNLOAD",
+                    file_path = %path,
+                    file_size = bytes,
                     protocol = "FTP",
-                    "User {} downloaded {} bytes from {}", meta.username, bytes, path
+                    success = true,
+                    "File downloaded successfully"
                 );
             }
             DataEvent::Deleted { path } => {
                 tracing::info!(
+                    target: "file_op",
                     username = %meta.username,
-                    path = %path,
-                    action = "DELETE",
+                    client_ip = %meta.trace_id,
+                    operation = "DELETE",
+                    file_path = %path,
+                    file_size = 0u64,
                     protocol = "FTP",
-                    "User {} deleted {}", meta.username, path
+                    success = true,
+                    "File deleted successfully"
                 );
             }
             DataEvent::MadeDir { path } => {
                 tracing::info!(
+                    target: "file_op",
                     username = %meta.username,
-                    path = %path,
-                    action = "MKDIR",
+                    client_ip = %meta.trace_id,
+                    operation = "MKDIR",
+                    file_path = %path,
+                    file_size = 0u64,
                     protocol = "FTP",
-                    "User {} created directory {}", meta.username, path
+                    success = true,
+                    "Directory created successfully"
                 );
             }
             DataEvent::RemovedDir { path } => {
                 tracing::info!(
+                    target: "file_op",
                     username = %meta.username,
-                    path = %path,
-                    action = "RMDIR",
+                    client_ip = %meta.trace_id,
+                    operation = "RMDIR",
+                    file_path = %path,
+                    file_size = 0u64,
                     protocol = "FTP",
-                    "User {} removed directory {}", meta.username, path
+                    success = true,
+                    "Directory deleted successfully"
                 );
             }
             DataEvent::Renamed { from, to } => {
                 tracing::info!(
+                    target: "file_op",
                     username = %meta.username,
-                    from = %from,
-                    to = %to,
-                    action = "RENAME",
+                    client_ip = %meta.trace_id,
+                    operation = "RENAME",
+                    file_path = %format!("{} -> {}", from, to),
+                    file_size = 0u64,
                     protocol = "FTP",
-                    "User {} renamed {} to {}", meta.username, from, to
+                    success = true,
+                    "File renamed successfully"
                 );
             }
         }
