@@ -544,18 +544,11 @@ impl ServerTab {
                 ui.add_space(styles::SPACING_SM);
 
                 ui.label(
-                    RichText::new(i18n::t("server.passive_ip_override"))
+                    RichText::new(i18n::t("server.upnp_enabled"))
                         .size(styles::FONT_SIZE_MD)
                         .color(styles::TEXT_SECONDARY_COLOR)
                         .strong(),
                 );
-                ui.label(
-                    RichText::new(i18n::t("server.passive_ip_override"))
-                        .size(styles::FONT_SIZE_SM)
-                        .color(styles::TEXT_MUTED_COLOR)
-                        .italics(),
-                );
-                ui.add_space(styles::SPACING_SM);
 
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
@@ -589,16 +582,6 @@ impl ServerTab {
                     Some(passive_ip)
                 };
 
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(i18n::t("server.masquerade_address"))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::TEXT_MUTED_COLOR)
-                            .italics(),
-                    );
-                });
-
                 let mut masq_addr = config.ftp.masquerade_address.clone().unwrap_or_default();
                 styles::form_row(
                     ui,
@@ -624,16 +607,6 @@ impl ServerTab {
                     Some(masq_addr)
                 };
 
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(i18n::t("server.masquerade_address"))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::TEXT_MUTED_COLOR)
-                            .italics(),
-                    );
-                });
-
                 ui.add_space(styles::SPACING_SM);
 
                 ui.label(
@@ -642,12 +615,7 @@ impl ServerTab {
                         .color(styles::TEXT_SECONDARY_COLOR)
                         .strong(),
                 );
-                ui.label(
-                    RichText::new(i18n::t("server.masquerade_map"))
-                        .size(styles::FONT_SIZE_SM)
-                        .color(styles::TEXT_MUTED_COLOR)
-                        .italics(),
-                );
+
                 ui.add_space(styles::SPACING_XS);
 
                 // 显示当前映射列表
@@ -876,14 +844,6 @@ impl ServerTab {
                     );
                 });
 
-                ui.add_space(styles::SPACING_SM);
-
-                ui.label(
-                    RichText::new(i18n::t("server.timeout_settings"))
-                        .size(styles::FONT_SIZE_MD)
-                        .color(styles::TEXT_SECONDARY_COLOR)
-                        .strong(),
-                );
                 ui.add_space(styles::SPACING_SM);
 
                 styles::form_row_with_suffix(
