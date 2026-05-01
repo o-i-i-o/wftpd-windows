@@ -730,6 +730,12 @@ impl SecurityTab {
 
             ui.add_space(styles::SPACING_XS);
 
+            let symlink_hint = if self.allow_symlinks {
+                i18n::t("security.symlink_enabled_warning")
+            } else {
+                i18n::t("security.symlink_disabled_secure")
+            };
+
             styles::form_row_with_suffix(
                 ui,
                 &i18n::t("security.allow_symlinks"),
@@ -737,28 +743,8 @@ impl SecurityTab {
                 |ui| {
                     ui.checkbox(&mut self.allow_symlinks, "");
                 },
-                &i18n::t("security.allow_symlinks_hint"),
+                &symlink_hint,
             );
-
-            if !self.allow_symlinks {
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(i18n::t("security.symlink_disabled_secure"))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::SUCCESS_COLOR),
-                    );
-                });
-            } else {
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(i18n::t("security.symlink_enabled_warning"))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::WARNING_COLOR),
-                    );
-                });
-            }
         });
 
         ui.add_space(styles::SPACING_MD);
