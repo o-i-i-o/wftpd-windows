@@ -250,6 +250,7 @@ impl OtherTab {
                     },
                     &i18n::t("server.max_log_files_hint"),
                 );
+            });
 
             ui.add_space(styles::SPACING_MD);
 
