@@ -30,7 +30,7 @@ tracing-appender = "0.2.5"
 # ========== 安全与加密 ==========
 argon2 = "0.6.0-rc.8"
 sha2 = "0.11"
-md-5 = "0.10"
+md-5 = "0.11"
 hex = "0.4"
 rustls = "0.23.40"
 tokio-rustls = "0.26.4"
@@ -67,10 +67,10 @@ windows-service = "0.8.0"
 ctrlc = "3.5.2"
 
 # ========== UPnP/端口映射 ==========
-igd-next = "0.16.2"
+igd-next = "0.17.0"
 
 # ========== 监控指标 ==========
-prometheus = "0.13"
+prometheus = "0.14"
 lazy_static = "1.5"
 scopeguard = "1.2.0"
 unftp-sbe-restrict = "0.1.5"
