@@ -124,29 +124,6 @@ impl OtherTab {
         let ctx = ui.ctx().clone();
 
         self.config_manager.modify(|config| {
-            ui.horizontal(|ui| {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(styles::save_button(is_saving, &i18n::t("server.save_config"), &i18n::t("server.saving"))).clicked() && !is_saving {
-                        config_to_save = Some(config.clone());
-                    }
-
-                    if let Some((msg, success)) = &self.status_message {
-                        let msg_text = if *success {
-                            RichText::new(msg)
-                                .color(styles::SUCCESS_COLOR)
-                                .size(styles::FONT_SIZE_SM)
-                        } else {
-                            RichText::new(msg)
-                                .color(styles::DANGER_COLOR)
-                                .size(styles::FONT_SIZE_SM)
-                        };
-                        ui.label(msg_text);
-                    }
-                });
-            });
-
-            ui.add_space(styles::SPACING_MD);
-
             styles::card_frame().show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 styles::section_header(ui, "🌐", &i18n::t("about.language"));
@@ -180,7 +157,36 @@ impl OtherTab {
 
             styles::card_frame().show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                styles::section_header(ui, "📋", &i18n::t("server.global_log_settings"));
+
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("📋").size(styles::FONT_SIZE_LG));
+                    ui.label(
+                        RichText::new(i18n::t("server.global_log_settings"))
+                            .size(styles::FONT_SIZE_LG)
+                            .strong()
+                            .color(styles::TEXT_PRIMARY_COLOR),
+                    );
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.add(styles::save_button(is_saving, &i18n::t("server.save_config"), &i18n::t("server.saving"))).clicked() && !is_saving {
+                            config_to_save = Some(config.clone());
+                        }
+
+                        if let Some((msg, success)) = &self.status_message {
+                            let msg_text = if *success {
+                                RichText::new(msg)
+                                    .color(styles::SUCCESS_COLOR)
+                                    .size(styles::FONT_SIZE_SM)
+                            } else {
+                                RichText::new(msg)
+                                    .color(styles::DANGER_COLOR)
+                                    .size(styles::FONT_SIZE_SM)
+                            };
+                            ui.label(msg_text);
+                        }
+                    });
+                });
+                ui.add_space(styles::SPACING_SM);
 
                 let available_width = ui.available_width();
                 let label_width = (available_width * 0.15).clamp(100.0, 160.0);
