@@ -615,8 +615,12 @@ impl UserTab {
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
 
-            let available_width = ui.available_width();
-            let table = TableBuilder::new(ui)
+            egui::Frame::NONE
+                .fill(styles::BG_SECONDARY)
+                .inner_margin(egui::Margin::symmetric(8, 4))
+                .show(ui, |ui| {
+                    let available_width = ui.available_width();
+                    let table = TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
@@ -629,7 +633,7 @@ impl UserTab {
                 .sense(egui::Sense::hover());
 
             table
-                .header(styles::FONT_SIZE_LG, |mut header| {
+                .header(styles::FONT_SIZE_XL, |mut header| {
                     header.col(|ui| {
                         ui.with_layout(
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
@@ -830,6 +834,7 @@ impl UserTab {
                         });
                     }
                 });
+            });
         });
 
         if let Some(u) = to_edit {

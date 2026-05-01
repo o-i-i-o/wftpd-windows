@@ -426,7 +426,11 @@ impl LogTab {
                 .stick_to_bottom(self.scroll_to_bottom)
                 .id_salt(scroll_area_id)
                 .show(ui, |ui| {
-                    let table = TableBuilder::new(ui)
+                    egui::Frame::NONE
+                        .fill(styles::BG_SECONDARY)
+                        .inner_margin(egui::Margin::symmetric(8, 4))
+                        .show(ui, |ui| {
+                            let table = TableBuilder::new(ui)
                         .striped(true)
                         .resizable(true)
                         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
@@ -439,7 +443,7 @@ impl LogTab {
                         .sense(egui::Sense::hover());
 
                     table
-                        .header(styles::FONT_SIZE_LG, |mut header| {
+                        .header(styles::FONT_SIZE_XL, |mut header| {
                             header.col(|ui| {
                                 ui.with_layout(
                                     egui::Layout::centered_and_justified(
@@ -627,6 +631,7 @@ impl LogTab {
                             }
                         });
                 });
+            });
 
             ui.add_space(styles::SPACING_SM);
             ui.horizontal(|ui| {
