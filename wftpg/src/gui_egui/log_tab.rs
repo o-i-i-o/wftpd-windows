@@ -322,22 +322,12 @@ impl LogTab {
 
     fn format_last_refresh(&self) -> String {
         match self.last_refresh_time {
-            Some(t) => {
-                let elapsed = t.elapsed();
-                if elapsed < Duration::from_secs(60) {
-                    i18n::t_fmt("log.n_seconds_ago", &[&elapsed.as_secs().to_string()])
-                } else if elapsed < Duration::from_secs(3600) {
-                    i18n::t_fmt(
-                        "log.n_minutes_ago",
-                        &[&(elapsed.as_secs() / 60).to_string()],
-                    )
-                } else {
-                    i18n::t_fmt(
-                        "log.n_hours_ago",
-                        &[&(elapsed.as_secs() / 3600).to_string()],
-                    )
-                }
-            }
+            Some(t) => styles::format_elapsed_time(
+                t.elapsed(),
+                "log.n_seconds_ago",
+                "log.n_minutes_ago",
+                "log.n_hours_ago",
+            ),
             None => i18n::t("log.not_refreshed"),
         }
     }

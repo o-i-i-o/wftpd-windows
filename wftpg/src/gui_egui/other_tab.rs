@@ -116,10 +116,6 @@ impl OtherTab {
         }
     }
 
-    fn pick_folder(title: &str) -> Option<std::path::PathBuf> {
-        rfd::FileDialog::new().set_title(title).pick_folder()
-    }
-
     pub fn ui(&mut self, ui: &mut Ui) {
         self.check_save_result();
 
@@ -130,18 +126,7 @@ impl OtherTab {
         self.config_manager.modify(|config| {
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let save_text = i18n::t("server.save_config");
-                    let save_btn = if is_saving {
-                        egui::Button::new(
-                            RichText::new(i18n::t("server.saving")).size(styles::FONT_SIZE_MD),
-                        )
-                        .fill(styles::BG_SECONDARY)
-                        .corner_radius(egui::CornerRadius::same(6))
-                    } else {
-                        styles::primary_button(&save_text)
-                    };
-
-                    if ui.add(save_btn).clicked() && !is_saving {
+                    if ui.add(styles::save_button(is_saving, &i18n::t("server.save_config"), &i18n::t("server.saving"))).clicked() && !is_saving {
                         config_to_save = Some(config.clone());
                     }
 
@@ -213,7 +198,7 @@ impl OtherTab {
                         );
                     });
                     if ui.button(i18n::t("server.browse")).clicked()
-                        && let Some(path) = Self::pick_folder(&i18n::t("server.select_log_dir"))
+                        && let Some(path) = styles::pick_folder(&i18n::t("server.select_log_dir"))
                     {
                         log_dir = path.to_string_lossy().to_string();
                     }

@@ -359,3 +359,42 @@ pub fn table_header_text(text: &str) -> RichText {
         .strong()
         .color(TEXT_PRIMARY_COLOR)
 }
+
+pub fn pick_folder(title: &str) -> Option<std::path::PathBuf> {
+    rfd::FileDialog::new().set_title(title).pick_folder()
+}
+
+pub fn pick_file(title: &str) -> Option<std::path::PathBuf> {
+    rfd::FileDialog::new().set_title(title).pick_file()
+}
+
+pub fn format_elapsed_time(elapsed: std::time::Duration, sec_key: &str, min_key: &str, hr_key: &str) -> String {
+    if elapsed < std::time::Duration::from_secs(60) {
+        crate::core::i18n::t_fmt(sec_key, &[&elapsed.as_secs().to_string()])
+    } else if elapsed < std::time::Duration::from_secs(3600) {
+        crate::core::i18n::t_fmt(min_key, &[&(elapsed.as_secs() / 60).to_string()])
+    } else {
+        crate::core::i18n::t_fmt(hr_key, &[&(elapsed.as_secs() / 3600).to_string()])
+    }
+}
+
+pub fn form_error_hint(ui: &mut egui::Ui, label_width: f32, err: &str) {
+    ui.horizontal(|ui| {
+        ui.add_sized([label_width, 24.0], egui::Label::new(""));
+        ui.label(
+            RichText::new(format!("⚠ {}", err))
+                .size(FONT_SIZE_SM)
+                .color(DANGER_COLOR),
+        );
+    });
+}
+
+pub fn save_button<'a>(is_saving: bool, save_text: &'a str, saving_text: &'a str) -> egui::Button<'a> {
+    if is_saving {
+        egui::Button::new(RichText::new(saving_text).size(FONT_SIZE_MD))
+            .fill(BG_SECONDARY)
+            .corner_radius(egui::CornerRadius::same(6))
+    } else {
+        primary_button(save_text)
+    }
+}

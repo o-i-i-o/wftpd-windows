@@ -427,31 +427,14 @@ impl SecurityTab {
         }
     }
 
-    fn section_header(ui: &mut egui::Ui, icon: &str, title: &str) {
-        styles::section_header(ui, icon, title);
-    }
-
     fn format_last_save(&self) -> String {
         match self.last_save_time {
-            Some(t) => {
-                let elapsed = t.elapsed();
-                if elapsed.as_secs() < 60 {
-                    i18n::t_fmt(
-                        "security.saved_n_seconds_ago",
-                        &[&elapsed.as_secs().to_string()],
-                    )
-                } else if elapsed.as_secs() < 3600 {
-                    i18n::t_fmt(
-                        "security.saved_n_minutes_ago",
-                        &[&(elapsed.as_secs() / 60).to_string()],
-                    )
-                } else {
-                    i18n::t_fmt(
-                        "security.saved_n_hours_ago",
-                        &[&(elapsed.as_secs() / 3600).to_string()],
-                    )
-                }
-            }
+            Some(t) => styles::format_elapsed_time(
+                t.elapsed(),
+                "security.saved_n_seconds_ago",
+                "security.saved_n_minutes_ago",
+                "security.saved_n_hours_ago",
+            ),
             None => i18n::t("security.not_saved"),
         }
     }
@@ -461,18 +444,7 @@ impl SecurityTab {
 
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let save_text = i18n::t("security.save_config");
-                let save_btn = if self.is_saving {
-                    egui::Button::new(
-                        RichText::new(i18n::t("security.saving")).size(styles::FONT_SIZE_MD),
-                    )
-                    .fill(styles::BG_SECONDARY)
-                    .corner_radius(egui::CornerRadius::same(6))
-                } else {
-                    styles::primary_button(&save_text)
-                };
-
-                if ui.add(save_btn).clicked() && !self.is_saving {
+                if ui.add(styles::save_button(self.is_saving, &i18n::t("security.save_config"), &i18n::t("security.saving"))).clicked() && !self.is_saving {
                     self.save_async(ui.ctx());
                 }
 
@@ -490,7 +462,7 @@ impl SecurityTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "🔐", &i18n::t("security.login_security"));
+            styles::section_header(ui, "🔐", &i18n::t("security.login_security"));
 
             let available_width = ui.available_width();
             let label_width = (available_width * 0.2).clamp(100.0, 160.0);
@@ -540,14 +512,7 @@ impl SecurityTab {
                 );
 
                 if let Some(err) = &self.fail2ban_threshold_error {
-                    ui.horizontal(|ui| {
-                        ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                        ui.label(
-                            RichText::new(format!("⚠ {}", err))
-                                .size(styles::FONT_SIZE_SM)
-                                .color(styles::DANGER_COLOR),
-                        );
-                    });
+                    styles::form_error_hint(ui, label_width, err);
                 }
 
                 styles::form_row_with_suffix(
@@ -584,14 +549,7 @@ impl SecurityTab {
                 );
 
                 if let Some(err) = &self.fail2ban_ban_time_error {
-                    ui.horizontal(|ui| {
-                        ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                        ui.label(
-                            RichText::new(format!("⚠ {}", err))
-                                .size(styles::FONT_SIZE_SM)
-                                .color(styles::DANGER_COLOR),
-                        );
-                    });
+                    styles::form_error_hint(ui, label_width, err);
                 }
 
                 ui.add_space(styles::SPACING_MD);
@@ -631,14 +589,7 @@ impl SecurityTab {
             );
 
             if let Some(err) = &self.max_login_attempts_error {
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(format!("⚠ {}", err))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::DANGER_COLOR),
-                    );
-                });
+                styles::form_error_hint(ui, label_width, err);
             }
 
             styles::form_row(
@@ -674,14 +625,7 @@ impl SecurityTab {
             );
 
             if let Some(err) = &self.max_connections_error {
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(format!("⚠ {}", err))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::DANGER_COLOR),
-                    );
-                });
+                styles::form_error_hint(ui, label_width, err);
             }
 
             styles::form_row(
@@ -717,14 +661,7 @@ impl SecurityTab {
             );
 
             if let Some(err) = &self.max_connections_per_ip_error {
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(format!("⚠ {}", err))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::DANGER_COLOR),
-                    );
-                });
+                styles::form_error_hint(ui, label_width, err);
             }
 
             ui.add_space(styles::SPACING_XS);
@@ -750,7 +687,7 @@ impl SecurityTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "🌐", &i18n::t("security.ip_access_control"));
+            styles::section_header(ui, "🌐", &i18n::t("security.ip_access_control"));
 
             ui.label(
                 RichText::new(i18n::t("security.allowed_ips"))

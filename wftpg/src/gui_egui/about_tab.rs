@@ -19,10 +19,6 @@ impl AboutTab {
         }
     }
 
-    fn section_header(ui: &mut Ui, icon: &str, title: &str) {
-        styles::section_header(ui, icon, title);
-    }
-
     fn show_licenses_modal(&mut self, ctx: &egui::Context) {
         if !self.show_licenses_modal {
             return;
@@ -167,7 +163,7 @@ impl AboutTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "📦", &i18n::t("about.software_info"));
+            styles::section_header(ui, "📦", &i18n::t("about.software_info"));
 
             ui.vertical(|ui| {
                 ui.label(
@@ -197,7 +193,7 @@ impl AboutTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "👤", &i18n::t("about.author_info"));
+            styles::section_header(ui, "👤", &i18n::t("about.author_info"));
 
             ui.vertical(|ui| {
                 ui.label(
@@ -224,7 +220,7 @@ impl AboutTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "⚠", &i18n::t("about.notices_title"));
+            styles::section_header(ui, "⚠", &i18n::t("about.notices_title"));
 
             ui.vertical(|ui| {
                 let notices = [
@@ -251,7 +247,7 @@ impl AboutTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            Self::section_header(ui, "📄", &i18n::t("about.license_title"));
+            styles::section_header(ui, "📄", &i18n::t("about.license_title"));
 
             ui.vertical(|ui| {
                 ui.label(

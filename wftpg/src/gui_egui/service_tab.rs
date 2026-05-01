@@ -104,139 +104,92 @@ impl ServiceTab {
         }
     }
 
-    fn install_service_async(&mut self, ctx: &egui::Context) {
-        self.operation_state = OperationState::Installing;
+    fn run_service_async(
+        &mut self,
+        ctx: &egui::Context,
+        state: OperationState,
+        op: fn() -> anyhow::Result<()>,
+        success_msg: String,
+        failed_key: &str,
+        unknown_error_key: &str,
+    ) {
+        self.operation_state = state;
         self.operation_start_time = Some(Instant::now());
 
         let (tx, rx) = mpsc::channel();
         self.operation_receiver = Some(rx);
 
         let ctx_clone = ctx.clone();
+        let failed_key = failed_key.to_string();
+        let unknown_error_key = unknown_error_key.to_string();
         std::thread::spawn(move || {
-            let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let manager = ServerManager::new();
-                manager.install_service()
-            })) {
-                Ok(Ok(_)) => OperationResult::Success(i18n::t("service.install_success")),
+            let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(op)) {
+                Ok(Ok(_)) => OperationResult::Success(success_msg),
                 Ok(Err(e)) => {
-                    OperationResult::Error(i18n::t_fmt("service.install_failed", &[&e.to_string()]))
+                    OperationResult::Error(i18n::t_fmt(&failed_key, &[&e.to_string()]))
                 }
-                Err(_) => OperationResult::Error(i18n::t("service.install_unknown_error")),
+                Err(_) => OperationResult::Error(i18n::t(&unknown_error_key)),
             };
             if let Err(e) = tx.send(result) {
-                tracing::debug!("Failed to send service install result: {}", e);
+                tracing::debug!("Failed to send service operation result: {}", e);
             }
             ctx_clone.request_repaint();
         });
+    }
+
+    fn install_service_async(&mut self, ctx: &egui::Context) {
+        self.run_service_async(
+            ctx,
+            OperationState::Installing,
+            || ServerManager::new().install_service(),
+            i18n::t("service.install_success"),
+            "service.install_failed",
+            "service.install_unknown_error",
+        );
     }
 
     fn start_service_async(&mut self, ctx: &egui::Context) {
-        self.operation_state = OperationState::Starting;
-        self.operation_start_time = Some(Instant::now());
-
-        let (tx, rx) = mpsc::channel();
-        self.operation_receiver = Some(rx);
-
-        let ctx_clone = ctx.clone();
-        std::thread::spawn(move || {
-            let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let manager = ServerManager::new();
-                manager.start_service()
-            })) {
-                Ok(Ok(_)) => OperationResult::Success(i18n::t("service.start_success")),
-                Ok(Err(e)) => {
-                    OperationResult::Error(i18n::t_fmt("service.start_failed", &[&e.to_string()]))
-                }
-                Err(_) => OperationResult::Error(i18n::t("service.start_unknown_error")),
-            };
-            if let Err(e) = tx.send(result) {
-                tracing::debug!("Failed to send service start result: {}", e);
-            }
-            ctx_clone.request_repaint();
-        });
+        self.run_service_async(
+            ctx,
+            OperationState::Starting,
+            || ServerManager::new().start_service(),
+            i18n::t("service.start_success"),
+            "service.start_failed",
+            "service.start_unknown_error",
+        );
     }
 
     fn stop_service_async(&mut self, ctx: &egui::Context) {
-        self.operation_state = OperationState::Stopping;
-        self.operation_start_time = Some(Instant::now());
-
-        let (tx, rx) = mpsc::channel();
-        self.operation_receiver = Some(rx);
-
-        let ctx_clone = ctx.clone();
-        std::thread::spawn(move || {
-            let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let manager = ServerManager::new();
-                manager.stop_service()
-            })) {
-                Ok(Ok(_)) => OperationResult::Success(i18n::t("service.stop_success")),
-                Ok(Err(e)) => {
-                    OperationResult::Error(i18n::t_fmt("service.stop_failed", &[&e.to_string()]))
-                }
-                Err(_) => OperationResult::Error(i18n::t("service.stop_unknown_error")),
-            };
-            if let Err(e) = tx.send(result) {
-                tracing::debug!("Failed to send service stop result: {}", e);
-            }
-            ctx_clone.request_repaint();
-        });
+        self.run_service_async(
+            ctx,
+            OperationState::Stopping,
+            || ServerManager::new().stop_service(),
+            i18n::t("service.stop_success"),
+            "service.stop_failed",
+            "service.stop_unknown_error",
+        );
     }
 
     fn restart_service_async(&mut self, ctx: &egui::Context) {
-        self.operation_state = OperationState::Restarting;
-        self.operation_start_time = Some(Instant::now());
-
-        let (tx, rx) = mpsc::channel();
-        self.operation_receiver = Some(rx);
-
-        let ctx_clone = ctx.clone();
-        std::thread::spawn(move || {
-            let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let manager = ServerManager::new();
-                manager.restart_service()
-            })) {
-                Ok(Ok(_)) => OperationResult::Success(i18n::t("service.restart_success")),
-                Ok(Err(e)) => {
-                    OperationResult::Error(i18n::t_fmt("service.restart_failed", &[&e.to_string()]))
-                }
-                Err(_) => OperationResult::Error(i18n::t("service.restart_unknown_error")),
-            };
-            if let Err(e) = tx.send(result) {
-                tracing::debug!("Failed to send service restart result: {}", e);
-            }
-            ctx_clone.request_repaint();
-        });
+        self.run_service_async(
+            ctx,
+            OperationState::Restarting,
+            || ServerManager::new().restart_service(),
+            i18n::t("service.restart_success"),
+            "service.restart_failed",
+            "service.restart_unknown_error",
+        );
     }
 
     fn uninstall_service_async(&mut self, ctx: &egui::Context) {
-        self.operation_state = OperationState::Uninstalling;
-        self.operation_start_time = Some(Instant::now());
-
-        let (tx, rx) = mpsc::channel();
-        self.operation_receiver = Some(rx);
-
-        let ctx_clone = ctx.clone();
-        std::thread::spawn(move || {
-            let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let manager = ServerManager::new();
-                manager.uninstall_service()
-            })) {
-                Ok(Ok(_)) => OperationResult::Success(i18n::t("service.uninstall_success")),
-                Ok(Err(e)) => OperationResult::Error(i18n::t_fmt(
-                    "service.uninstall_failed",
-                    &[&e.to_string()],
-                )),
-                Err(_) => OperationResult::Error(i18n::t("service.uninstall_unknown_error")),
-            };
-            if let Err(e) = tx.send(result) {
-                tracing::debug!("Failed to send service uninstall result: {}", e);
-            }
-            ctx_clone.request_repaint();
-        });
-    }
-
-    fn section_header(&self, ui: &mut Ui, icon: &str, title: &str) {
-        styles::section_header(ui, icon, title);
+        self.run_service_async(
+            ctx,
+            OperationState::Uninstalling,
+            || ServerManager::new().uninstall_service(),
+            i18n::t("service.uninstall_success"),
+            "service.uninstall_failed",
+            "service.uninstall_unknown_error",
+        );
     }
 
     pub fn ui(&mut self, ui: &mut Ui) {
@@ -248,7 +201,7 @@ impl ServiceTab {
 
         styles::card_frame().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            self.section_header(ui, "📋", &i18n::t("service.service_info"));
+            styles::section_header(ui, "📋", &i18n::t("service.service_info"));
 
             let available_width = ui.available_width();
             let label_width = (available_width * 0.25).clamp(80.0, 120.0);
