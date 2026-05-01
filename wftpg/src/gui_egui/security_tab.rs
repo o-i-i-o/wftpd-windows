@@ -496,20 +496,6 @@ impl SecurityTab {
             let available_width = ui.available_width();
             let label_width = (available_width * 0.2).clamp(100.0, 160.0);
 
-            ui.label(
-                RichText::new(i18n::t("security.fail2ban_protection"))
-                    .size(styles::FONT_SIZE_MD)
-                    .color(styles::TEXT_SECONDARY_COLOR)
-                    .strong(),
-            );
-            ui.label(
-                RichText::new(i18n::t("security.fail2ban_desc"))
-                    .size(styles::FONT_SIZE_SM)
-                    .color(styles::TEXT_MUTED_COLOR),
-            );
-
-            ui.add_space(styles::SPACING_XS);
-
             styles::form_row(
                 ui,
                 &i18n::t("security.enable_fail2ban"),
@@ -697,20 +683,6 @@ impl SecurityTab {
                     );
                 });
             }
-
-            ui.add_space(styles::SPACING_MD);
-
-            ui.label(
-                RichText::new(i18n::t("security.symlink_security"))
-                    .size(styles::FONT_SIZE_MD)
-                    .color(styles::TEXT_SECONDARY_COLOR)
-                    .strong(),
-            );
-            ui.label(
-                RichText::new(i18n::t("security.symlink_security_desc"))
-                    .size(styles::FONT_SIZE_SM)
-                    .color(styles::TEXT_MUTED_COLOR),
-            );
 
             ui.add_space(styles::SPACING_XS);
 

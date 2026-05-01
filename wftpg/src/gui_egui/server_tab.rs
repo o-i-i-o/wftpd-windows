@@ -541,21 +541,9 @@ impl ServerTab {
                     &i18n::t("server.max_speed_hint"),
                 );
 
-                ui.add_space(styles::SPACING_SM);
-
-                ui.label(
-                    RichText::new(i18n::t("server.upnp_enabled"))
-                        .size(styles::FONT_SIZE_MD)
-                        .color(styles::TEXT_SECONDARY_COLOR)
-                        .strong(),
-                );
-
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.checkbox(&mut config.ftp.upnp_enabled, i18n::t("server.upnp_enabled"));
+                styles::form_row(ui, &i18n::t("server.upnp_enabled"), label_width, |ui| {
+                    ui.checkbox(&mut config.ftp.upnp_enabled, "");
                 });
-
-                ui.add_space(styles::SPACING_SM);
 
                 let mut passive_ip = config.ftp.passive_ip_override.clone().unwrap_or_default();
                 styles::form_row(
@@ -671,15 +659,6 @@ impl ServerTab {
                         });
                     ui.add_space(styles::SPACING_XS);
                 }
-
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(i18n::t("server.add_new_mapping"))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::TEXT_SECONDARY_COLOR),
-                    );
-                });
 
                 ui.horizontal(|ui| {
                     ui.add_sized([label_width, 24.0], egui::Label::new(""));
