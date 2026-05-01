@@ -15,7 +15,7 @@ pub use config_types::{
     default_fail2ban_enabled, default_fail2ban_threshold, default_idle_timeout,
     default_key_rotation_days, default_log_level, default_log_level as default_sftp_log_level,
     default_max_connections, default_max_connections_per_ip, default_max_login_attempts,
-    default_max_sessions_per_user, default_passive_ip_override, default_passive_mode,
+    default_max_sessions_per_user, default_passive_mode,
     default_pooled_listener_mode, default_sftp_port, default_transfer_mode, default_upnp_enabled,
 };
 
@@ -69,9 +69,7 @@ impl Default for Config {
                     cert_path: Some(cert_path),
                     key_path: Some(key_path),
                 },
-                passive_ip_override: Some("".to_string()),
                 masquerade_address: Some("".to_string()),
-                masquerade_map: std::collections::HashMap::new(),
                 connection_timeout: 300,
                 idle_timeout: 600,
                 hide_version_info: false,

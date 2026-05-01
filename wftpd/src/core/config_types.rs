@@ -142,12 +142,8 @@ pub struct FtpConfig {
     pub passive_ports: (u16, u16),
     #[serde(default)]
     pub max_speed_kbps: u64,
-    #[serde(default = "default_passive_ip_override")]
-    pub passive_ip_override: Option<String>,
     #[serde(default = "default_masquerade_address")]
     pub masquerade_address: Option<String>,
-    #[serde(default = "default_masquerade_map")]
-    pub masquerade_map: HashMap<String, String>,
     #[serde(default = "default_connection_timeout")]
     pub connection_timeout: u64,
     #[serde(default = "default_idle_timeout")]
@@ -210,16 +206,8 @@ pub fn default_anonymous_home() -> Option<String> {
     Some("".to_string())
 }
 
-pub fn default_passive_ip_override() -> Option<String> {
-    Some("".to_string())
-}
-
 pub fn default_masquerade_address() -> Option<String> {
     Some("".to_string())
-}
-
-pub fn default_masquerade_map() -> HashMap<String, String> {
-    HashMap::new()
 }
 
 pub fn default_upnp_enabled() -> bool {
