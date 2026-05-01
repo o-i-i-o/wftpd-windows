@@ -918,7 +918,7 @@ impl ServerTab {
                     });
                 });
 
-                styles::form_row(
+                styles::form_row_with_suffix(
                     ui,
                     &i18n::t("server.max_sessions_per_user"),
                     label_width,
@@ -938,17 +938,8 @@ impl ServerTab {
                             config.sftp.max_sessions_per_user = v;
                         }
                     },
+                    &i18n::t("server.max_sessions_per_user_hint"),
                 );
-
-                ui.horizontal(|ui| {
-                    ui.add_sized([label_width, 24.0], egui::Label::new(""));
-                    ui.label(
-                        RichText::new(i18n::t("server.max_sessions_per_user_hint"))
-                            .size(styles::FONT_SIZE_SM)
-                            .color(styles::TEXT_MUTED_COLOR)
-                            .italics(),
-                    );
-                });
             });
         });
 
