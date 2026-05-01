@@ -335,3 +335,18 @@ pub fn table_column_percent(
 pub fn table_column_remainder(min_width: f32) -> egui_extras::Column {
     egui_extras::Column::remainder().at_least(min_width)
 }
+
+pub fn table_draw_row_separator(body: &mut egui_extras::TableBody, col_count: usize) {
+    body.row(2.0, |mut row| {
+        for _ in 0..col_count {
+            row.col(|ui| {
+                let rect = ui.available_rect_before_wrap();
+                ui.painter().hline(
+                    rect.left()..=rect.right(),
+                    rect.center().y,
+                    egui::Stroke::new(1.0, BORDER_COLOR),
+                );
+            });
+        }
+    });
+}

@@ -614,20 +614,7 @@ impl LogTab {
                                         }
                                     });
                                 });
-                                body.row(2.0, |mut row| {
-                                    let col_count = 5;
-                                    for _ in 0..col_count {
-                                        row.col(|ui| {
-                                            let rect = ui.available_rect_before_wrap();
-                                            let painter = ui.painter();
-                                            painter.hline(
-                                                rect.left()..=rect.right(),
-                                                rect.center().y,
-                                                egui::Stroke::new(1.0, styles::BORDER_COLOR),
-                                            );
-                                        });
-                                    }
-                                });
+                                styles::table_draw_row_separator(&mut body, 5);
                             }
                         });
                 });
