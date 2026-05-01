@@ -183,8 +183,56 @@ impl ServerTab {
         }
     }
 
-    fn section_header(ui: &mut Ui, icon: &str, title: &str) {
-        styles::section_header(ui, icon, title);
+    fn section_header_with_save(
+        ui: &mut Ui,
+        icon: &str,
+        title: &str,
+        is_saving: bool,
+        status_message: Option<&(String, bool)>,
+    ) -> bool {
+        let mut clicked = false;
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(icon).size(styles::FONT_SIZE_LG));
+            ui.label(
+                egui::RichText::new(title)
+                    .size(styles::FONT_SIZE_LG)
+                    .strong()
+                    .color(styles::TEXT_PRIMARY_COLOR),
+            );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let save_text = i18n::t("server.save_config");
+                let save_btn = if is_saving {
+                    egui::Button::new(
+                        egui::RichText::new(i18n::t("server.saving"))
+                            .size(styles::FONT_SIZE_MD),
+                    )
+                    .fill(styles::BG_SECONDARY)
+                    .corner_radius(egui::CornerRadius::same(6))
+                } else {
+                    styles::primary_button(&save_text)
+                };
+
+                if ui.add(save_btn).clicked() && !is_saving {
+                    clicked = true;
+                }
+
+                if let Some((msg, success)) = status_message {
+                    let msg_text = if *success {
+                        egui::RichText::new(msg)
+                            .color(styles::SUCCESS_COLOR)
+                            .size(styles::FONT_SIZE_SM)
+                    } else {
+                        egui::RichText::new(msg)
+                            .color(styles::DANGER_COLOR)
+                            .size(styles::FONT_SIZE_SM)
+                    };
+                    ui.label(msg_text);
+                }
+            });
+        });
+        ui.add_space(styles::SPACING_SM);
+        clicked
     }
 
     fn pick_folder(title: &str) -> Option<std::path::PathBuf> {
@@ -257,44 +305,17 @@ impl ServerTab {
         let ctx = ui.ctx().clone();
 
         self.config_manager.modify(|config| {
-            ui.horizontal(|ui| {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let save_text = i18n::t("server.save_config");
-                    let save_btn = if is_saving {
-                        egui::Button::new(
-                            RichText::new(i18n::t("server.saving"))
-                                .size(styles::FONT_SIZE_MD),
-                        )
-                        .fill(styles::BG_SECONDARY)
-                        .corner_radius(egui::CornerRadius::same(6))
-                    } else {
-                        styles::primary_button(&save_text)
-                    };
-
-                    if ui.add(save_btn).clicked() && !is_saving {
-                        config_to_save = Some(config.clone());
-                    }
-
-                    if let Some((msg, success)) = &self.status_message {
-                        let msg_text = if *success {
-                            RichText::new(msg)
-                                .color(styles::SUCCESS_COLOR)
-                                .size(styles::FONT_SIZE_SM)
-                        } else {
-                            RichText::new(msg)
-                                .color(styles::DANGER_COLOR)
-                                .size(styles::FONT_SIZE_SM)
-                        };
-                        ui.label(msg_text);
-                    }
-                });
-            });
-
-            ui.add_space(styles::SPACING_MD);
-
             styles::card_frame().show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                Self::section_header(ui, "📡", &i18n::t("server.ftp_settings"));
+                if Self::section_header_with_save(
+                    ui,
+                    "📡",
+                    &i18n::t("server.ftp_settings"),
+                    is_saving,
+                    self.status_message.as_ref(),
+                ) {
+                    config_to_save = Some(config.clone());
+                }
 
                 ui.checkbox(
                     &mut config.ftp.enabled,
@@ -626,7 +647,15 @@ impl ServerTab {
 
             styles::card_frame().show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                Self::section_header(ui, "🔒", &i18n::t("server.ftps_settings"));
+                if Self::section_header_with_save(
+                    ui,
+                    "🔒",
+                    &i18n::t("server.ftps_settings"),
+                    is_saving,
+                    self.status_message.as_ref(),
+                ) {
+                    config_to_save = Some(config.clone());
+                }
 
                 ui.checkbox(
                     &mut config.ftp.ftps.enabled,
@@ -772,7 +801,15 @@ impl ServerTab {
 
             styles::card_frame().show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                Self::section_header(ui, "🔐", &i18n::t("server.sftp_settings"));
+                if Self::section_header_with_save(
+                    ui,
+                    "🔐",
+                    &i18n::t("server.sftp_settings"),
+                    is_saving,
+                    self.status_message.as_ref(),
+                ) {
+                    config_to_save = Some(config.clone());
+                }
 
                 ui.checkbox(
                     &mut config.sftp.enabled,
