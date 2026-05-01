@@ -1,7 +1,7 @@
 #![windows_subsystem = "windows"]
 
 use eframe::{App, Frame};
-use egui::{CentralPanel, Color32, IconData, RichText};
+use egui::{CentralPanel, IconData, RichText};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tracing_subscriber::layer::SubscriberExt;
@@ -561,11 +561,6 @@ impl App for WftpgApp {
                         for (icon, label, idx) in &tabs {
                             let selected = self.current_tab == *idx;
 
-                            let bg_color = if selected {
-                                Color32::from_rgb(243, 232, 255)
-                            } else {
-                                Color32::TRANSPARENT
-                            };
 
                             let text_color = if selected {
                                 styles::PRIMARY_COLOR
@@ -579,7 +574,6 @@ impl App for WftpgApp {
                                 .color(text_color);
 
                             let btn = egui::Button::new(text)
-                                .fill(bg_color)
                                 .stroke(if selected {
                                     egui::Stroke::new(1.5, styles::PRIMARY_COLOR)
                                 } else {

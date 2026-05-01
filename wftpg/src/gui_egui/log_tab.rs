@@ -356,7 +356,6 @@ impl LogTab {
             let refresh_btn = if self.loading {
                 egui::Button::new(
                     RichText::new(i18n::t("log.refreshing"))
-                        .color(egui::Color32::GRAY)
                         .size(styles::FONT_SIZE_MD),
                 )
                 .fill(styles::BG_SECONDARY)
