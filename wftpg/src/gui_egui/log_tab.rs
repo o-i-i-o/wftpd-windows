@@ -355,8 +355,7 @@ impl LogTab {
             let refresh_text = i18n::t("log.refresh");
             let refresh_btn = if self.loading {
                 egui::Button::new(
-                    RichText::new(i18n::t("log.refreshing"))
-                        .size(styles::FONT_SIZE_MD),
+                    RichText::new(i18n::t("log.refreshing")).size(styles::FONT_SIZE_MD),
                 )
                 .fill(styles::BG_SECONDARY)
                 .corner_radius(egui::CornerRadius::same(6))
@@ -431,92 +430,102 @@ impl LogTab {
                         .inner_margin(egui::Margin::symmetric(8, 4))
                         .show(ui, |ui| {
                             let table = TableBuilder::new(ui)
-                        .striped(true)
-                        .resizable(true)
-                        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                        .column(styles::table_column_percent(available_width, 0.20, 130.0))
-                        .column(styles::table_column_percent(available_width, 0.08, 55.0))
-                        .column(styles::table_column_percent(available_width, 0.08, 55.0))
-                        .column(styles::table_column_percent(available_width, 0.12, 90.0))
-                        .column(styles::table_column_remainder(280.0))
-                        .min_scrolled_height(0.0)
-                        .sense(egui::Sense::hover());
+                                .striped(true)
+                                .resizable(true)
+                                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                                .column(styles::table_column_percent(available_width, 0.20, 130.0))
+                                .column(styles::table_column_percent(available_width, 0.08, 55.0))
+                                .column(styles::table_column_percent(available_width, 0.08, 55.0))
+                                .column(styles::table_column_percent(available_width, 0.12, 90.0))
+                                .column(styles::table_column_remainder(280.0))
+                                .min_scrolled_height(0.0)
+                                .sense(egui::Sense::hover());
 
-                    table
-                        .header(styles::TABLE_HEADER_HEIGHT, |mut header| {
-                            header.col(|ui| {
-                                ui.with_layout(
-                                    egui::Layout::centered_and_justified(
-                                        egui::Direction::LeftToRight,
-                                    ),
-                                    |ui| {
-                                        ui.label(styles::table_header_text(&i18n::t("log.col_time")));
-                                    },
-                                );
-                            });
-                            header.col(|ui| {
-                                ui.with_layout(
-                                    egui::Layout::centered_and_justified(
-                                        egui::Direction::LeftToRight,
-                                    ),
-                                    |ui| {
-                                        ui.label(styles::table_header_text(&i18n::t("log.col_level")));
-                                    },
-                                );
-                            });
-                            header.col(|ui| {
-                                ui.with_layout(
-                                    egui::Layout::centered_and_justified(
-                                        egui::Direction::LeftToRight,
-                                    ),
-                                    |ui| {
-                                        ui.label(styles::table_header_text(&i18n::t("log.col_protocol")));
-                                    },
-                                );
-                            });
-                            header.col(|ui| {
-                                ui.with_layout(
-                                    egui::Layout::centered_and_justified(
-                                        egui::Direction::LeftToRight,
-                                    ),
-                                    |ui| {
-                                        ui.label(styles::table_header_text(&i18n::t("log.col_client")));
-                                    },
-                                );
-                            });
-                            header.col(|ui| {
-                                ui.label(styles::table_header_text(&i18n::t("log.col_message")));
-                            });
-                        })
-                        .body(|mut body| {
-                            for entry in &self.logs {
-                                body.row(styles::FONT_SIZE_MD, |mut row| {
-                                    row.col(|ui| {
+                            table
+                                .header(styles::TABLE_HEADER_HEIGHT, |mut header| {
+                                    header.col(|ui| {
                                         ui.with_layout(
                                             egui::Layout::centered_and_justified(
                                                 egui::Direction::LeftToRight,
                                             ),
                                             |ui| {
-                                                ui.label(
-                                                    RichText::new(
-                                                        entry
-                                                            .timestamp
-                                                            .format("%Y-%m-%d %H:%M:%S")
-                                                            .to_string(),
-                                                    )
-                                                    .size(styles::FONT_SIZE_MD)
-                                                    .color(styles::TEXT_SECONDARY_COLOR),
-                                                );
+                                                ui.label(styles::table_header_text(&i18n::t(
+                                                    "log.col_time",
+                                                )));
                                             },
                                         );
                                     });
-                                    row.col(|ui| {
+                                    header.col(|ui| {
                                         ui.with_layout(
                                             egui::Layout::centered_and_justified(
                                                 egui::Direction::LeftToRight,
                                             ),
                                             |ui| {
-                                                let level_color = match entry.level {
+                                                ui.label(styles::table_header_text(&i18n::t(
+                                                    "log.col_level",
+                                                )));
+                                            },
+                                        );
+                                    });
+                                    header.col(|ui| {
+                                        ui.with_layout(
+                                            egui::Layout::centered_and_justified(
+                                                egui::Direction::LeftToRight,
+                                            ),
+                                            |ui| {
+                                                ui.label(styles::table_header_text(&i18n::t(
+                                                    "log.col_protocol",
+                                                )));
+                                            },
+                                        );
+                                    });
+                                    header.col(|ui| {
+                                        ui.with_layout(
+                                            egui::Layout::centered_and_justified(
+                                                egui::Direction::LeftToRight,
+                                            ),
+                                            |ui| {
+                                                ui.label(styles::table_header_text(&i18n::t(
+                                                    "log.col_client",
+                                                )));
+                                            },
+                                        );
+                                    });
+                                    header.col(|ui| {
+                                        ui.label(styles::table_header_text(&i18n::t(
+                                            "log.col_message",
+                                        )));
+                                    });
+                                })
+                                .body(|mut body| {
+                                    for entry in &self.logs {
+                                        body.row(styles::FONT_SIZE_MD, |mut row| {
+                                            row.col(|ui| {
+                                                ui.with_layout(
+                                                    egui::Layout::centered_and_justified(
+                                                        egui::Direction::LeftToRight,
+                                                    ),
+                                                    |ui| {
+                                                        ui.label(
+                                                            RichText::new(
+                                                                entry
+                                                                    .timestamp
+                                                                    .format("%Y-%m-%d %H:%M:%S")
+                                                                    .to_string(),
+                                                            )
+                                                            .size(styles::FONT_SIZE_MD)
+                                                            .color(styles::TEXT_SECONDARY_COLOR),
+                                                        );
+                                                    },
+                                                );
+                                            });
+                                            row.col(|ui| {
+                                                ui.with_layout(
+                                                    egui::Layout::centered_and_justified(
+                                                        egui::Direction::LeftToRight,
+                                                    ),
+                                                    |ui| {
+                                                        let level_color = match entry.level {
                                                     crate::core::logger::LogLevel::Error => {
                                                         styles::DANGER_COLOR
                                                     }
@@ -528,77 +537,81 @@ impl LogTab {
                                                     }
                                                     _ => styles::SUCCESS_COLOR,
                                                 };
-                                                ui.label(
-                                                    RichText::new(entry.level.to_string())
-                                                        .size(styles::FONT_SIZE_MD)
-                                                        .strong()
-                                                        .color(level_color),
+                                                        ui.label(
+                                                            RichText::new(entry.level.to_string())
+                                                                .size(styles::FONT_SIZE_MD)
+                                                                .strong()
+                                                                .color(level_color),
+                                                        );
+                                                    },
                                                 );
-                                            },
-                                        );
-                                    });
-                                    row.col(|ui| {
-                                        ui.with_layout(
-                                            egui::Layout::centered_and_justified(
-                                                egui::Direction::LeftToRight,
-                                            ),
-                                            |ui| {
-                                                let protocol =
-                                                    entry.fields.protocol.as_deref().unwrap_or("-");
-                                                let protocol_color = match protocol {
-                                                    "FTP" => styles::PRIMARY_COLOR,
-                                                    "SFTP" => styles::INFO_COLOR,
-                                                    _ => styles::TEXT_MUTED_COLOR,
-                                                };
-                                                ui.label(
-                                                    RichText::new(protocol)
-                                                        .size(styles::FONT_SIZE_MD)
-                                                        .strong()
-                                                        .color(protocol_color),
+                                            });
+                                            row.col(|ui| {
+                                                ui.with_layout(
+                                                    egui::Layout::centered_and_justified(
+                                                        egui::Direction::LeftToRight,
+                                                    ),
+                                                    |ui| {
+                                                        let protocol = entry
+                                                            .fields
+                                                            .protocol
+                                                            .as_deref()
+                                                            .unwrap_or("-");
+                                                        let protocol_color = match protocol {
+                                                            "FTP" => styles::PRIMARY_COLOR,
+                                                            "SFTP" => styles::INFO_COLOR,
+                                                            _ => styles::TEXT_MUTED_COLOR,
+                                                        };
+                                                        ui.label(
+                                                            RichText::new(protocol)
+                                                                .size(styles::FONT_SIZE_MD)
+                                                                .strong()
+                                                                .color(protocol_color),
+                                                        );
+                                                    },
                                                 );
-                                            },
-                                        );
-                                    });
-                                    row.col(|ui| {
-                                        ui.with_layout(
-                                            egui::Layout::centered_and_justified(
-                                                egui::Direction::LeftToRight,
-                                            ),
-                                            |ui| {
-                                                let client_ip = entry
-                                                    .fields
-                                                    .client_ip
-                                                    .as_deref()
-                                                    .unwrap_or("-");
-                                                ui.label(
-                                                    RichText::new(client_ip)
-                                                        .size(styles::FONT_SIZE_MD)
-                                                        .color(styles::TEXT_LABEL_COLOR),
+                                            });
+                                            row.col(|ui| {
+                                                ui.with_layout(
+                                                    egui::Layout::centered_and_justified(
+                                                        egui::Direction::LeftToRight,
+                                                    ),
+                                                    |ui| {
+                                                        let client_ip = entry
+                                                            .fields
+                                                            .client_ip
+                                                            .as_deref()
+                                                            .unwrap_or("-");
+                                                        ui.label(
+                                                            RichText::new(client_ip)
+                                                                .size(styles::FONT_SIZE_MD)
+                                                                .color(styles::TEXT_LABEL_COLOR),
+                                                        );
+                                                    },
                                                 );
-                                            },
-                                        );
-                                    });
-                                    row.col(|ui| {
-                                        let translated_msg = i18n::map_log(&entry.fields.message);
-                                        ui.label(
-                                            RichText::new(&translated_msg)
-                                                .size(styles::FONT_SIZE_MD)
-                                                .color(styles::TEXT_PRIMARY_COLOR),
-                                        );
-                                        if let Some(user) = &entry.fields.username {
-                                            ui.label(
-                                                RichText::new(format!("({})", user))
-                                                    .size(styles::FONT_SIZE_SM)
-                                                    .color(styles::TEXT_MUTED_COLOR),
-                                            );
-                                        }
-                                    });
+                                            });
+                                            row.col(|ui| {
+                                                let translated_msg =
+                                                    i18n::map_log(&entry.fields.message);
+                                                ui.label(
+                                                    RichText::new(&translated_msg)
+                                                        .size(styles::FONT_SIZE_MD)
+                                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                                );
+                                                if let Some(user) = &entry.fields.username {
+                                                    ui.label(
+                                                        RichText::new(format!("({})", user))
+                                                            .size(styles::FONT_SIZE_SM)
+                                                            .color(styles::TEXT_MUTED_COLOR),
+                                                    );
+                                                }
+                                            });
+                                        });
+                                        styles::table_draw_row_separator(&mut body, 5);
+                                    }
                                 });
-                                styles::table_draw_row_separator(&mut body, 5);
-                            }
                         });
                 });
-            });
 
             ui.add_space(styles::SPACING_SM);
             ui.horizontal(|ui| {

@@ -621,187 +621,211 @@ impl UserTab {
                 .show(ui, |ui| {
                     let available_width = ui.available_width();
                     let table = TableBuilder::new(ui)
-                .striped(true)
-                .resizable(true)
-                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                .column(styles::table_column_percent(available_width, 0.15, 100.0))
-                .column(styles::table_column_percent(available_width, 0.35, 200.0))
-                .column(styles::table_column_percent(available_width, 0.15, 100.0))
-                .column(styles::table_column_percent(available_width, 0.10, 80.0))
-                .column(styles::table_column_remainder(180.0))
-                .min_scrolled_height(0.0)
-                .sense(egui::Sense::hover());
+                        .striped(true)
+                        .resizable(true)
+                        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                        .column(styles::table_column_percent(available_width, 0.15, 100.0))
+                        .column(styles::table_column_percent(available_width, 0.35, 200.0))
+                        .column(styles::table_column_percent(available_width, 0.15, 100.0))
+                        .column(styles::table_column_percent(available_width, 0.10, 80.0))
+                        .column(styles::table_column_remainder(180.0))
+                        .min_scrolled_height(0.0)
+                        .sense(egui::Sense::hover());
 
-            table
-                .header(styles::TABLE_HEADER_HEIGHT, |mut header| {
-                    header.col(|ui| {
-                        ui.with_layout(
-                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                            |ui| {
-                                ui.label(styles::table_header_text(&i18n::t("users.username")));
-                            },
-                        );
-                    });
-                    header.col(|ui| {
-                        ui.with_layout(
-                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                            |ui| {
-                                ui.label(styles::table_header_text(&i18n::t("users.home_dir")));
-                            },
-                        );
-                    });
-                    header.col(|ui| {
-                        ui.with_layout(
-                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                            |ui| {
-                                ui.label(styles::table_header_text(&i18n::t("users.permissions")));
-                            },
-                        );
-                    });
-                    header.col(|ui| {
-                        ui.with_layout(
-                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                            |ui| {
-                                ui.label(styles::table_header_text(&i18n::t("users.status")));
-                            },
-                        );
-                    });
-                    header.col(|ui| {
-                        ui.label(styles::table_header_text(&i18n::t("users.actions")));
-                    });
-                })
-                .body(|mut body| {
-                    for user in users.values() {
-                        body.row(styles::FONT_SIZE_MD, |mut row| {
-                            row.col(|ui| {
+                    table
+                        .header(styles::TABLE_HEADER_HEIGHT, |mut header| {
+                            header.col(|ui| {
                                 ui.with_layout(
                                     egui::Layout::centered_and_justified(
                                         egui::Direction::LeftToRight,
                                     ),
                                     |ui| {
-                                        ui.label(
-                                            RichText::new(&user.username)
-                                                .size(styles::FONT_SIZE_MD)
-                                                .strong()
-                                                .color(styles::TEXT_PRIMARY_COLOR),
-                                        );
+                                        ui.label(styles::table_header_text(&i18n::t(
+                                            "users.username",
+                                        )));
                                     },
                                 );
                             });
-                            row.col(|ui| {
+                            header.col(|ui| {
                                 ui.with_layout(
                                     egui::Layout::centered_and_justified(
                                         egui::Direction::LeftToRight,
                                     ),
                                     |ui| {
-                                        ui.label(
-                                            RichText::new(&user.home_dir)
-                                                .size(styles::FONT_SIZE_MD)
-                                                .color(styles::TEXT_SECONDARY_COLOR),
-                                        );
+                                        ui.label(styles::table_header_text(&i18n::t(
+                                            "users.home_dir",
+                                        )));
                                     },
                                 );
                             });
-                            row.col(|ui| {
+                            header.col(|ui| {
                                 ui.with_layout(
                                     egui::Layout::centered_and_justified(
                                         egui::Direction::LeftToRight,
                                     ),
                                     |ui| {
-                                        let perm_text = if user.is_admin {
-                                            i18n::t("users.admin")
-                                        } else {
-                                            i18n::t("users.normal")
-                                        };
-                                        let perm_color = if user.is_admin {
-                                            styles::PRIMARY_COLOR
-                                        } else {
-                                            styles::TEXT_MUTED_COLOR
-                                        };
-                                        ui.label(
-                                            RichText::new(perm_text)
-                                                .size(styles::FONT_SIZE_MD)
-                                                .strong()
-                                                .color(perm_color),
-                                        );
+                                        ui.label(styles::table_header_text(&i18n::t(
+                                            "users.permissions",
+                                        )));
                                     },
                                 );
                             });
-                            row.col(|ui| {
+                            header.col(|ui| {
                                 ui.with_layout(
                                     egui::Layout::centered_and_justified(
                                         egui::Direction::LeftToRight,
                                     ),
                                     |ui| {
-                                        let (status_text, status_color) = if user.enabled {
-                                            (i18n::t("users.enabled"), styles::SUCCESS_COLOR)
-                                        } else {
-                                            (i18n::t("users.disabled"), styles::DANGER_COLOR)
-                                        };
-                                        ui.label(
-                                            RichText::new(status_text)
-                                                .size(styles::FONT_SIZE_MD)
-                                                .color(status_color),
-                                        );
+                                        ui.label(styles::table_header_text(&i18n::t(
+                                            "users.status",
+                                        )));
                                     },
                                 );
                             });
-                            row.col(|ui| {
-                                ui.horizontal(|ui| {
-                                    let edit_btn = egui::Button::new(
-                                        RichText::new(i18n::t("users.edit"))
-                                            .size(styles::FONT_SIZE_MD),
-                                    )
-                                    .fill(styles::BG_SECONDARY)
-                                    .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
-                                    .corner_radius(egui::CornerRadius::same(4));
-                                    if ui.add(edit_btn).clicked() {
-                                        to_edit = Some(user.clone());
-                                    }
+                            header.col(|ui| {
+                                ui.label(styles::table_header_text(&i18n::t("users.actions")));
+                            });
+                        })
+                        .body(|mut body| {
+                            for user in users.values() {
+                                body.row(styles::FONT_SIZE_MD, |mut row| {
+                                    row.col(|ui| {
+                                        ui.with_layout(
+                                            egui::Layout::centered_and_justified(
+                                                egui::Direction::LeftToRight,
+                                            ),
+                                            |ui| {
+                                                ui.label(
+                                                    RichText::new(&user.username)
+                                                        .size(styles::FONT_SIZE_MD)
+                                                        .strong()
+                                                        .color(styles::TEXT_PRIMARY_COLOR),
+                                                );
+                                            },
+                                        );
+                                    });
+                                    row.col(|ui| {
+                                        ui.with_layout(
+                                            egui::Layout::centered_and_justified(
+                                                egui::Direction::LeftToRight,
+                                            ),
+                                            |ui| {
+                                                ui.label(
+                                                    RichText::new(&user.home_dir)
+                                                        .size(styles::FONT_SIZE_MD)
+                                                        .color(styles::TEXT_SECONDARY_COLOR),
+                                                );
+                                            },
+                                        );
+                                    });
+                                    row.col(|ui| {
+                                        ui.with_layout(
+                                            egui::Layout::centered_and_justified(
+                                                egui::Direction::LeftToRight,
+                                            ),
+                                            |ui| {
+                                                let perm_text = if user.is_admin {
+                                                    i18n::t("users.admin")
+                                                } else {
+                                                    i18n::t("users.normal")
+                                                };
+                                                let perm_color = if user.is_admin {
+                                                    styles::PRIMARY_COLOR
+                                                } else {
+                                                    styles::TEXT_MUTED_COLOR
+                                                };
+                                                ui.label(
+                                                    RichText::new(perm_text)
+                                                        .size(styles::FONT_SIZE_MD)
+                                                        .strong()
+                                                        .color(perm_color),
+                                                );
+                                            },
+                                        );
+                                    });
+                                    row.col(|ui| {
+                                        ui.with_layout(
+                                            egui::Layout::centered_and_justified(
+                                                egui::Direction::LeftToRight,
+                                            ),
+                                            |ui| {
+                                                let (status_text, status_color) = if user.enabled {
+                                                    (
+                                                        i18n::t("users.enabled"),
+                                                        styles::SUCCESS_COLOR,
+                                                    )
+                                                } else {
+                                                    (
+                                                        i18n::t("users.disabled"),
+                                                        styles::DANGER_COLOR,
+                                                    )
+                                                };
+                                                ui.label(
+                                                    RichText::new(status_text)
+                                                        .size(styles::FONT_SIZE_MD)
+                                                        .color(status_color),
+                                                );
+                                            },
+                                        );
+                                    });
+                                    row.col(|ui| {
+                                        ui.horizontal(|ui| {
+                                            let edit_btn = egui::Button::new(
+                                                RichText::new(i18n::t("users.edit"))
+                                                    .size(styles::FONT_SIZE_MD),
+                                            )
+                                            .fill(styles::BG_SECONDARY)
+                                            .stroke(egui::Stroke::new(1.0, styles::BORDER_COLOR))
+                                            .corner_radius(egui::CornerRadius::same(4));
+                                            if ui.add(edit_btn).clicked() {
+                                                to_edit = Some(user.clone());
+                                            }
 
-                                    let toggle_text = if user.enabled {
-                                        i18n::t("users.disable")
-                                    } else {
-                                        i18n::t("users.enable")
-                                    };
-                                    let toggle_btn = egui::Button::new(
-                                        RichText::new(&toggle_text).size(styles::FONT_SIZE_MD),
-                                    )
-                                    .fill(if user.enabled {
-                                        styles::DANGER_LIGHT
-                                    } else {
-                                        styles::SUCCESS_LIGHT
-                                    })
-                                    .stroke(egui::Stroke::new(
-                                        1.0,
-                                        if user.enabled {
-                                            styles::DANGER_COLOR
-                                        } else {
-                                            styles::SUCCESS_COLOR
-                                        },
-                                    ))
-                                    .corner_radius(egui::CornerRadius::same(4));
-                                    if ui.add(toggle_btn).clicked() {
-                                        to_toggle = Some((user.username.clone(), !user.enabled));
-                                    }
+                                            let toggle_text = if user.enabled {
+                                                i18n::t("users.disable")
+                                            } else {
+                                                i18n::t("users.enable")
+                                            };
+                                            let toggle_btn = egui::Button::new(
+                                                RichText::new(&toggle_text)
+                                                    .size(styles::FONT_SIZE_MD),
+                                            )
+                                            .fill(if user.enabled {
+                                                styles::DANGER_LIGHT
+                                            } else {
+                                                styles::SUCCESS_LIGHT
+                                            })
+                                            .stroke(egui::Stroke::new(
+                                                1.0,
+                                                if user.enabled {
+                                                    styles::DANGER_COLOR
+                                                } else {
+                                                    styles::SUCCESS_COLOR
+                                                },
+                                            ))
+                                            .corner_radius(egui::CornerRadius::same(4));
+                                            if ui.add(toggle_btn).clicked() {
+                                                to_toggle =
+                                                    Some((user.username.clone(), !user.enabled));
+                                            }
 
-                                    let del = egui::Button::new(
-                                        RichText::new(i18n::t("users.delete"))
-                                            .size(styles::FONT_SIZE_MD)
-                                            .color(Color32::WHITE),
-                                    )
-                                    .fill(styles::DANGER_DARK)
-                                    .corner_radius(egui::CornerRadius::same(4));
-                                    if ui.add(del).clicked() {
-                                        to_delete_confirm = Some(user.username.clone());
-                                    }
+                                            let del = egui::Button::new(
+                                                RichText::new(i18n::t("users.delete"))
+                                                    .size(styles::FONT_SIZE_MD)
+                                                    .color(Color32::WHITE),
+                                            )
+                                            .fill(styles::DANGER_DARK)
+                                            .corner_radius(egui::CornerRadius::same(4));
+                                            if ui.add(del).clicked() {
+                                                to_delete_confirm = Some(user.username.clone());
+                                            }
+                                        });
+                                    });
                                 });
-                            });
+                                styles::table_draw_row_separator(&mut body, 5);
+                            }
                         });
-                        styles::table_draw_row_separator(&mut body, 5);
-                    }
                 });
-            });
         });
 
         if let Some(u) = to_edit {

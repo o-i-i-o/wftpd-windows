@@ -464,8 +464,7 @@ impl SecurityTab {
                 let save_text = i18n::t("security.save_config");
                 let save_btn = if self.is_saving {
                     egui::Button::new(
-                        RichText::new(i18n::t("security.saving"))
-                            .size(styles::FONT_SIZE_MD),
+                        RichText::new(i18n::t("security.saving")).size(styles::FONT_SIZE_MD),
                     )
                     .fill(styles::BG_SECONDARY)
                     .corner_radius(egui::CornerRadius::same(6))

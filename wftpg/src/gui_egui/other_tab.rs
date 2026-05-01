@@ -79,10 +79,7 @@ impl OtherTab {
                                     ))
                                 }
                             }
-                            Err(e) => Ok(i18n::t_fmt(
-                                "server.config_saved_notify_failed",
-                                &[&e],
-                            )),
+                            Err(e) => Ok(i18n::t_fmt("server.config_saved_notify_failed", &[&e])),
                         }
                     } else {
                         Ok(i18n::t("server.config_saved_not_running"))
@@ -136,8 +133,7 @@ impl OtherTab {
                     let save_text = i18n::t("server.save_config");
                     let save_btn = if is_saving {
                         egui::Button::new(
-                            RichText::new(i18n::t("server.saving"))
-                                .size(styles::FONT_SIZE_MD),
+                            RichText::new(i18n::t("server.saving")).size(styles::FONT_SIZE_MD),
                         )
                         .fill(styles::BG_SECONDARY)
                         .corner_radius(egui::CornerRadius::same(6))

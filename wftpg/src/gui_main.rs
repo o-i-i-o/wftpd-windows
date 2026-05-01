@@ -562,7 +562,6 @@ impl App for WftpgApp {
                         for (icon, label, idx) in &tabs {
                             let selected = self.current_tab == *idx;
 
-
                             let text_color = if selected {
                                 styles::PRIMARY_COLOR
                             } else {

@@ -204,8 +204,7 @@ impl ServerTab {
                 let save_text = i18n::t("server.save_config");
                 let save_btn = if is_saving {
                     egui::Button::new(
-                        egui::RichText::new(i18n::t("server.saving"))
-                            .size(styles::FONT_SIZE_MD),
+                        egui::RichText::new(i18n::t("server.saving")).size(styles::FONT_SIZE_MD),
                     )
                     .fill(styles::BG_SECONDARY)
                     .corner_radius(egui::CornerRadius::same(6))

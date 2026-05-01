@@ -1,7 +1,6 @@
 //! Configuration type definitions
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Debug, Serialize, Deserialize)]

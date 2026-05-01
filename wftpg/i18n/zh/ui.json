@@ -127,7 +127,7 @@
   "server.key_exists": "√ 私钥文件已存在",
   "server.key_not_exists": "⚠ 私钥文件不存在",
   "server.key_not_configured": "⚠ 私钥文件未配置",
-  "server.sftp_port_hint": "(建议 2222)",
+  "server.sftp_port_hint": "(注意SSHD端口冲突)",
   "server.host_key_auto_gen": "ℹ 文件不存在，启动时将自动生成",
   "server.security_enhancement": "安全增强",
   "server.max_sessions_per_user_hint": "限制单个用户同时连接的会话数量",
