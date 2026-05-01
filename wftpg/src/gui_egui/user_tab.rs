@@ -549,12 +549,25 @@ impl UserTab {
 
         self.show_modal(&ctx);
 
+        let users_count = self.user_manager.get_users().len();
+
         ui.horizontal(|ui| {
             if ui
                 .add(styles::primary_button(&i18n::t("users.add_user")))
                 .clicked()
             {
                 self.open_add_modal();
+            }
+
+            if users_count > 0 {
+                ui.label(
+                    RichText::new(i18n::t_fmt(
+                        "users.total_users",
+                        &[&users_count.to_string()],
+                    ))
+                    .size(styles::FONT_SIZE_MD)
+                    .color(styles::TEXT_MUTED_COLOR),
+                );
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -593,14 +606,6 @@ impl UserTab {
             return;
         }
 
-        ui.label(
-            RichText::new(i18n::t_fmt(
-                "users.total_users",
-                &[&users.len().to_string()],
-            ))
-            .size(styles::FONT_SIZE_MD)
-            .color(styles::TEXT_MUTED_COLOR),
-        );
         ui.add_space(styles::SPACING_SM);
 
         let mut to_edit: Option<User> = None;
