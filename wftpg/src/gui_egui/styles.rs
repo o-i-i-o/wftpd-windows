@@ -9,6 +9,7 @@ pub const FONT_SIZE_LG: f32 = BASE_FONT_SIZE * FONT_SCALE * 1.29;
 pub const FONT_SIZE_MD: f32 = BASE_FONT_SIZE * FONT_SCALE * 1.07;
 pub const FONT_SIZE_SM: f32 = BASE_FONT_SIZE * FONT_SCALE * 0.93;
 pub const FONT_SIZE_XS: f32 = BASE_FONT_SIZE * FONT_SCALE * 0.79;
+pub const FONT_SIZE_TABLE_HEADER: f32 = BASE_FONT_SIZE * FONT_SCALE * 1.14;
 
 pub const PRIMARY_COLOR: Color32 = Color32::from_rgb(108, 92, 231);
 pub const PRIMARY_LIGHT: Color32 = Color32::from_rgb(139, 92, 246);
@@ -44,6 +45,7 @@ pub const SPACING_LG: f32 = 16.0;
 pub const SPACING_MD: f32 = 12.0;
 pub const SPACING_SM: f32 = 8.0;
 pub const SPACING_XS: f32 = 4.0;
+pub const TABLE_HEADER_HEIGHT: f32 = 28.0;
 
 pub fn get_custom_style() -> Style {
     let mut style = Style::default();
@@ -349,4 +351,11 @@ pub fn table_draw_row_separator(body: &mut egui_extras::TableBody, col_count: us
             });
         }
     });
+}
+
+pub fn table_header_text(text: &str) -> RichText {
+    RichText::new(text)
+        .size(FONT_SIZE_TABLE_HEADER)
+        .strong()
+        .color(TEXT_PRIMARY_COLOR)
 }

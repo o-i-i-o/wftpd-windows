@@ -422,16 +422,12 @@ impl FileLogTab {
                 .sense(egui::Sense::hover());
 
             table
-                .header(styles::FONT_SIZE_XL, |mut header| {
+                .header(styles::TABLE_HEADER_HEIGHT, |mut header| {
                     header.col(|ui| {
                         ui.with_layout(
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
-                                ui.label(
-                                    RichText::new(i18n::t("file_log.col_time"))
-                                        .strong()
-                                        .color(styles::TEXT_PRIMARY_COLOR),
-                                );
+                                ui.label(styles::table_header_text(&i18n::t("file_log.col_time")));
                             },
                         );
                     });
@@ -439,11 +435,7 @@ impl FileLogTab {
                         ui.with_layout(
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
-                                ui.label(
-                                    RichText::new(i18n::t("file_log.col_user"))
-                                        .strong()
-                                        .color(styles::TEXT_PRIMARY_COLOR),
-                                );
+                                ui.label(styles::table_header_text(&i18n::t("file_log.col_user")));
                             },
                         );
                     });
@@ -451,11 +443,7 @@ impl FileLogTab {
                         ui.with_layout(
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
-                                ui.label(
-                                    RichText::new(i18n::t("file_log.col_client"))
-                                        .strong()
-                                        .color(styles::TEXT_PRIMARY_COLOR),
-                                );
+                                ui.label(styles::table_header_text(&i18n::t("file_log.col_client")));
                             },
                         );
                     });
@@ -463,11 +451,7 @@ impl FileLogTab {
                         ui.with_layout(
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
-                                ui.label(
-                                    RichText::new(i18n::t("file_log.col_protocol"))
-                                        .strong()
-                                        .color(styles::TEXT_PRIMARY_COLOR),
-                                );
+                                ui.label(styles::table_header_text(&i18n::t("file_log.col_protocol")));
                             },
                         );
                     });
@@ -475,11 +459,7 @@ impl FileLogTab {
                         ui.with_layout(
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
-                                ui.label(
-                                    RichText::new(i18n::t("file_log.col_operation"))
-                                        .strong()
-                                        .color(styles::TEXT_PRIMARY_COLOR),
-                                );
+                                ui.label(styles::table_header_text(&i18n::t("file_log.col_operation")));
                             },
                         );
                     });
@@ -487,20 +467,12 @@ impl FileLogTab {
                         ui.with_layout(
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
-                                ui.label(
-                                    RichText::new(i18n::t("file_log.col_size"))
-                                        .strong()
-                                        .color(styles::TEXT_PRIMARY_COLOR),
-                                );
+                                ui.label(styles::table_header_text(&i18n::t("file_log.col_size")));
                             },
                         );
                     });
                     header.col(|ui| {
-                        ui.label(
-                            RichText::new(i18n::t("file_log.col_file_path"))
-                                .strong()
-                                .color(styles::TEXT_PRIMARY_COLOR),
-                        );
+                        ui.label(styles::table_header_text(&i18n::t("file_log.col_file_path")));
                     });
                 })
                 .body(|mut body| {

@@ -633,16 +633,12 @@ impl UserTab {
                 .sense(egui::Sense::hover());
 
             table
-                .header(styles::FONT_SIZE_XL, |mut header| {
+                .header(styles::TABLE_HEADER_HEIGHT, |mut header| {
                     header.col(|ui| {
                         ui.with_layout(
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
-                                ui.label(
-                                    RichText::new(i18n::t("users.username"))
-                                        .strong()
-                                        .color(styles::TEXT_PRIMARY_COLOR),
-                                );
+                                ui.label(styles::table_header_text(&i18n::t("users.username")));
                             },
                         );
                     });
@@ -650,11 +646,7 @@ impl UserTab {
                         ui.with_layout(
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
-                                ui.label(
-                                    RichText::new(i18n::t("users.home_dir"))
-                                        .strong()
-                                        .color(styles::TEXT_PRIMARY_COLOR),
-                                );
+                                ui.label(styles::table_header_text(&i18n::t("users.home_dir")));
                             },
                         );
                     });
@@ -662,11 +654,7 @@ impl UserTab {
                         ui.with_layout(
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
-                                ui.label(
-                                    RichText::new(i18n::t("users.permissions"))
-                                        .strong()
-                                        .color(styles::TEXT_PRIMARY_COLOR),
-                                );
+                                ui.label(styles::table_header_text(&i18n::t("users.permissions")));
                             },
                         );
                     });
@@ -674,20 +662,12 @@ impl UserTab {
                         ui.with_layout(
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
-                                ui.label(
-                                    RichText::new(i18n::t("users.status"))
-                                        .strong()
-                                        .color(styles::TEXT_PRIMARY_COLOR),
-                                );
+                                ui.label(styles::table_header_text(&i18n::t("users.status")));
                             },
                         );
                     });
                     header.col(|ui| {
-                        ui.label(
-                            RichText::new(i18n::t("users.actions"))
-                                .strong()
-                                .color(styles::TEXT_PRIMARY_COLOR),
-                        );
+                        ui.label(styles::table_header_text(&i18n::t("users.actions")));
                     });
                 })
                 .body(|mut body| {
