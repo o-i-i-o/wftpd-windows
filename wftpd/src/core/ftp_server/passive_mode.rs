@@ -3,10 +3,10 @@
 //! Handles the logic for determining the IP address to return in PASV responses.
 //! Priority: UPnP external IP > Masquerade address > Connection-based IP
 //!
-//! ## IPv6 Considerations
-//! - PASV (RFC 959) only supports IPv4 addresses in the response format
-//! - EPSV (RFC 2428) should be used for IPv6 connections - it returns only the port
-//! - When server is bound to IPv6 and client sends PASV, we need to handle this gracefully
+//! ## PASV vs EPSV
+//! - PASV (RFC 959) returns IP address and port in the response
+//! - EPSV (RFC 2428) returns only the port, no IP address
+//! - The choice between PASV and EPSV is entirely up to the client
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -94,7 +94,6 @@ pub fn classify_connection_source(client_ip: &IpAddr) -> ConnectionSource {
 pub struct PassiveAddressResult {
     pub address: Ipv4Addr,
     pub source: PassiveAddressSource,
-    pub use_epsv_recommended: bool,
 }
 
 pub fn select_passive_address(
@@ -112,7 +111,6 @@ pub fn select_passive_address(
         return PassiveAddressResult {
             address: upnp_ip,
             source: PassiveAddressSource::Upnp,
-            use_epsv_recommended: false,
         };
     }
 
@@ -126,7 +124,6 @@ pub fn select_passive_address(
         return PassiveAddressResult {
             address: masq_ip,
             source: PassiveAddressSource::Masquerade,
-            use_epsv_recommended: false,
         };
     }
 
@@ -145,19 +142,17 @@ pub fn select_passive_address(
             PassiveAddressResult {
                 address: bind_ipv4,
                 source: PassiveAddressSource::BindAddress,
-                use_epsv_recommended: false,
             }
         }
         BindAddressType::SpecificIpv6 => {
             let fallback_ip = find_ipv4_fallback(&config.server_local_ips, &client_ip);
             tracing::info!(
-                "Passive mode: IPv6-only bind, using IPv4 fallback {} (IPv6 clients should use EPSV)",
+                "Passive mode: IPv6-only bind, using IPv4 fallback {}",
                 fallback_ip
             );
             PassiveAddressResult {
                 address: fallback_ip,
                 source: PassiveAddressSource::Ipv6Fallback,
-                use_epsv_recommended: matches!(client_ip, IpAddr::V6(_)),
             }
         }
         BindAddressType::Wildcard => handle_wildcard_bind(config, &client_ip, connection_local_ip),
@@ -177,7 +172,6 @@ fn handle_wildcard_bind(
             PassiveAddressResult {
                 address: Ipv4Addr::new(127, 0, 0, 1),
                 source: PassiveAddressSource::Loopback,
-                use_epsv_recommended: false,
             }
         }
         ConnectionSource::PrivateNetwork => {
@@ -189,7 +183,6 @@ fn handle_wildcard_bind(
                 PassiveAddressResult {
                     address: local_ip,
                     source: PassiveAddressSource::Private,
-                    use_epsv_recommended: false,
                 }
             } else {
                 let fallback = find_matching_local_ip(&config.server_local_ips, client_source);
@@ -200,7 +193,6 @@ fn handle_wildcard_bind(
                 PassiveAddressResult {
                     address: fallback,
                     source: PassiveAddressSource::Private,
-                    use_epsv_recommended: false,
                 }
             }
         }
@@ -213,7 +205,6 @@ fn handle_wildcard_bind(
                 PassiveAddressResult {
                     address: local_ip,
                     source: PassiveAddressSource::Public,
-                    use_epsv_recommended: false,
                 }
             } else {
                 let fallback = find_matching_local_ip(&config.server_local_ips, client_source);
@@ -224,7 +215,6 @@ fn handle_wildcard_bind(
                 PassiveAddressResult {
                     address: fallback,
                     source: PassiveAddressSource::Public,
-                    use_epsv_recommended: matches!(client_ip, IpAddr::V6(_)),
                 }
             }
         }
@@ -291,7 +281,6 @@ pub struct PassiveModeInfo {
     pub pasv_response_ip: Ipv4Addr,
     pub address_source: PassiveAddressSource,
     pub connection_source: Option<ConnectionSource>,
-    pub use_epsv_recommended: bool,
 }
 
 pub fn build_passive_mode_info(
@@ -312,7 +301,6 @@ pub fn build_passive_mode_info(
         pasv_response_ip: result.address,
         address_source: result.source,
         connection_source,
-        use_epsv_recommended: result.use_epsv_recommended,
     }
 }
 
@@ -665,7 +653,6 @@ mod tests {
         );
         assert_eq!(result.address, Ipv4Addr::new(192, 168, 1, 100));
         assert_eq!(result.source, PassiveAddressSource::Ipv6Fallback);
-        assert!(result.use_epsv_recommended);
     }
 
     #[test]
