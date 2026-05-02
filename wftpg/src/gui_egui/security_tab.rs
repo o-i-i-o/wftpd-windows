@@ -439,7 +439,15 @@ impl SecurityTab {
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(styles::save_button(self.is_saving, &i18n::t("security.save_config"), &i18n::t("security.saving"))).clicked() && !self.is_saving {
+                    if ui
+                        .add(styles::save_button(
+                            self.is_saving,
+                            &i18n::t("security.save_config"),
+                            &i18n::t("security.saving"),
+                        ))
+                        .clicked()
+                        && !self.is_saving
+                    {
                         self.save_async(ui.ctx());
                     }
 
@@ -684,7 +692,15 @@ impl SecurityTab {
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(styles::save_button(self.is_saving, &i18n::t("security.save_config"), &i18n::t("security.saving"))).clicked() && !self.is_saving {
+                    if ui
+                        .add(styles::save_button(
+                            self.is_saving,
+                            &i18n::t("security.save_config"),
+                            &i18n::t("security.saving"),
+                        ))
+                        .clicked()
+                        && !self.is_saving
+                    {
                         self.save_async(ui.ctx());
                     }
 

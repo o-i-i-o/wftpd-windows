@@ -201,7 +201,15 @@ impl ServerTab {
             );
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.add(styles::save_button(is_saving, &i18n::t("server.save_config"), &i18n::t("server.saving"))).clicked() && !is_saving {
+                if ui
+                    .add(styles::save_button(
+                        is_saving,
+                        &i18n::t("server.save_config"),
+                        &i18n::t("server.saving"),
+                    ))
+                    .clicked()
+                    && !is_saving
+                {
                     clicked = true;
                 }
 
@@ -849,7 +857,8 @@ impl ServerTab {
                         );
                     });
                     if ui.button(i18n::t("server.browse")).clicked()
-                        && let Some(path) = styles::pick_file(&i18n::t("server.select_host_key_file"))
+                        && let Some(path) =
+                            styles::pick_file(&i18n::t("server.select_host_key_file"))
                     {
                         host_key_path = path.to_string_lossy().to_string();
                     }

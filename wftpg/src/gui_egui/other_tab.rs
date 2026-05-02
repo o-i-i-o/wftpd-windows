@@ -168,7 +168,15 @@ impl OtherTab {
                     );
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.add(styles::save_button(is_saving, &i18n::t("server.save_config"), &i18n::t("server.saving"))).clicked() && !is_saving {
+                        if ui
+                            .add(styles::save_button(
+                                is_saving,
+                                &i18n::t("server.save_config"),
+                                &i18n::t("server.saving"),
+                            ))
+                            .clicked()
+                            && !is_saving
+                        {
                             config_to_save = Some(config.clone());
                         }
 

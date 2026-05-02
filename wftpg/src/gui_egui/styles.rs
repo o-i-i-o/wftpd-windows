@@ -368,7 +368,12 @@ pub fn pick_file(title: &str) -> Option<std::path::PathBuf> {
     rfd::FileDialog::new().set_title(title).pick_file()
 }
 
-pub fn format_elapsed_time(elapsed: std::time::Duration, sec_key: &str, min_key: &str, hr_key: &str) -> String {
+pub fn format_elapsed_time(
+    elapsed: std::time::Duration,
+    sec_key: &str,
+    min_key: &str,
+    hr_key: &str,
+) -> String {
     if elapsed < std::time::Duration::from_secs(60) {
         crate::core::i18n::t_fmt(sec_key, &[&elapsed.as_secs().to_string()])
     } else if elapsed < std::time::Duration::from_secs(3600) {
@@ -389,7 +394,11 @@ pub fn form_error_hint(ui: &mut egui::Ui, label_width: f32, err: &str) {
     });
 }
 
-pub fn save_button<'a>(is_saving: bool, save_text: &'a str, saving_text: &'a str) -> egui::Button<'a> {
+pub fn save_button<'a>(
+    is_saving: bool,
+    save_text: &'a str,
+    saving_text: &'a str,
+) -> egui::Button<'a> {
     if is_saving {
         egui::Button::new(RichText::new(saving_text).size(FONT_SIZE_MD))
             .fill(BG_SECONDARY)

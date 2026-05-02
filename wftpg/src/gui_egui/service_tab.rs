@@ -125,9 +125,7 @@ impl ServiceTab {
         std::thread::spawn(move || {
             let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(op)) {
                 Ok(Ok(_)) => OperationResult::Success(success_msg),
-                Ok(Err(e)) => {
-                    OperationResult::Error(i18n::t_fmt(&failed_key, &[&e.to_string()]))
-                }
+                Ok(Err(e)) => OperationResult::Error(i18n::t_fmt(&failed_key, &[&e.to_string()])),
                 Err(_) => OperationResult::Error(i18n::t(&unknown_error_key)),
             };
             if let Err(e) = tx.send(result) {
