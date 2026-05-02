@@ -70,7 +70,6 @@ impl FileLogTab {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         self.watcher.check_events(&ctx);
-        self.watcher.process_refresh();
 
         let log_count = self.watcher.logs().len();
         let last_refresh = self.format_last_refresh();

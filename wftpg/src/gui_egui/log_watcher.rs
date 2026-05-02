@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 const MAX_DISPLAY_LOGS: usize = 500;
 const INITIAL_FETCH_COUNT: usize = 100;
+const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 pub struct LogFileWatcher {
     log_dir: PathBuf,
@@ -19,9 +20,8 @@ pub struct LogFileWatcher {
     current_log_file: Option<PathBuf>,
     watcher: Option<RecommendedWatcher>,
     rx: Option<Receiver<Result<Event, notify::Error>>>,
-    needs_refresh: bool,
-    last_event_time: Option<Instant>,
     last_refresh_time: Option<Instant>,
+    last_poll_time: Option<Instant>,
 }
 
 impl LogFileWatcher {
@@ -39,15 +39,15 @@ impl LogFileWatcher {
             current_log_file: None,
             watcher: None,
             rx: None,
-            needs_refresh: false,
-            last_event_time: None,
             last_refresh_time: None,
+            last_poll_time: None,
         }
     }
 
     pub fn init(&mut self) {
         self.init_watcher();
         self.full_reload();
+        self.last_poll_time = Some(Instant::now());
     }
 
     fn init_watcher(&mut self) {
@@ -64,20 +64,16 @@ impl LogFileWatcher {
 
         match watcher_result {
             Ok(mut watcher) => {
-                self.try_watch_dir(&mut watcher);
+                if self.log_dir.exists() {
+                    if let Err(e) = watcher.watch(&self.log_dir, RecursiveMode::NonRecursive) {
+                        tracing::warn!("Failed to watch log directory: {}", e);
+                    }
+                }
                 self.watcher = Some(watcher);
                 self.rx = Some(rx);
             }
             Err(e) => {
                 tracing::error!("Failed to create log watcher: {}", e);
-            }
-        }
-    }
-
-    fn try_watch_dir(&mut self, watcher: &mut RecommendedWatcher) {
-        if self.log_dir.exists() {
-            if let Err(e) = watcher.watch(&self.log_dir, RecursiveMode::NonRecursive) {
-                tracing::warn!("Failed to watch log directory: {}", e);
             }
         }
     }
@@ -92,18 +88,16 @@ impl LogFileWatcher {
             return;
         }
 
-        let Some(rx) = &self.rx else {
-            return;
-        };
+        let mut has_file_event = false;
 
-        let mut event_count = 0;
-        while let Ok(result) = rx.try_recv() {
-            event_count += 1;
-            if event_count > 10 {
-                break;
-            }
-            match result {
-                Ok(event) => {
+        if let Some(rx) = &self.rx {
+            let mut event_count = 0;
+            while let Ok(result) = rx.try_recv() {
+                event_count += 1;
+                if event_count > 10 {
+                    break;
+                }
+                if let Ok(event) = result {
                     for path in &event.paths {
                         if path.extension().is_some_and(|ext| ext == "log")
                             && path
@@ -111,50 +105,39 @@ impl LogFileWatcher {
                                 .and_then(|n| n.to_str())
                                 .is_some_and(|n| n.starts_with(self.file_prefix))
                         {
-                            if self
-                                .last_event_time
-                                .is_none_or(|t| t.elapsed() >= Duration::from_millis(100))
-                            {
-                                self.needs_refresh = true;
-                                self.last_event_time = Some(Instant::now());
-                                ctx.request_repaint();
-                            }
+                            has_file_event = true;
                             break;
                         }
                     }
                 }
-                Err(e) => {
-                    tracing::warn!("Log watcher error: {}", e);
-                }
             }
         }
-    }
 
-    pub fn process_refresh(&mut self) {
-        if !self.needs_refresh {
-            return;
+        let should_poll = self
+            .last_poll_time
+            .is_none_or(|t| t.elapsed() >= POLL_INTERVAL);
+
+        if has_file_event || should_poll {
+            self.last_poll_time = Some(Instant::now());
+
+            let rotated = self.detect_log_rotation();
+            if rotated {
+                self.full_reload();
+            } else {
+                self.incremental_read();
+            }
+
+            ctx.request_repaint();
         }
-        self.needs_refresh = false;
-
-        if self.detect_log_rotation() {
-            self.full_reload();
-            return;
-        }
-
-        self.incremental_read();
     }
 
     fn detect_log_rotation(&mut self) -> bool {
         let latest = self.find_latest_log_file();
         match (&self.current_log_file, &latest) {
-            (Some(current), Some(latest)) if current != latest => {
-                tracing::debug!("Log rotation detected: {:?} -> {:?}", current, latest);
-                return true;
-            }
-            (None, Some(_)) => return true,
-            _ => {}
+            (Some(current), Some(latest)) if current != latest => true,
+            (None, Some(_)) => true,
+            _ => false,
         }
-        false
     }
 
     fn find_latest_log_file(&self) -> Option<PathBuf> {
