@@ -85,7 +85,6 @@
   "server.connection_timeout": "连接超时",
   "server.idle_timeout": "空闲超时",
   "server.hide_version": "隐藏版本信息",
-  "server.upnp_enabled": "启用 UPnP",
   "server.sftp_log_level": "SFTP 日志级别",
   "server.max_sessions_per_user": "每用户最大会话数",
   "server.host_key_rotation_days": "主机密钥轮换 (天)",

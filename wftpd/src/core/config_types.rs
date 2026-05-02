@@ -151,8 +151,6 @@ pub struct FtpConfig {
     pub hide_version_info: bool,
     #[serde(default)]
     pub ftps: FtpsConfig,
-    #[serde(default = "default_upnp_enabled")]
-    pub upnp_enabled: bool,
     #[serde(default = "default_pooled_listener_mode")]
     pub pooled_listener_mode: bool,
     #[serde(default = "default_allow_nat_clients")]
@@ -207,10 +205,6 @@ pub fn default_anonymous_home() -> Option<String> {
 
 pub fn default_masquerade_address() -> Option<String> {
     Some("".to_string())
-}
-
-pub fn default_upnp_enabled() -> bool {
-    false
 }
 
 pub fn default_pooled_listener_mode() -> bool {

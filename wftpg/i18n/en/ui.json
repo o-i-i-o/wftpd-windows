@@ -85,7 +85,6 @@
   "server.connection_timeout": "Connection Timeout",
   "server.idle_timeout": "Idle Timeout",
   "server.hide_version": "Hide Version Info",
-  "server.upnp_enabled": "Enable UPnP",
   "server.sftp_log_level": "SFTP Log Level",
   "server.max_sessions_per_user": "Max Sessions Per User",
   "server.host_key_rotation_days": "Host Key Rotation (days)",

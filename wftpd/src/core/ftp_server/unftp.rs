@@ -2,7 +2,6 @@
 //!
 //! Provides FTP/FTPS server with:
 //! - Shared UserManager, QuotaManager, Fail2BanManager
-//! - UPnP port mapping support
 //! - Unified tracing logging
 //! - Graceful shutdown support
 //! - Per-user home directory support via unftp-sbe-rooter
@@ -27,9 +26,8 @@ use crate::core::users::UserManager;
 
 use super::auth::{SessionTracker, WftpdAuthenticator, WftpdUser, WftpdUserDetailProvider};
 use super::cert_gen;
-use super::passive_mode::{format_listen_addresses, get_local_ipv4_addresses, is_wildcard_bind};
-use super::upnp_manager::UpnpManager;
-use super::{FtpDataListener, FtpPresenceListener, QuotaFilesystem, UpnpBinderBuilder};
+use super::passive_mode::format_listen_addresses;
+use super::{FtpDataListener, FtpPresenceListener, QuotaFilesystem};
 
 struct FtpServerConfig {
     bind_ip: String,
@@ -42,7 +40,6 @@ struct FtpServerConfig {
     ftps_key_path: Option<String>,
     ftps_require_ssl: bool,
     pooled_listener_mode: bool,
-    upnp_enabled: bool,
     masquerade_address: Option<String>,
     allow_nat_clients: bool,
     ftp_root: Option<String>,
@@ -52,7 +49,6 @@ struct FtpServerResources {
     user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
     fail2ban_manager: Arc<Fail2BanManager>,
-    upnp_manager: Arc<UpnpManager>,
     session_tracker: Arc<SessionTracker>,
     users_path: std::path::PathBuf,
     config: Arc<Mutex<Config>>,
@@ -65,7 +61,6 @@ pub struct FtpServer {
     user_manager: Arc<Mutex<UserManager>>,
     quota_manager: Arc<QuotaManager>,
     fail2ban_manager: Arc<Fail2BanManager>,
-    upnp_manager: Arc<UpnpManager>,
     session_tracker: Arc<SessionTracker>,
     running: Arc<Mutex<bool>>,
     shutdown_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
@@ -86,18 +81,11 @@ impl FtpServer {
         };
         let fail2ban_manager = Arc::new(Fail2BanManager::new(fail2ban_config_inner));
 
-        let upnp_enabled = {
-            let cfg = config.lock();
-            cfg.ftp.upnp_enabled
-        };
-        let upnp_manager = Arc::new(UpnpManager::new(upnp_enabled));
-
         FtpServer {
             config,
             user_manager,
             quota_manager: Arc::new(quota_manager),
             fail2ban_manager,
-            upnp_manager,
             session_tracker: Arc::new(SessionTracker::new()),
             running: Arc::new(Mutex::new(false)),
             shutdown_tx: Arc::new(TokioMutex::new(None)),
@@ -130,7 +118,6 @@ impl FtpServer {
                 ftps_key_path: cfg.ftp.ftps.key_path.clone(),
                 ftps_require_ssl: cfg.ftp.ftps.require_ssl,
                 pooled_listener_mode: cfg.ftp.pooled_listener_mode,
-                upnp_enabled: cfg.ftp.upnp_enabled,
                 masquerade_address: cfg.ftp.masquerade_address.clone(),
                 allow_nat_clients: cfg.ftp.allow_nat_clients,
                 ftp_root: cfg.ftp.ftp_root.clone(),
@@ -139,10 +126,9 @@ impl FtpServer {
 
         let listen_info = format_listen_addresses(&server_config.bind_ip, server_config.ftp_port);
         tracing::info!(
-            "FTP server starting - listening on {} (allow_nat_clients: {}, upnp_enabled: {})",
+            "FTP server starting - listening on {} (allow_nat_clients: {})",
             listen_info,
-            server_config.allow_nat_clients,
-            server_config.upnp_enabled
+            server_config.allow_nat_clients
         );
 
         Arc::clone(&self.fail2ban_manager).start_cleanup_task();
@@ -157,7 +143,6 @@ impl FtpServer {
             user_manager: Arc::clone(&self.user_manager),
             quota_manager: Arc::clone(&self.quota_manager),
             fail2ban_manager: Arc::clone(&self.fail2ban_manager),
-            upnp_manager: Arc::clone(&self.upnp_manager),
             session_tracker: Arc::clone(&self.session_tracker),
             users_path: get_program_data_path().join("users.json"),
             config: Arc::clone(&self.config),
@@ -201,12 +186,6 @@ impl FtpServer {
                 fallback_root
             ));
         }
-
-        if let Err(e) = resources.upnp_manager.initialize().await {
-            tracing::warn!("UPnP initialization failed: {}", e);
-        }
-
-        let local_ip = Self::get_local_ip_for_bind(&config.bind_ip);
 
         let user_mgr_clone = Arc::clone(&resources.user_manager);
         let quota_mgr_clone = Arc::clone(&resources.quota_manager);
@@ -288,12 +267,6 @@ impl FtpServer {
             server_builder = server_builder.pooled_listener_mode();
         }
 
-        let upnp_external_ip = if config.upnp_enabled {
-            resources.upnp_manager.get_external_ip().await
-        } else {
-            None
-        };
-
         let masquerade_ip = config.masquerade_address.as_ref().and_then(|s| {
             if s.is_empty() {
                 None
@@ -302,52 +275,16 @@ impl FtpServer {
             }
         });
 
-        let bind_address: std::net::IpAddr = config
-            .bind_ip
-            .parse()
-            .unwrap_or(std::net::IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
-
-        let server_local_ips = get_local_ipv4_addresses();
-        tracing::debug!("Server local IPv4 addresses: {:?}", server_local_ips);
-
-        let passive_host = if config.upnp_enabled
-            && let Some(ref upnp_ip) = upnp_external_ip
-            && let Ok(ip) = upnp_ip.parse::<Ipv4Addr>()
-        {
-            tracing::info!("FTP passive host: {} (UPnP external IP)", ip);
-            PassiveHost::Ip(ip)
-        } else if let Some(masq_ip) = masquerade_ip
+        let passive_host = if let Some(masq_ip) = masquerade_ip
             && !masq_ip.is_unspecified()
         {
             tracing::info!("FTP passive host: {} (masquerade address)", masq_ip);
             PassiveHost::Ip(masq_ip)
-        } else if !is_wildcard_bind(&bind_address) {
-            if let std::net::IpAddr::V4(ipv4) = bind_address {
-                tracing::info!("FTP passive host: {} (bind address)", ipv4);
-                PassiveHost::Ip(ipv4)
-            } else {
-                let fallback_ip = server_local_ips
-                    .iter()
-                    .find(|ip| !ip.is_loopback() && !ip.is_link_local())
-                    .copied()
-                    .unwrap_or_else(|| local_ip.unwrap_or(Ipv4Addr::new(127, 0, 0, 1)));
-                tracing::info!("FTP passive host: {} (IPv6 bind fallback)", fallback_ip);
-                PassiveHost::Ip(fallback_ip)
-            }
         } else {
             tracing::info!("FTP passive host: FromConnection (TCP destination IP)");
             PassiveHost::FromConnection
         };
         server_builder = server_builder.passive_host(passive_host);
-
-        if let Some(binder) = UpnpBinderBuilder::new()
-            .upnp_manager(resources.upnp_manager)
-            .local_ip(local_ip.unwrap_or(Ipv4Addr::new(127, 0, 0, 1)))
-            .passive_ports(config.passive_ports.0..=config.passive_ports.1)
-            .build()
-        {
-            server_builder = server_builder.binder(binder);
-        }
 
         if config.ftps_enabled {
             if let (Some(cert_path), Some(key_path)) = (
@@ -396,28 +333,6 @@ impl FtpServer {
 
         tracing::info!("FTP server shutdown complete");
         Ok(())
-    }
-
-    fn get_local_ip_for_bind(bind_ip: &str) -> Option<Ipv4Addr> {
-        if bind_ip == "0.0.0.0" || bind_ip == "::" {
-            if let Ok(local_ip) = Self::get_local_ip() {
-                return Some(local_ip);
-            }
-            return Some(Ipv4Addr::new(127, 0, 0, 1));
-        }
-        bind_ip.parse().ok()
-    }
-
-    fn get_local_ip() -> std::io::Result<Ipv4Addr> {
-        use std::net::UdpSocket;
-
-        let socket = UdpSocket::bind("0.0.0.0:0")?;
-        socket.connect(("223.5.5.5", 53))?;
-        let local_addr = socket.local_addr()?;
-        match local_addr.ip() {
-            std::net::IpAddr::V4(ipv4) => Ok(ipv4),
-            _ => Err(std::io::Error::other("Not an IPv4 address")),
-        }
     }
 
     pub async fn stop(&self) {

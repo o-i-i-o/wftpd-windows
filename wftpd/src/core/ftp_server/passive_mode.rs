@@ -1,7 +1,7 @@
 //! FTP Passive Mode Address Selection
 //!
 //! Handles the logic for determining the IP address to return in PASV responses.
-//! Priority: UPnP external IP > Masquerade address > Connection-based IP
+//! Priority: Masquerade address > FromConnection (TCP destination IP via getsockname)
 //!
 //! ## PASV vs EPSV
 //! - PASV (RFC 959) returns IP address and port in the response
@@ -11,38 +11,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::core::ftp_server::ip_utils::{is_private_ipv4, is_private_ipv6};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PassiveAddressSource {
-    Upnp,
-    Masquerade,
-    BindAddress,
-    Loopback,
-    Private,
-    Public,
-    Ipv6Fallback,
-}
-
-#[derive(Debug, Clone)]
-pub struct PassiveModeConfig {
-    pub upnp_enabled: bool,
-    pub upnp_external_ip: Option<Ipv4Addr>,
-    pub masquerade_address: Option<Ipv4Addr>,
-    pub bind_address: IpAddr,
-    pub server_local_ips: Vec<Ipv4Addr>,
-}
-
-impl Default for PassiveModeConfig {
-    fn default() -> Self {
-        PassiveModeConfig {
-            upnp_enabled: false,
-            upnp_external_ip: None,
-            masquerade_address: None,
-            bind_address: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            server_local_ips: Vec::new(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BindAddressType {
@@ -90,172 +58,6 @@ pub fn classify_connection_source(client_ip: &IpAddr) -> ConnectionSource {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct PassiveAddressResult {
-    pub address: Ipv4Addr,
-    pub source: PassiveAddressSource,
-}
-
-pub fn select_passive_address(
-    config: &PassiveModeConfig,
-    client_ip: IpAddr,
-    connection_local_ip: Option<Ipv4Addr>,
-) -> PassiveAddressResult {
-    if config.upnp_enabled
-        && let Some(upnp_ip) = config.upnp_external_ip
-    {
-        tracing::info!(
-            "Passive mode: Using UPnP external IP {} (priority: UPnP)",
-            upnp_ip
-        );
-        return PassiveAddressResult {
-            address: upnp_ip,
-            source: PassiveAddressSource::Upnp,
-        };
-    }
-
-    if let Some(masq_ip) = config.masquerade_address
-        && !masq_ip.is_unspecified()
-    {
-        tracing::info!(
-            "Passive mode: Using masquerade address {} (priority: masquerade)",
-            masq_ip
-        );
-        return PassiveAddressResult {
-            address: masq_ip,
-            source: PassiveAddressSource::Masquerade,
-        };
-    }
-
-    let bind_type = classify_bind_address(&config.bind_address);
-
-    match bind_type {
-        BindAddressType::SpecificIpv4 => {
-            let bind_ipv4 = match config.bind_address {
-                IpAddr::V4(ip) => ip,
-                _ => Ipv4Addr::new(0, 0, 0, 0),
-            };
-            tracing::info!(
-                "Passive mode: Using specific bind address {} (priority: bind address)",
-                bind_ipv4
-            );
-            PassiveAddressResult {
-                address: bind_ipv4,
-                source: PassiveAddressSource::BindAddress,
-            }
-        }
-        BindAddressType::SpecificIpv6 => {
-            let fallback_ip = find_ipv4_fallback(&config.server_local_ips, &client_ip);
-            tracing::info!(
-                "Passive mode: IPv6-only bind, using IPv4 fallback {}",
-                fallback_ip
-            );
-            PassiveAddressResult {
-                address: fallback_ip,
-                source: PassiveAddressSource::Ipv6Fallback,
-            }
-        }
-        BindAddressType::Wildcard => handle_wildcard_bind(config, &client_ip, connection_local_ip),
-    }
-}
-
-fn handle_wildcard_bind(
-    config: &PassiveModeConfig,
-    client_ip: &IpAddr,
-    connection_local_ip: Option<Ipv4Addr>,
-) -> PassiveAddressResult {
-    let client_source = classify_connection_source(client_ip);
-
-    match client_source {
-        ConnectionSource::Loopback => {
-            tracing::info!("Passive mode: Wildcard bind, loopback connection -> 127.0.0.1");
-            PassiveAddressResult {
-                address: Ipv4Addr::new(127, 0, 0, 1),
-                source: PassiveAddressSource::Loopback,
-            }
-        }
-        ConnectionSource::PrivateNetwork => {
-            if let Some(local_ip) = connection_local_ip {
-                tracing::info!(
-                    "Passive mode: Wildcard bind, private network connection -> {} (local interface IP)",
-                    local_ip
-                );
-                PassiveAddressResult {
-                    address: local_ip,
-                    source: PassiveAddressSource::Private,
-                }
-            } else {
-                let fallback = find_matching_local_ip(&config.server_local_ips, client_source);
-                tracing::info!(
-                    "Passive mode: Wildcard bind, private network connection -> {} (matched local IP)",
-                    fallback
-                );
-                PassiveAddressResult {
-                    address: fallback,
-                    source: PassiveAddressSource::Private,
-                }
-            }
-        }
-        ConnectionSource::PublicNetwork => {
-            if let Some(local_ip) = connection_local_ip {
-                tracing::info!(
-                    "Passive mode: Wildcard bind, public network connection -> {} (local interface IP)",
-                    local_ip
-                );
-                PassiveAddressResult {
-                    address: local_ip,
-                    source: PassiveAddressSource::Public,
-                }
-            } else {
-                let fallback = find_matching_local_ip(&config.server_local_ips, client_source);
-                tracing::info!(
-                    "Passive mode: Wildcard bind, public network connection -> {} (matched local IP)",
-                    fallback
-                );
-                PassiveAddressResult {
-                    address: fallback,
-                    source: PassiveAddressSource::Public,
-                }
-            }
-        }
-    }
-}
-
-fn find_matching_local_ip(local_ips: &[Ipv4Addr], source: ConnectionSource) -> Ipv4Addr {
-    if local_ips.is_empty() {
-        return Ipv4Addr::new(127, 0, 0, 1);
-    }
-
-    match source {
-        ConnectionSource::Loopback => Ipv4Addr::new(127, 0, 0, 1),
-        ConnectionSource::PrivateNetwork => {
-            for ip in local_ips {
-                if is_private_ipv4(ip) {
-                    return *ip;
-                }
-            }
-            local_ips[0]
-        }
-        ConnectionSource::PublicNetwork => {
-            for ip in local_ips {
-                if !is_private_ipv4(ip) && !ip.is_loopback() {
-                    return *ip;
-                }
-            }
-            local_ips[0]
-        }
-    }
-}
-
-fn find_ipv4_fallback(local_ips: &[Ipv4Addr], client_ip: &IpAddr) -> Ipv4Addr {
-    if local_ips.is_empty() {
-        return Ipv4Addr::new(127, 0, 0, 1);
-    }
-
-    let client_source = classify_connection_source(client_ip);
-    find_matching_local_ip(local_ips, client_source)
-}
-
 pub fn determine_listen_address(bind_addr: &IpAddr) -> IpAddr {
     match bind_addr {
         IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
@@ -273,35 +75,6 @@ pub fn is_ipv6_bind(bind_addr: &IpAddr) -> bool {
         classify_bind_address(bind_addr),
         BindAddressType::SpecificIpv6
     )
-}
-
-#[derive(Debug, Clone)]
-pub struct PassiveModeInfo {
-    pub listen_address: IpAddr,
-    pub pasv_response_ip: Ipv4Addr,
-    pub address_source: PassiveAddressSource,
-    pub connection_source: Option<ConnectionSource>,
-}
-
-pub fn build_passive_mode_info(
-    config: &PassiveModeConfig,
-    client_ip: IpAddr,
-    connection_local_ip: Option<Ipv4Addr>,
-) -> PassiveModeInfo {
-    let listen_address = determine_listen_address(&config.bind_address);
-    let result = select_passive_address(config, client_ip, connection_local_ip);
-    let connection_source = if is_wildcard_bind(&config.bind_address) {
-        Some(classify_connection_source(&client_ip))
-    } else {
-        None
-    };
-
-    PassiveModeInfo {
-        listen_address,
-        pasv_response_ip: result.address,
-        address_source: result.source,
-        connection_source,
-    }
 }
 
 pub fn get_local_ipv4_addresses() -> Vec<Ipv4Addr> {
@@ -561,101 +334,6 @@ mod tests {
     }
 
     #[test]
-    fn test_select_passive_address_upnp_priority() {
-        let config = PassiveModeConfig {
-            upnp_enabled: true,
-            upnp_external_ip: Some(Ipv4Addr::new(203, 0, 113, 50)),
-            masquerade_address: Some(Ipv4Addr::new(192, 168, 1, 1)),
-            bind_address: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            server_local_ips: vec![Ipv4Addr::new(192, 168, 1, 100)],
-        };
-        let result =
-            select_passive_address(&config, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 200)), None);
-        assert_eq!(result.address, Ipv4Addr::new(203, 0, 113, 50));
-        assert_eq!(result.source, PassiveAddressSource::Upnp);
-    }
-
-    #[test]
-    fn test_select_passive_address_masq_priority() {
-        let config = PassiveModeConfig {
-            upnp_enabled: true,
-            upnp_external_ip: None,
-            masquerade_address: Some(Ipv4Addr::new(203, 0, 113, 50)),
-            bind_address: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            server_local_ips: vec![Ipv4Addr::new(192, 168, 1, 100)],
-        };
-        let result =
-            select_passive_address(&config, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 200)), None);
-        assert_eq!(result.address, Ipv4Addr::new(203, 0, 113, 50));
-        assert_eq!(result.source, PassiveAddressSource::Masquerade);
-    }
-
-    #[test]
-    fn test_select_passive_address_bind_address_priority() {
-        let config = PassiveModeConfig {
-            upnp_enabled: false,
-            upnp_external_ip: None,
-            masquerade_address: None,
-            bind_address: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 50)),
-            server_local_ips: vec![],
-        };
-        let result =
-            select_passive_address(&config, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)), None);
-        assert_eq!(result.address, Ipv4Addr::new(192, 168, 1, 50));
-        assert_eq!(result.source, PassiveAddressSource::BindAddress);
-    }
-
-    #[test]
-    fn test_select_passive_address_wildcard_loopback() {
-        let config = PassiveModeConfig {
-            upnp_enabled: false,
-            upnp_external_ip: None,
-            masquerade_address: None,
-            bind_address: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            server_local_ips: vec![Ipv4Addr::new(192, 168, 1, 100)],
-        };
-        let result = select_passive_address(&config, IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), None);
-        assert_eq!(result.address, Ipv4Addr::new(127, 0, 0, 1));
-        assert_eq!(result.source, PassiveAddressSource::Loopback);
-    }
-
-    #[test]
-    fn test_select_passive_address_wildcard_private() {
-        let config = PassiveModeConfig {
-            upnp_enabled: false,
-            upnp_external_ip: None,
-            masquerade_address: None,
-            bind_address: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            server_local_ips: vec![Ipv4Addr::new(192, 168, 1, 100)],
-        };
-        let result = select_passive_address(
-            &config,
-            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 200)),
-            Some(Ipv4Addr::new(192, 168, 1, 100)),
-        );
-        assert_eq!(result.address, Ipv4Addr::new(192, 168, 1, 100));
-        assert_eq!(result.source, PassiveAddressSource::Private);
-    }
-
-    #[test]
-    fn test_select_passive_address_ipv6_bind() {
-        let config = PassiveModeConfig {
-            upnp_enabled: false,
-            upnp_external_ip: None,
-            masquerade_address: None,
-            bind_address: IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)),
-            server_local_ips: vec![Ipv4Addr::new(192, 168, 1, 100)],
-        };
-        let result = select_passive_address(
-            &config,
-            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2)),
-            None,
-        );
-        assert_eq!(result.address, Ipv4Addr::new(192, 168, 1, 100));
-        assert_eq!(result.source, PassiveAddressSource::Ipv6Fallback);
-    }
-
-    #[test]
     fn test_is_wildcard_bind() {
         assert!(is_wildcard_bind(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))));
         assert!(is_wildcard_bind(&IpAddr::V6(Ipv6Addr::UNSPECIFIED)));
@@ -671,23 +349,5 @@ mod tests {
         ))));
         assert!(!is_ipv6_bind(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
         assert!(!is_ipv6_bind(&IpAddr::V6(Ipv6Addr::UNSPECIFIED)));
-    }
-
-    #[test]
-    fn test_find_matching_local_ip() {
-        let ips = vec![
-            Ipv4Addr::new(127, 0, 0, 1),
-            Ipv4Addr::new(192, 168, 1, 100),
-            Ipv4Addr::new(10, 0, 0, 1),
-        ];
-
-        assert_eq!(
-            find_matching_local_ip(&ips, ConnectionSource::Loopback),
-            Ipv4Addr::new(127, 0, 0, 1)
-        );
-        assert_eq!(
-            find_matching_local_ip(&ips, ConnectionSource::PrivateNetwork),
-            Ipv4Addr::new(192, 168, 1, 100)
-        );
     }
 }

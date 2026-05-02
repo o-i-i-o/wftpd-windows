@@ -545,10 +545,6 @@ impl ServerTab {
                     &i18n::t("server.max_speed_hint"),
                 );
 
-                styles::form_row(ui, &i18n::t("server.upnp_enabled"), label_width, |ui| {
-                    ui.checkbox(&mut config.ftp.upnp_enabled, "");
-                });
-
                 let mut masq_addr = config.ftp.masquerade_address.clone().unwrap_or_default();
                 styles::form_row(
                     ui,

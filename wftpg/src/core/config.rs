@@ -172,8 +172,6 @@ pub struct FtpConfig {
     pub hide_version_info: bool,
     #[serde(default)]
     pub ftps: FtpsConfig,
-    #[serde(default = "default_upnp_enabled")]
-    pub upnp_enabled: bool,
 }
 
 fn default_ftp_port() -> u16 {
@@ -223,10 +221,6 @@ fn default_anonymous_home() -> Option<String> {
 
 fn default_masquerade_address() -> Option<String> {
     Some("".to_string())
-}
-
-fn default_upnp_enabled() -> bool {
-    false
 }
 
 /// SFTP 服务器配置
@@ -378,7 +372,6 @@ impl Default for Config {
                 connection_timeout: 300,
                 idle_timeout: 600,
                 hide_version_info: false,
-                upnp_enabled: false,
             },
             sftp: SftpConfig {
                 enabled: true,
