@@ -251,13 +251,15 @@ impl FtpServer {
             Arc::clone(&resources.config),
         );
 
+        let data_listener = FtpDataListener::new(Arc::clone(&resources.session_tracker));
+
         let mut server_builder =
             ServerBuilder::with_user_detail_provider(storage_factory, user_detail_provider)
                 .authenticator(authenticator)
                 .greeting(greeting)
                 .passive_ports(config.passive_ports.0..=config.passive_ports.1)
                 .idle_session_timeout(config.idle_timeout)
-                .notify_data(FtpDataListener::new())
+                .notify_data(data_listener)
                 .notify_presence(presence_listener)
                 .failed_logins_policy(FailedLoginsPolicy::new(
                     u32::MAX,

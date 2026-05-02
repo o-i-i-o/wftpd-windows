@@ -13,23 +13,29 @@ use crate::core::config::Config;
 use super::auth::SessionTracker;
 
 #[derive(Debug)]
-pub struct FtpDataListener;
+pub struct FtpDataListener {
+    session_tracker: Arc<SessionTracker>,
+}
 
 impl FtpDataListener {
-    pub fn new() -> Self {
-        FtpDataListener
+    pub fn new(session_tracker: Arc<SessionTracker>) -> Self {
+        FtpDataListener { session_tracker }
     }
 }
 
 #[async_trait]
 impl DataListener for FtpDataListener {
     async fn receive_data_event(&self, event: DataEvent, meta: EventMeta) {
+        let client_ip = self
+            .session_tracker
+            .get_ip_by_trace(&meta.trace_id)
+            .unwrap_or_else(|| meta.trace_id.clone());
         match event {
             DataEvent::Put { path, bytes } => {
                 tracing::info!(
                     target: "file_op",
                     username = %meta.username,
-                    client_ip = %meta.trace_id,
+                    client_ip = %client_ip,
                     operation = "UPLOAD",
                     file_path = %path,
                     file_size = bytes,
@@ -42,7 +48,7 @@ impl DataListener for FtpDataListener {
                 tracing::info!(
                     target: "file_op",
                     username = %meta.username,
-                    client_ip = %meta.trace_id,
+                    client_ip = %client_ip,
                     operation = "DOWNLOAD",
                     file_path = %path,
                     file_size = bytes,
@@ -55,7 +61,7 @@ impl DataListener for FtpDataListener {
                 tracing::info!(
                     target: "file_op",
                     username = %meta.username,
-                    client_ip = %meta.trace_id,
+                    client_ip = %client_ip,
                     operation = "DELETE",
                     file_path = %path,
                     file_size = 0u64,
@@ -68,7 +74,7 @@ impl DataListener for FtpDataListener {
                 tracing::info!(
                     target: "file_op",
                     username = %meta.username,
-                    client_ip = %meta.trace_id,
+                    client_ip = %client_ip,
                     operation = "MKDIR",
                     file_path = %path,
                     file_size = 0u64,
@@ -81,7 +87,7 @@ impl DataListener for FtpDataListener {
                 tracing::info!(
                     target: "file_op",
                     username = %meta.username,
-                    client_ip = %meta.trace_id,
+                    client_ip = %client_ip,
                     operation = "RMDIR",
                     file_path = %path,
                     file_size = 0u64,
@@ -94,7 +100,7 @@ impl DataListener for FtpDataListener {
                 tracing::info!(
                     target: "file_op",
                     username = %meta.username,
-                    client_ip = %meta.trace_id,
+                    client_ip = %client_ip,
                     operation = "RENAME",
                     file_path = %format!("{} -> {}", from, to),
                     file_size = 0u64,
@@ -104,12 +110,6 @@ impl DataListener for FtpDataListener {
                 );
             }
         }
-    }
-}
-
-impl Default for FtpDataListener {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

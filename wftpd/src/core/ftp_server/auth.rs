@@ -90,6 +90,11 @@ impl SessionTracker {
         }
         client_ip
     }
+
+    pub fn get_ip_by_trace(&self, trace_id: &str) -> Option<String> {
+        let trace_to_ip = self.trace_to_ip.lock();
+        trace_to_ip.get(trace_id).cloned()
+    }
 }
 
 #[derive(Debug, Clone)]
