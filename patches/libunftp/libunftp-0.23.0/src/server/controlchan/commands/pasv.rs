@@ -5,6 +5,9 @@
 // connection rather than initiate one upon receipt of a
 // transfer command.  The response to this command includes the
 // host and port address this server is listening on.
+//
+// PASV only supports IPv4 addresses in its response format.
+// IPv6 clients should use EPSV (RFC 2428) instead.
 
 use crate::{
     auth::UserDetail,
@@ -31,6 +34,13 @@ pub struct Pasv {}
 impl Pasv {
     pub fn new() -> Self {
         Pasv {}
+    }
+}
+
+fn is_ipv6_peer(session_source: std::net::SocketAddr) -> bool {
+    match session_source.ip() {
+        std::net::IpAddr::V6(ip) => !ip.is_loopback() && !matches!(ip.segments(), [0, 0, 0, 0, 0, 0xffff, ..]),
+        _ => false,
     }
 }
 
@@ -61,6 +71,15 @@ where
 {
     #[tracing_attributes::instrument]
     async fn handle(&self, args: CommandContext<Storage, User>) -> Result<Reply, ControlChanError> {
+        let peer_addr = args.session.lock().await.source;
+        if is_ipv6_peer(peer_addr) {
+            slog::info!(args.logger, "PASV rejected for IPv6 client {}, suggesting EPSV", peer_addr);
+            return Ok(Reply::new_with_string(
+                ReplyCode::CommandNotImplemented,
+                "PASV not supported for IPv6 connections, use EPSV instead".to_string(),
+            ));
+        }
+
         let sender: Option<SwitchboardSender<Storage, User>> = args.tx_prebound_loop.clone();
         match sender {
             Some(tx) => passive_common::handle_delegated_mode(args, tx).await,
