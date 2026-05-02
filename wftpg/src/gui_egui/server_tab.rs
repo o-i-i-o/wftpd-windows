@@ -371,19 +371,10 @@ impl ServerTab {
                 });
 
                 styles::form_row(ui, &i18n::t("server.transfer_mode"), label_width, |ui| {
-                    let modes = ["binary", "ascii"];
-                    egui::ComboBox::from_id_salt("transfer_mode")
-                        .selected_text(&config.ftp.default_transfer_mode)
-                        .width(100.0)
-                        .show_ui(ui, |ui| {
-                            for mode in modes {
-                                ui.selectable_value(
-                                    &mut config.ftp.default_transfer_mode,
-                                    mode.to_string(),
-                                    mode,
-                                );
-                            }
-                        });
+                    ui.label(
+                        RichText::new(i18n::t("server.transfer_mode_binary"))
+                            .strong(),
+                    );
                     ui.label(
                         RichText::new(i18n::t("server.transfer_mode_hint"))
                             .size(styles::FONT_SIZE_SM)
