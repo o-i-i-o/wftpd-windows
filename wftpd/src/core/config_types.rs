@@ -121,6 +121,25 @@ impl Default for ServerConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionMode {
+    #[default]
+    PassiveOnly,
+    ActiveOnly,
+    ActiveAndPassive,
+}
+
+impl ConnectionMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ConnectionMode::PassiveOnly => "passive_only",
+            ConnectionMode::ActiveOnly => "active_only",
+            ConnectionMode::ActiveAndPassive => "active_and_passive",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FtpConfig {
     pub enabled: bool,
@@ -133,8 +152,8 @@ pub struct FtpConfig {
     pub encoding: String,
     #[serde(default = "default_transfer_mode")]
     pub default_transfer_mode: String,
-    #[serde(default = "default_passive_mode")]
-    pub default_passive_mode: bool,
+    #[serde(default)]
+    pub connection_mode: ConnectionMode,
     pub allow_anonymous: bool,
     #[serde(default = "default_anonymous_home")]
     pub anonymous_home: Option<String>,
@@ -193,10 +212,6 @@ pub fn default_encoding() -> String {
 
 pub fn default_transfer_mode() -> String {
     "binary".to_string()
-}
-
-pub fn default_passive_mode() -> bool {
-    true
 }
 
 pub fn default_anonymous_home() -> Option<String> {

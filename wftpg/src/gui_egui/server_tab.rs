@@ -1,4 +1,4 @@
-use crate::core::config::Config;
+use crate::core::config::{Config, ConnectionMode};
 use crate::core::config_manager::ConfigManager;
 use crate::core::i18n;
 use crate::core::ipc::IpcClient;
@@ -392,28 +392,33 @@ impl ServerTab {
                 });
 
                 styles::form_row(ui, &i18n::t("server.connection_mode"), label_width, |ui| {
-                    let passive_label = if config.ftp.default_passive_mode {
-                        i18n::t("server.passive_mode")
-                    } else {
-                        i18n::t("server.active_mode")
+                    let mode_label = match config.ftp.connection_mode {
+                        ConnectionMode::PassiveOnly => i18n::t("server.passive_mode"),
+                        ConnectionMode::ActiveOnly => i18n::t("server.active_mode"),
+                        ConnectionMode::ActiveAndPassive => i18n::t("server.both_mode"),
                     };
                     egui::ComboBox::from_id_salt("connection_mode")
-                        .selected_text(&passive_label)
-                        .width(120.0)
+                        .selected_text(&mode_label)
+                        .width(180.0)
                         .show_ui(ui, |ui| {
                             ui.selectable_value(
-                                &mut config.ftp.default_passive_mode,
-                                true,
+                                &mut config.ftp.connection_mode,
+                                ConnectionMode::PassiveOnly,
                                 i18n::t("server.passive_mode"),
                             );
                             ui.selectable_value(
-                                &mut config.ftp.default_passive_mode,
-                                false,
+                                &mut config.ftp.connection_mode,
+                                ConnectionMode::ActiveOnly,
                                 i18n::t("server.active_mode"),
+                            );
+                            ui.selectable_value(
+                                &mut config.ftp.connection_mode,
+                                ConnectionMode::ActiveAndPassive,
+                                i18n::t("server.both_mode"),
                             );
                         });
                     ui.label(
-                        RichText::new(i18n::t("server.passive_mode_hint"))
+                        RichText::new(i18n::t("server.connection_mode_hint"))
                             .size(styles::FONT_SIZE_SM)
                             .color(styles::TEXT_MUTED_COLOR),
                     );

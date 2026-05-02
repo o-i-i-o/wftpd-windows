@@ -10,13 +10,13 @@ use std::path::{Path, PathBuf};
 #[path = "config_types.rs"]
 mod config_types;
 pub use config_types::{
-    Config, FtpConfig, FtpsConfig, LoggingConfig, SecurityConfig, ServerConfig, SftpConfig,
-    default_bind_ip, default_connection_timeout, default_encoding, default_fail2ban_ban_time,
-    default_fail2ban_enabled, default_fail2ban_threshold, default_idle_timeout,
-    default_key_rotation_days, default_log_level, default_log_level as default_sftp_log_level,
-    default_max_connections, default_max_connections_per_ip, default_max_login_attempts,
-    default_max_sessions_per_user, default_passive_mode, default_pooled_listener_mode,
-    default_sftp_port, default_transfer_mode,
+    Config, ConnectionMode, FtpConfig, FtpsConfig, LoggingConfig, SecurityConfig, ServerConfig,
+    SftpConfig, default_bind_ip, default_connection_timeout, default_encoding,
+    default_fail2ban_ban_time, default_fail2ban_enabled, default_fail2ban_threshold,
+    default_idle_timeout, default_key_rotation_days, default_log_level,
+    default_log_level as default_sftp_log_level, default_max_connections,
+    default_max_connections_per_ip, default_max_login_attempts, default_max_sessions_per_user,
+    default_pooled_listener_mode, default_sftp_port, default_transfer_mode,
 };
 
 pub fn get_program_data_path() -> PathBuf {
@@ -62,7 +62,7 @@ impl Default for Config {
                 max_speed_kbps: 0,
                 encoding: "UTF-8".to_string(),
                 default_transfer_mode: "binary".to_string(),
-                default_passive_mode: true,
+                connection_mode: ConnectionMode::PassiveOnly,
                 ftps: FtpsConfig {
                     enabled: false,
                     require_ssl: false,

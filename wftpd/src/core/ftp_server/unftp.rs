@@ -10,7 +10,9 @@
 
 use anyhow::Result;
 use libunftp::ServerBuilder;
-use libunftp::options::{FailedLoginsBlock, FailedLoginsPolicy, PassiveHost, Shutdown};
+use libunftp::options::{
+    ActivePassiveMode, FailedLoginsBlock, FailedLoginsPolicy, PassiveHost, Shutdown,
+};
 use parking_lot::Mutex;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
@@ -19,7 +21,7 @@ use tokio::sync::Mutex as TokioMutex;
 use unftp_sbe_fs::{Filesystem, Meta};
 use unftp_sbe_restrict::RestrictingVfs;
 
-use crate::core::config::{Config, get_program_data_path};
+use crate::core::config::{Config, ConnectionMode, get_program_data_path};
 use crate::core::fail2ban::{Fail2BanConfig, Fail2BanManager};
 use crate::core::quota::QuotaManager;
 use crate::core::users::UserManager;
@@ -41,6 +43,7 @@ struct FtpServerConfig {
     ftps_require_ssl: bool,
     pooled_listener_mode: bool,
     masquerade_address: Option<String>,
+    connection_mode: ConnectionMode,
     allow_nat_clients: bool,
     ftp_root: Option<String>,
 }
@@ -119,6 +122,7 @@ impl FtpServer {
                 ftps_require_ssl: cfg.ftp.ftps.require_ssl,
                 pooled_listener_mode: cfg.ftp.pooled_listener_mode,
                 masquerade_address: cfg.ftp.masquerade_address.clone(),
+                connection_mode: cfg.ftp.connection_mode,
                 allow_nat_clients: cfg.ftp.allow_nat_clients,
                 ftp_root: cfg.ftp.ftp_root.clone(),
             }
@@ -266,6 +270,14 @@ impl FtpServer {
             tracing::info!("Enabling pooled listener mode for high performance");
             server_builder = server_builder.pooled_listener_mode();
         }
+
+        let active_passive_mode = match config.connection_mode {
+            ConnectionMode::PassiveOnly => ActivePassiveMode::PassiveOnly,
+            ConnectionMode::ActiveOnly => ActivePassiveMode::ActiveOnly,
+            ConnectionMode::ActiveAndPassive => ActivePassiveMode::ActiveAndPassive,
+        };
+        tracing::info!("FTP connection mode: {}", config.connection_mode.as_str());
+        server_builder = server_builder.active_passive_mode(active_passive_mode);
 
         let masquerade_ip = config.masquerade_address.as_ref().and_then(|s| {
             if s.is_empty() {
