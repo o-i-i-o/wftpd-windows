@@ -5,6 +5,7 @@
 pub mod about_tab;
 pub mod file_log_tab;
 pub mod log_tab;
+pub mod log_watcher;
 pub mod other_tab;
 pub mod security_tab;
 pub mod server_tab;
