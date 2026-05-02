@@ -148,8 +148,12 @@ impl fmt::Display for ControlChanMsg {
 #[error("Could not allocate port")]
 pub struct PortAllocationError;
 
-// ProxyLoopMsg is sent to the proxy loop when proxy protocol mode is enabled. See the
-// Server::proxy_protocol_mode and Server::listen_proxy_protocol_mode methods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PassiveCommandType {
+    Pasv,
+    Epsv,
+}
+
 #[derive(Debug)]
 pub(crate) enum SwitchboardMessage<Storage, User>
 where
@@ -157,7 +161,7 @@ where
     User: UserDetail,
 {
     /// Command to assign a data port to a session
-    AssignDataPortCommand(SharedSession<Storage, User>, oneshot::Sender<Result<Reply, PortAllocationError>>),
+    AssignDataPortCommand(SharedSession<Storage, User>, oneshot::Sender<Result<Reply, PortAllocationError>>, PassiveCommandType),
     /// Command to clean up an active data channel (used when exiting the control loop)
     CloseDataPortCommand(SharedSession<Storage, User>),
 }

@@ -1,7 +1,8 @@
 use crate::server::session::{Session, SharedSession};
 use crate::server::shutdown::Notifier;
 use dashmap::{DashMap, Entry};
-use std::net::{IpAddr, SocketAddr};
+use std::collections::HashSet;
+use std::net::SocketAddr;
 use std::ops::RangeInclusive;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
@@ -10,27 +11,27 @@ use unftp_core::auth::UserDetail;
 use unftp_core::storage::StorageBackend;
 
 /// Identifies a passive listening port entry in the Switchboard that is associated with a specific
-/// session. The key is constructed out of the external source IP of the client and the passive listening port that has
-/// been reserved for the client via the 'PASV' command
+/// session. The key is the passive listening port that has been reserved for the client.
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub(crate) struct SwitchboardKey {
-    source: IpAddr,
     port: u16,
 }
 
 impl SwitchboardKey {
-    fn new(source: IpAddr, port: u16) -> Self {
-        SwitchboardKey { source, port }
+    fn new(port: u16) -> Self {
+        SwitchboardKey { port }
     }
 }
 
 impl From<&SocketAddrPair> for SwitchboardKey {
     fn from(connection: &SocketAddrPair) -> Self {
-        SwitchboardKey::new(connection.source.ip(), connection.destination.port())
+        SwitchboardKey::new(connection.destination.port())
     }
 }
 
 type SessionHandle<S, U> = Weak<Mutex<Session<S, U>>>;
+
+const PORT_COOLDOWN_SECS: u64 = 2;
 
 /// Connect clients to the right data channel
 #[derive(Debug)]
@@ -42,6 +43,7 @@ where
     switchboard: Arc<DashMap<SwitchboardKey, SessionHandle<S, U>>>,
     port_range: RangeInclusive<u16>,
     logger: slog::Logger,
+    cooldown_ports: Arc<Mutex<HashSet<u16>>>,
 }
 
 #[derive(Debug)]
@@ -63,6 +65,7 @@ where
             switchboard: board,
             port_range: passive_ports,
             logger,
+            cooldown_ports: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -113,6 +116,22 @@ where
         if self.switchboard.remove(key).is_none() {
             slog::warn!(self.logger, "Entry already removed? key: {:?}", key);
         }
+
+        let cooldown_ports = self.cooldown_ports.clone();
+        let port = key.port;
+        let logger = self.logger.clone();
+        tokio::spawn(async move {
+            {
+                let mut cooldown = cooldown_ports.lock().await;
+                cooldown.insert(port);
+            }
+            tokio::time::sleep(Duration::from_secs(PORT_COOLDOWN_SECS)).await;
+            {
+                let mut cooldown = cooldown_ports.lock().await;
+                cooldown.remove(&port);
+            }
+            slog::debug!(logger, "Port {} cooldown expired, available for reuse", port);
+        });
     }
 
     #[tracing_attributes::instrument]
@@ -123,9 +142,7 @@ where
     }
 
     /// Find the next available port within the specified range (inclusive of the upper limit).
-    /// The reserved port is associated with the source ip of the client and the associated session, using a hashmap
-    ///
-    //#[tracing_attributes::instrument]
+    /// The reserved port is associated with the session, using a hashmap keyed by port only.
     pub async fn reserve(&mut self, session_arc: SharedSession<S, U>) -> Result<u16, SwitchboardError> {
         let range_size = self.port_range.end() - self.port_range.start();
 
@@ -135,25 +152,24 @@ where
             u16::from_ne_bytes(data)
         };
 
-        // Claims the next available listening port
-        // The search starts at randomized_initial_port.
-        // If a port is already claimed, the loop continues to the next port until an available port is found.
-        // The function returns the first available port it finds or an error if no ports are available.
-        let control_ip = {
-            let session = session_arc.lock().await;
-            let control_connection = session
-                .control_connection
-                .expect("BUG: reserve() called on a session with no control_connection details");
-            control_connection.source.ip()
+        let cooldown_snapshot = {
+            let cooldown = self.cooldown_ports.lock().await;
+            cooldown.clone()
         };
+
         for i in 0..=range_size {
             let port = self.port_range.start() + ((randomized_initial_port + i) % range_size);
             slog::debug!(self.logger, "Trying if port {} is available", port);
-            let key = SwitchboardKey::new(control_ip, port);
+
+            if cooldown_snapshot.contains(&port) {
+                slog::debug!(self.logger, "Port {} is in cooldown, skipping", port);
+                continue;
+            }
+
+            let key = SwitchboardKey::new(port);
 
             match &self.try_and_claim(key.clone(), session_arc.clone()).await {
                 Ok(_) => {
-                    // Remove and disassociate existing passive channels
                     let mut session = session_arc.lock().await;
                     if let Some(active_datachan_key) = &session.switchboard_active_datachan
                         && active_datachan_key != &key
@@ -162,7 +178,6 @@ where
                         self.unregister_by_key(active_datachan_key);
                     }
 
-                    // Associate the new port with the session,
                     session.switchboard_active_datachan = Some(key);
                     return Ok(port);
                 }

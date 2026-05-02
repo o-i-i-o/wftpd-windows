@@ -4,7 +4,7 @@ use crate::{
     auth::UserDetail,
     server::{
         ControlChanErrorKind, ControlChanMsg,
-        chancomms::{DataChanCmd, PortAllocationError, SwitchboardMessage, SwitchboardSender},
+        chancomms::{DataChanCmd, PassiveCommandType, PortAllocationError, SwitchboardMessage, SwitchboardSender},
         controlchan::{Reply, ReplyCode, error::ControlChanError, handler::CommandContext},
         datachan,
         session::SharedSession,
@@ -123,7 +123,7 @@ where
 // For delegated mode, we prepare the session and let the listener loop know (via channel) that it
 // should choose a data port and check for connections on it.
 #[tracing_attributes::instrument]
-pub(crate) async fn handle_delegated_mode<S, U>(args: CommandContext<S, U>, tx: SwitchboardSender<S, U>) -> Result<Reply, ControlChanError>
+pub(crate) async fn handle_delegated_mode<S, U>(args: CommandContext<S, U>, tx: SwitchboardSender<S, U>, cmd_type: PassiveCommandType) -> Result<Reply, ControlChanError>
 where
     U: UserDetail + 'static,
     S: StorageBackend<U> + 'static,
@@ -133,7 +133,7 @@ where
 
     let (oneshot_tx, oneshot_rx) = oneshot::channel::<Result<Reply, PortAllocationError>>();
 
-    tx.send(SwitchboardMessage::AssignDataPortCommand(args.session.clone(), oneshot_tx))
+    tx.send(SwitchboardMessage::AssignDataPortCommand(args.session.clone(), oneshot_tx, cmd_type))
         .await
         .map_err(|_| ControlChanErrorKind::InternalServerError)?;
 

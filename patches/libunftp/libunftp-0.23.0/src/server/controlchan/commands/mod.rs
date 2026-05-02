@@ -73,6 +73,7 @@ pub use opts::{Opt, Opts};
 pub use pass::Pass;
 pub use pasv::Pasv;
 pub use pasv::make_pasv_reply;
+pub use epsv::make_epsv_reply;
 pub use pbsz::Pbsz;
 pub use port::Port;
 pub use prot::{Prot, ProtParam};

@@ -13,7 +13,7 @@ use crate::{
     auth::UserDetail,
     server::{
         ControlChanErrorKind,
-        chancomms::SwitchboardSender,
+        chancomms::{PassiveCommandType, SwitchboardSender},
         controlchan::{
             Reply, ReplyCode,
             error::ControlChanError,
@@ -82,7 +82,7 @@ where
 
         let sender: Option<SwitchboardSender<Storage, User>> = args.tx_prebound_loop.clone();
         match sender {
-            Some(tx) => passive_common::handle_delegated_mode(args, tx).await,
+            Some(tx) => passive_common::handle_delegated_mode(args, tx, PassiveCommandType::Pasv).await,
             None => passive_common::handle_legacy_mode(self, args).await,
         }
     }

@@ -8,7 +8,7 @@
 use crate::{
     auth::UserDetail,
     server::{
-        chancomms::SwitchboardSender,
+        chancomms::{PassiveCommandType, SwitchboardSender},
         controlchan::{
             Reply, ReplyCode,
             error::ControlChanError,
@@ -52,7 +52,7 @@ where
     async fn handle(&self, args: CommandContext<Storage, User>) -> Result<Reply, ControlChanError> {
         let sender: Option<SwitchboardSender<Storage, User>> = args.tx_prebound_loop.clone();
         match sender {
-            Some(_) => Ok(Reply::new(ReplyCode::CommandNotImplemented, "EPSV not supported in this mode")),
+            Some(tx) => passive_common::handle_delegated_mode(args, tx, PassiveCommandType::Epsv).await,
             None => passive_common::handle_legacy_mode(self, args).await,
         }
     }
