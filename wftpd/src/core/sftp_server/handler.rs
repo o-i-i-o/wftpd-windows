@@ -368,8 +368,9 @@ impl russh::server::Handler for SftpHandler {
     async fn channel_open_session(
         &mut self,
         channel: Channel<Msg>,
+        reply: russh::server::ChannelOpenHandle,
         _session: &mut server::Session,
-    ) -> Result<bool, Self::Error> {
+    ) -> Result<(), Self::Error> {
         if !self.auth.authenticated {
             tracing::warn!(
                 client_ip = %self.client_ip,
@@ -377,7 +378,8 @@ impl russh::server::Handler for SftpHandler {
                 reason = "not_authenticated",
                 "Reject unauthenticated channel open request"
             );
-            return Ok(false);
+            reply.reject(russh::ChannelOpenFailure::AdministrativelyProhibited).await;
+            return Ok(());
         }
 
         tracing::debug!(
@@ -387,47 +389,46 @@ impl russh::server::Handler for SftpHandler {
             "Allow session channel open"
         );
 
-        Ok(true)
+        reply.accept().await; 
+        Ok(())
     }
 
     async fn channel_open_direct_tcpip(
         &mut self,
-        channel: Channel<Msg>,
+        _channel: Channel<Msg>,
         _host_to_connect: &str,
         _port_to_connect: u32,
         _originator_address: &str,
         _originator_port: u32,
-        session: &mut server::Session,
-    ) -> Result<bool, Self::Error> {
+        reply: russh::server::ChannelOpenHandle,
+        _session: &mut server::Session,
+    ) -> Result<(), Self::Error> {
         tracing::warn!(
             client_ip = %self.client_ip,
             action = "TCP_FORWARD_DISABLED",
             "TCP forwarding is disabled for SFTP"
         );
-        if let Err(e) = session.channel_failure(channel.id()) {
-            tracing::debug!("Failed to send channel_failure for tcpip_forward: {}", e);
-        }
-        Ok(false)
+        reply.reject(russh::ChannelOpenFailure::AdministrativelyProhibited).await;
+        Ok(())
     }
 
     async fn channel_open_forwarded_tcpip(
         &mut self,
-        channel: Channel<Msg>,
+        _channel: Channel<Msg>,
         _host_to_connect: &str,
         _port_to_connect: u32,
         _originator_address: &str,
         _originator_port: u32,
-        session: &mut server::Session,
-    ) -> Result<bool, Self::Error> {
+        reply: russh::server::ChannelOpenHandle,
+        _session: &mut server::Session,
+    ) -> Result<(), Self::Error> {
         tracing::warn!(
             client_ip = %self.client_ip,
             action = "FORWARDED_TCP_DISABLED",
             "Forwarded TCP connection is disabled for SFTP"
         );
-        if let Err(e) = session.channel_failure(channel.id()) {
-            tracing::debug!("Failed to send channel_failure for forwarded_tcpip: {}", e);
-        }
-        Ok(false)
+        reply.reject(russh::ChannelOpenFailure::AdministrativelyProhibited).await;
+        Ok(())
     }
 
     async fn tcpip_forward(
