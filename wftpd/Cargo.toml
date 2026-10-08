@@ -98,6 +98,3 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 tempfile = "3.27.0"
-
-[patch.crates-io]
-libunftp = { path = "../patches/libunftp/libunftp-0.23.0" }

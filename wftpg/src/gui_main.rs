@@ -483,7 +483,7 @@ impl App for WftpgApp {
 
                 CentralPanel::default()
                     .frame(self.cached_styles.loading_frame)
-                    .show_inside(ui, |ui| {
+                    .show(ui, |ui| {
                         ui.vertical_centered(|ui| {
                             ui.add_space(ui.available_height() / 2.0 - 50.0);
                             ui.spinner();
@@ -500,7 +500,7 @@ impl App for WftpgApp {
             InitState::Error => {
                 CentralPanel::default()
                     .frame(self.cached_styles.error_frame)
-                    .show_inside(ui, |ui| {
+                    .show(ui, |ui| {
                         ui.vertical_centered(|ui| {
                             ui.add_space(ui.available_height() / 2.0 - 80.0);
                             ui.label(
@@ -536,7 +536,7 @@ impl App for WftpgApp {
 
         CentralPanel::default()
             .frame(self.cached_styles.main_frame)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.add_space(12.0);
 
                 self.cached_styles.tab_frame.show(ui, |ui| {
