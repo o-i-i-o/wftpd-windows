@@ -8,9 +8,9 @@ build = "build.rs"
 
 [dependencies]
 # ========== GUI 框架 ==========
-egui = "0.34.1"
-eframe = { version = "0.34.1", default-features = false, features = ["accesskit", "default_fonts", "glow", "persistence"] }
-egui_extras = { version = "0.34.1", default-features = false }
+egui = "0.36.2"
+eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "default_fonts", "glow", "persistence"] }
+egui_extras = { version = "0.36.2", default-features = false }
 
 # ========== 文件操作 ==========
 rfd = "0.17.2"
@@ -24,7 +24,7 @@ toml = "1.1"
 chrono = { version = "0.4", features = ["serde"] }
 
 # ========== 安全与加密 ==========
-argon2 = "0.6.0-rc.8"
+argon2 = "0.6.0"
 
 # ========== 错误处理 ==========
 anyhow = "1"
@@ -53,11 +53,11 @@ tracing-appender = "0.2.5"
 
 # ========== 并发原语 ==========
 parking_lot = "0.12.5"
-regex = "1.12.3"
-windows-service = "0.8.0"
+regex = "1.13.1"
+windows-service = "0.8.1"
 
 [build-dependencies]
-embed-resource = "3.0.9"
+embed-resource = "3.0.12"
 
 [profile.release]
 opt-level = 3
