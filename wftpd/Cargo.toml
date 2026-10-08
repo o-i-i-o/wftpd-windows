@@ -28,20 +28,20 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "jso
 tracing-appender = "0.2.5"
 
 # ========== 安全与加密 ==========
-argon2 = "0.6.0-rc.8"
+argon2 = "0.6.0"
 sha2 = "0.11"
 md-5 = "0.11"
 hex = "0.4"
-rustls = "0.23.40"
-tokio-rustls = "0.26.4"
-pem = "3.0.6"
-rcgen = "0.14.7"
+rustls = "0.23.45"
+tokio-rustls = "0.26.6"
+pem = "4.0.0"
+rcgen = "0.14.10"
 
 # ========== SSH/SFTP ==========
-russh = "0.60.2"
+russh = "0.64.1"
 
 # ========== FTP/FTPS ==========
-libunftp = { version = "0.23.0", default-features = false, features = ["aws_lc_rs", "prometheus"] }
+libunftp = { version = "0.23.1", default-features = false, features = ["aws_lc_rs", "prometheus"] }
 unftp-sbe-fs = "0.4.0"
 unftp-sbe-rooter = "0.3.0"
 unftp-core = "0.1.0"
@@ -63,7 +63,7 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
-windows-service = "0.8.0"
+windows-service = "0.8.1"
 ctrlc = "3.5.2"
 
 # ========== 监控指标 ==========
@@ -76,7 +76,7 @@ unftp-sbe-restrict = "0.1.5"
 ignored = ["md-5"]
 
 [build-dependencies]
-embed-resource = "3.0.9"
+embed-resource = "3.0.12"
 
 [profile.release]
 opt-level = 3
